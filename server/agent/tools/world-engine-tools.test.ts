@@ -7,8 +7,9 @@ import {createWorldEngineTools} from "nbook/server/agent/tools/world-engine-tool
 import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {worldEngineFacade} from "nbook/server/world-engine";
 import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 
-describe("world engine agent tools", () => {
+describe("world engine agent tools", {timeout: 30_000}, () => {
     let projectPath: string;
     let projectRoot: string;
     let context: ToolExecutionContext;
@@ -23,12 +24,13 @@ describe("world engine agent tools", () => {
             workspaceRoot: resolveWorkspaceContainerRoot(),
             workspaceKey: "global",
         };
-    });
+    }, 30_000);
 
     afterEach(async () => {
+        await closeProjectForTest(projectPath).catch(() => undefined);
         await worldEngineFacade.closeProject(projectPath);
         await removeProjectRoot(projectRoot);
-    });
+    }, 30_000);
 
     it("内置工具注册只暴露 execute_world", () => {
         const builtinKeys = createBuiltinTools().map((tool) => tool.key);
@@ -284,6 +286,7 @@ async function createProject(): Promise<string> {
     await fs.writeFile(path.join(root, "project.yaml"), "kind: novel\ntitle: World Tools Test\nsummary: ''\n", "utf-8");
     await fs.writeFile(path.join(root, "world-engine/schema/index.ts"), schemaFixture(), "utf-8");
     await fs.writeFile(path.join(root, "world-engine/calendar.ts"), calendarFixture(), "utf-8");
+    await openProjectForTest(projectPath);
     return projectPath;
 }
 

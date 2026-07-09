@@ -102,7 +102,7 @@ export default defineAgentProfile({
 <AppendingSet>
     <RuntimeLocationReminder />
     <WorkspaceFocusReminder />
-    <PlanModeReminder />
+    <ModeReminder />
 </AppendingSet>
 ```
 

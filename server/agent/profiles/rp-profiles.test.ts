@@ -120,10 +120,10 @@ describe("RP builtin profiles", () => {
             "get_agent",
             "get_agent_profile",
             "get_session",
-            "get_plot_tree",
+            "get_story_tree",
             "get_story_thread",
             "get_story_scene_context",
-            "get_chapter_plot",
+            "get_story_chapter",
             "task_create",
             "task_set_status",
         ]);

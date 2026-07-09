@@ -1,0 +1,30 @@
+/**
+ * @notnotype/nb-history 公开面。
+ *
+ * 用法:
+ *   const history = await WorkspaceHistory.open({databasePath, workspaceRoot});
+ *   await history.performWrite({kind: "agent", sessionId: "s1"}, "manuscript/ch1.md", "...");
+ *   const inbox = await history.inbox("user-1");
+ *   await history.close();
+ */
+export {WorkspaceHistory} from "./workspace-history";
+export {
+    DEFAULT_HISTORY_CONFIG,
+    HistoryError,
+    afterStateHash,
+    beforeStateHash,
+    operationPath,
+} from "./types";
+export type {
+    DeletedFileInfo,
+    FileOperation,
+    HistoryConfig,
+    InboxGroup,
+    OpenOptions,
+    OperationActor,
+    OperationLogEntry,
+    PruneReport,
+    TextDiffResult,
+    TimelineEntry,
+    UnseenGroup,
+} from "./types";

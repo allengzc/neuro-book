@@ -8,6 +8,10 @@ import type {
 import type {
     ChapterPlotSceneWithThread,
     StoryActWithChapters,
+    StoryPromiseBeatWithPromise,
+    StoryPromiseBeatWithScene,
+    StoryPromiseWithBeats,
+    StoryDecisionResolved,
     StorySceneRefWithTargets,
     StorySceneWithChapter,
     StorySceneWithDetails,
@@ -30,8 +34,15 @@ import type {
     StoryDto,
     StoryEffectiveRefDto,
     StoryPhaseDto,
+    StoryPromiseBeatDto,
+    StoryPromiseBeatStateDto,
+    StoryPromiseBeatStatsDto,
+    StoryPromiseDetailDto,
+    StoryPromiseDto,
+    StoryDecisionDto,
     StoryRefDto,
     StorySceneDetailDto,
+    StoryScenePromiseBeatDto,
     StorySceneWorldAnchorDto,
     StorySceneSummaryDto,
     StoryWorkbenchPhaseDto,
@@ -94,6 +105,7 @@ export class PlotDtoAssembler {
             title: thread.title,
             isMainThread: thread.isMainThread,
             status: thread.status,
+            miceType: thread.miceType,
             summary: thread.summary,
             tags: thread.tags,
             writingTip: thread.writingTip,
@@ -185,6 +197,8 @@ export class PlotDtoAssembler {
             chapterSortOrder: scene.chapterSortOrder,
             title: scene.title,
             status: scene.status,
+            outcomeType: scene.outcomeType,
+            pacingRole: scene.pacingRole,
             summary: scene.summary,
             purpose: scene.purpose,
             writingTip: scene.writingTip,
@@ -281,7 +295,162 @@ export class PlotDtoAssembler {
             ...this.toStorySceneSummaryDto(scene),
             refs: scene.refs.map((ref) => this.toStoryRefDto(ref)),
             effectiveRefs: this.buildEffectiveSceneRefs(scene),
+            promiseBeats: scene.promiseBeats.map((beat) => this.toStoryScenePromiseBeatDto(beat, scene.status)),
         };
+    }
+
+    /**
+     * 把 Scene.status 派生为 beat 三态(D2a/D5):
+     * draft/active=planned(计划),written/revised=factual(事实),archived=archived(不参与任何派生)。
+     */
+    promiseBeatState(sceneStatus: StoryScene["status"]): StoryPromiseBeatStateDto {
+        if (sceneStatus === "archived") {
+            return "archived";
+        }
+        return sceneStatus === "written" || sceneStatus === "revised" ? "factual" : "planned";
+    }
+
+    /**
+     * 映射 Scene 视角的 promise beat DTO(「这场戏服务哪些线」)。
+     */
+    toStoryScenePromiseBeatDto(beat: StoryPromiseBeatWithPromise, sceneStatus: StoryScene["status"]): StoryScenePromiseBeatDto {
+        return {
+            id: stringifyEntityId(beat.id),
+            promiseId: stringifyEntityId(beat.promise.id),
+            promiseName: beat.promise.name,
+            promiseTitle: beat.promise.title,
+            promiseStatus: beat.promise.status,
+            kind: beat.kind,
+            note: beat.note,
+            state: this.promiseBeatState(sceneStatus),
+        };
+    }
+
+    /**
+     * 映射 Promise beat DTO(Promise 详情视角:含所在 Scene 与章位)。
+     */
+    toStoryPromiseBeatDto(beat: StoryPromiseBeatWithScene): StoryPromiseBeatDto {
+        return {
+            id: stringifyEntityId(beat.id),
+            promiseId: stringifyEntityId(beat.promiseId),
+            sceneId: stringifyEntityId(beat.sceneId),
+            kind: beat.kind,
+            note: beat.note,
+            state: this.promiseBeatState(beat.scene.status),
+            scene: {
+                id: stringifyEntityId(beat.scene.id),
+                threadId: stringifyEntityId(beat.scene.threadId),
+                title: beat.scene.title,
+                status: beat.scene.status,
+                chapterId: beat.scene.chapterId === null ? null : stringifyEntityId(beat.scene.chapterId),
+                chapter: beat.scene.chapter === null ? null : {
+                    id: stringifyEntityId(beat.scene.chapter.id),
+                    name: beat.scene.chapter.name,
+                    title: beat.scene.chapter.title,
+                },
+                chapterSortOrder: beat.scene.chapterSortOrder,
+            },
+            createdAt: beat.createdAt.toISOString(),
+            updatedAt: beat.updatedAt.toISOString(),
+        };
+    }
+
+    /**
+     * 映射 Promise 摘要 DTO,同时计算派生阶段与 beat 计数(D5:中间态不落库)。
+     * 有效 beat = 所在 Scene 非 archived;archived 场的 beats 只计入 archived 计数,不参与派生。
+     */
+    toStoryPromiseDto(promise: StoryPromiseWithBeats): StoryPromiseDto {
+        const beatStats = this.buildPromiseBeatStats(promise.beats);
+        return {
+            id: stringifyEntityId(promise.id),
+            storyId: stringifyEntityId(promise.storyId),
+            name: promise.name,
+            title: promise.title,
+            status: promise.status,
+            derivedStage: beatStats.payoff > 0
+                ? "paid_off"
+                : beatStats.advance + beatStats.setback > 0
+                    ? "echoed"
+                    : beatStats.plant > 0
+                        ? "planted"
+                        : "unplanted",
+            importance: promise.importance,
+            summary: promise.summary,
+            payoffExpectation: promise.payoffExpectation,
+            cadenceChapters: promise.cadenceChapters,
+            deadlineChapterId: promise.deadlineChapterId === null ? null : stringifyEntityId(promise.deadlineChapterId),
+            deadlineChapter: promise.deadlineChapter === null ? null : {
+                id: stringifyEntityId(promise.deadlineChapter.id),
+                name: promise.deadlineChapter.name,
+                title: promise.deadlineChapter.title,
+            },
+            tags: promise.tags,
+            beatStats,
+            createdAt: promise.createdAt.toISOString(),
+            updatedAt: promise.updatedAt.toISOString(),
+        };
+    }
+
+    /**
+     * 映射 Promise 详情 DTO(摘要 + beats 列表)。
+     */
+    toStoryPromiseDetailDto(promise: StoryPromiseWithBeats): StoryPromiseDetailDto {
+        return {
+            ...this.toStoryPromiseDto(promise),
+            beats: promise.beats.map((beat) => this.toStoryPromiseBeatDto(beat)),
+        };
+    }
+
+    /**
+     * 映射 Decision DTO。
+     * anchor 读时归一化(D12):anchorKind 对应载体(外键或 path)为 null——锚对象被删触发 SetNull——时
+     * 视同 story 输出,不回写数据库;serves/dependsOn 的死引用标注由 service 解析后传入。
+     */
+    toStoryDecisionDto(decision: StoryDecisionResolved): StoryDecisionDto {
+        const anchor = normalizeDecisionAnchor(decision);
+        return {
+            id: stringifyEntityId(decision.id),
+            storyId: stringifyEntityId(decision.storyId),
+            name: decision.name,
+            title: decision.title,
+            status: decision.status,
+            question: decision.question,
+            options: decision.options.map((item) => ({option: item.option, note: item.note})),
+            deadlineChapterId: decision.deadlineChapterId === null ? null : stringifyEntityId(decision.deadlineChapterId),
+            deadlineChapter: decision.deadlineChapter === null ? null : {
+                id: stringifyEntityId(decision.deadlineChapter.id),
+                name: decision.deadlineChapter.name,
+                title: decision.deadlineChapter.title,
+            },
+            decision: decision.decision,
+            motivation: decision.motivation,
+            rejectedAlternatives: decision.rejectedAlternatives.map((item) => ({option: item.option, whyRejected: item.whyRejected})),
+            risk: decision.risk,
+            serves: decision.serves,
+            dependsOn: decision.dependsOn,
+            supersededById: decision.supersededById === null ? null : stringifyEntityId(decision.supersededById),
+            anchorKind: anchor.anchorKind,
+            anchorTargetId: anchor.anchorTargetId === null ? null : stringifyEntityId(anchor.anchorTargetId),
+            anchorPath: anchor.anchorPath,
+            note: decision.note,
+            createdAt: decision.createdAt.toISOString(),
+            updatedAt: decision.updatedAt.toISOString(),
+        };
+    }
+
+    /**
+     * 统计 beats:有效 beats(非 archived 场)按 kind 计数 + planned/factual/archived 三态计数。
+     */
+    private buildPromiseBeatStats(beats: StoryPromiseBeatWithScene[]): StoryPromiseBeatStatsDto {
+        const stats: StoryPromiseBeatStatsDto = {plant: 0, advance: 0, setback: 0, payoff: 0, planned: 0, factual: 0, archived: 0};
+        for (const beat of beats) {
+            const state = this.promiseBeatState(beat.scene.status);
+            stats[state] += 1;
+            if (state !== "archived") {
+                stats[beat.kind] += 1;
+            }
+        }
+        return stats;
     }
 
     /**
@@ -346,7 +515,7 @@ export class PlotDtoAssembler {
     }
 
     /**
-     * 组装剧情树 DTO(因果树 + 承载树)。
+     * 组装剧情树 DTO(因果树 + 承载树 + 规划层摘要)。
      */
     toPlotTreeDto(input: {
         story: Story;
@@ -354,6 +523,8 @@ export class PlotDtoAssembler {
         ungroupedThreads: Array<StoryThreadEntity & {scenes: StorySceneWithChapter[]}>;
         acts: StoryActWithChapters[];
         ungroupedChapters: StoryChapter[];
+        openPromiseCount: number;
+        openDecisionCount: number;
     }): PlotTreeDto {
         const phases = input.phases.map((phase) => ({
             ...this.toStoryPhaseDto(phase),
@@ -382,6 +553,8 @@ export class PlotDtoAssembler {
             ), 0) + ungroupedThreads.reduce((sum, thread) => sum + thread.scenes.length, 0),
             totalActs: acts.length,
             totalChapters: acts.reduce((sum, act) => sum + act.chapters.length, 0) + ungroupedChapters.length,
+            openPromiseCount: input.openPromiseCount,
+            openDecisionCount: input.openDecisionCount,
         };
     }
 
@@ -408,6 +581,41 @@ export class PlotDtoAssembler {
             totalScenes,
         };
     }
+}
+
+type NormalizedDecisionAnchor = {
+    anchorKind: StoryDecisionDto["anchorKind"];
+    anchorTargetId: number | null;
+    anchorPath: string | null;
+};
+
+/**
+ * 归一化 Decision 主锚点。外键 SetNull 或 content path 缺失时降级为 story 视图。
+ */
+function normalizeDecisionAnchor(decision: StoryDecisionResolved): NormalizedDecisionAnchor {
+    switch (decision.anchorKind) {
+        case "act":
+            return decision.anchorActId === null ? storyDecisionAnchor() : {anchorKind: "act", anchorTargetId: decision.anchorActId, anchorPath: null};
+        case "chapter":
+            return decision.anchorChapterId === null ? storyDecisionAnchor() : {anchorKind: "chapter", anchorTargetId: decision.anchorChapterId, anchorPath: null};
+        case "thread":
+            return decision.anchorThreadId === null ? storyDecisionAnchor() : {anchorKind: "thread", anchorTargetId: decision.anchorThreadId, anchorPath: null};
+        case "scene":
+            return decision.anchorSceneId === null ? storyDecisionAnchor() : {anchorKind: "scene", anchorTargetId: decision.anchorSceneId, anchorPath: null};
+        case "promise":
+            return decision.anchorPromiseId === null ? storyDecisionAnchor() : {anchorKind: "promise", anchorTargetId: decision.anchorPromiseId, anchorPath: null};
+        case "content":
+            return decision.anchorPath === null ? storyDecisionAnchor() : {anchorKind: "content", anchorTargetId: null, anchorPath: decision.anchorPath};
+        case "story":
+            return storyDecisionAnchor();
+    }
+}
+
+/**
+ * Decision 默认全书层锚点。
+ */
+function storyDecisionAnchor(): NormalizedDecisionAnchor {
+    return {anchorKind: "story", anchorTargetId: null, anchorPath: null};
 }
 
 /**

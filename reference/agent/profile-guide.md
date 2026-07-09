@@ -135,7 +135,7 @@ context() {
             <AppendingSet>
                 <WorkdirReminder />
                 <ProjectWorkspaceReminder />
-                <PlanModeReminder />
+                <ModeReminder />
             </AppendingSet>
         </ProfilePrompt>
     );
@@ -243,8 +243,8 @@ V1 只允许 `AGENTS.md`、`reference/**` 和 `docs/**`。不要用 `Import` 读
 
 - `WorkdirReminder`
 - `ProjectWorkspaceReminder`
-- `PlanModeAvailabilityReminder`
-- `PlanModeReminder`
+- `ModeAvailabilityReminder`
+- `ModeReminder`
 - `LinkedAgentsReminder`
 - `TaskReminder`
 - `MentionedSkillsReminder`

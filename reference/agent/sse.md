@@ -20,7 +20,7 @@ Agent 聊天同步由三层组成：
 - `GET /api/agent/sessions/:sessionId/events?eventEpoch=<epoch>&after=<seq>`：建立 SSE，按 cursor replay 之后的事件。
 - `POST /api/agent/sessions/:sessionId/invocations`：发起 blocking invocation；运行过程仍通过 SSE 实时同步。
 - `POST /api/agent/sessions/:sessionId/abort`：中止当前 active invocation。
-- `POST /api/agent/sessions/:sessionId/commands`：执行 session command，例如 model、plan、compact。轻控制命令返回 `kind:"live_state"`，前端只应用 live state，不额外补拉 snapshot；`retry/tree` 返回 `kind:"snapshot"`，`new/fork` 返回 `kind:"created_session"`。
+- `POST /api/agent/sessions/:sessionId/commands`：执行 session command，例如 model、mode、compact。轻控制命令返回 `kind:"live_state"`，前端只应用 live state，不额外补拉 snapshot；`retry/tree` 返回 `kind:"snapshot"`，`new/fork` 返回 `kind:"created_session"`。
 - `POST /api/agent/sessions/:sessionId/tree`：移动 session tree leaf，必要时继续 invoke。
 
 ## Event Envelope
@@ -91,7 +91,7 @@ type AgentSessionEventDto =
 | `connected` | 标记 SSE connected；不推进 `lastSeq`，不改消息，不改 run。 |
 | `snapshot_required` | 进入 recovering，单飞拉取一次 snapshot。 |
 | `session_entry` | 将 append-only entry 投影到稳定消息或系统卡。 |
-| `session_state_changed` | 更新 summary、activeInvocation、pendingApproval、linkedAgents、usage、model、planMode 等。 |
+| `session_state_changed` | 更新 summary、activeInvocation、pendingApproval、linkedAgents、usage、model、agentMode 等。 |
 | `follow_up_queued` | 更新 follow-up queue；不直接显示为普通 user message。 |
 | `invocation_aborted` | 进入 aborting/stopped 过渡态，等待后续 state changed 或 snapshot 确认。 |
 | `client_variable_patch_requested` | 前端执行 client state patch 并 ack；不展示为聊天消息。 |
@@ -137,7 +137,7 @@ type ToolPartialResult =
 前端状态至少拆成四层：
 
 - Transport state：`connectionStatus`、`lastSeq`、`reconnectAttempt`、`lastDisconnectReason`、`snapshotRequestInFlight`。
-- Session snapshot state：`summary`、`activeInvocation`、`pendingApproval`、`linkedAgents`、`usage`、`model`、`planModeActive`。
+- Session snapshot state：`summary`、`activeInvocation`、`pendingApproval`、`linkedAgents`、`usage`、`model`、`agentMode`。
 - Live invocation state：`invocationId`、`runStatus`、`phase`、`currentTurnIndex`、`activeToolCallIds`。
 - Chat projection state：snapshot 派生的稳定消息、SSE 派生的 live patch、尚未对齐的 optimistic user message。
 

@@ -100,6 +100,7 @@ CREATE TABLE IF NOT EXISTS "StoryThread" (
     "title" TEXT NOT NULL,
     "isMainThread" BOOLEAN NOT NULL DEFAULT false,
     "status" TEXT NOT NULL DEFAULT 'draft',
+    "miceType" TEXT,
     "summary" TEXT NOT NULL DEFAULT '',
     "tags" TEXT NOT NULL DEFAULT '[]',
     "writingTip" TEXT,
@@ -118,6 +119,8 @@ CREATE TABLE IF NOT EXISTS "StoryScene" (
     "chapterSortOrder" INTEGER,
     "title" TEXT NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'draft',
+    "outcomeType" TEXT,
+    "pacingRole" TEXT,
     "summary" TEXT NOT NULL DEFAULT '',
     "purpose" TEXT,
     "writingTip" TEXT,
@@ -148,6 +151,68 @@ CREATE TABLE IF NOT EXISTS "StorySceneRef" (
     CONSTRAINT "StorySceneRef_sceneId_fkey" FOREIGN KEY ("sceneId") REFERENCES "StoryScene" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT "StorySceneRef_targetThreadId_fkey" FOREIGN KEY ("targetThreadId") REFERENCES "StoryThread" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT "StorySceneRef_targetSceneId_fkey" FOREIGN KEY ("targetSceneId") REFERENCES "StoryScene" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "StoryPromise" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "storyId" INTEGER NOT NULL,
+    "name" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'open',
+    "importance" TEXT NOT NULL DEFAULT 'medium',
+    "summary" TEXT NOT NULL DEFAULT '',
+    "payoffExpectation" TEXT,
+    "cadenceChapters" INTEGER,
+    "deadlineChapterId" INTEGER,
+    "tags" TEXT NOT NULL DEFAULT '[]',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "StoryPromise_storyId_fkey" FOREIGN KEY ("storyId") REFERENCES "Story" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "StoryPromise_deadlineChapterId_fkey" FOREIGN KEY ("deadlineChapterId") REFERENCES "StoryChapter" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "StoryPromiseBeat" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "promiseId" INTEGER NOT NULL,
+    "sceneId" INTEGER NOT NULL,
+    "kind" TEXT NOT NULL,
+    "note" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "StoryPromiseBeat_promiseId_fkey" FOREIGN KEY ("promiseId") REFERENCES "StoryPromise" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "StoryPromiseBeat_sceneId_fkey" FOREIGN KEY ("sceneId") REFERENCES "StoryScene" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "StoryDecision" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "storyId" INTEGER NOT NULL,
+    "name" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'open',
+    "question" TEXT NOT NULL,
+    "options" TEXT NOT NULL DEFAULT '[]',
+    "deadlineChapterId" INTEGER,
+    "decision" TEXT,
+    "motivation" TEXT,
+    "rejectedAlternatives" TEXT NOT NULL DEFAULT '[]',
+    "risk" TEXT,
+    "serves" TEXT NOT NULL DEFAULT '[]',
+    "dependsOn" TEXT NOT NULL DEFAULT '[]',
+    "supersededById" INTEGER,
+    "anchorKind" TEXT NOT NULL DEFAULT 'story',
+    "anchorActId" INTEGER,
+    "anchorChapterId" INTEGER,
+    "anchorThreadId" INTEGER,
+    "anchorSceneId" INTEGER,
+    "anchorPromiseId" INTEGER,
+    "anchorPath" TEXT,
+    "note" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "StoryDecision_storyId_fkey" FOREIGN KEY ("storyId") REFERENCES "Story" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "StoryDecision_supersededById_fkey" FOREIGN KEY ("supersededById") REFERENCES "StoryDecision" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT "StoryDecision_anchorActId_fkey" FOREIGN KEY ("anchorActId") REFERENCES "StoryAct" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT "StoryDecision_anchorChapterId_fkey" FOREIGN KEY ("anchorChapterId") REFERENCES "StoryChapter" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT "StoryDecision_anchorThreadId_fkey" FOREIGN KEY ("anchorThreadId") REFERENCES "StoryThread" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT "StoryDecision_anchorSceneId_fkey" FOREIGN KEY ("anchorSceneId") REFERENCES "StoryScene" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+    CONSTRAINT "StoryDecision_anchorPromiseId_fkey" FOREIGN KEY ("anchorPromiseId") REFERENCES "StoryPromise" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 CREATE TABLE IF NOT EXISTS "WorldSubject" (
     "id" TEXT NOT NULL PRIMARY KEY,
@@ -195,6 +260,12 @@ CREATE INDEX IF NOT EXISTS "StoryScene_storyId_status_idx" ON "StoryScene"("stor
 CREATE INDEX IF NOT EXISTS "StorySceneRef_sceneId_sortOrder_idx" ON "StorySceneRef"("sceneId", "sortOrder");
 CREATE INDEX IF NOT EXISTS "StorySceneRef_targetThreadId_idx" ON "StorySceneRef"("targetThreadId");
 CREATE INDEX IF NOT EXISTS "StorySceneRef_targetSceneId_idx" ON "StorySceneRef"("targetSceneId");
+CREATE UNIQUE INDEX IF NOT EXISTS "StoryPromise_storyId_name_key" ON "StoryPromise"("storyId", "name");
+CREATE INDEX IF NOT EXISTS "StoryPromise_storyId_status_idx" ON "StoryPromise"("storyId", "status");
+CREATE UNIQUE INDEX IF NOT EXISTS "StoryPromiseBeat_promiseId_sceneId_key" ON "StoryPromiseBeat"("promiseId", "sceneId");
+CREATE INDEX IF NOT EXISTS "StoryPromiseBeat_sceneId_idx" ON "StoryPromiseBeat"("sceneId");
+CREATE UNIQUE INDEX IF NOT EXISTS "StoryDecision_storyId_name_key" ON "StoryDecision"("storyId", "name");
+CREATE INDEX IF NOT EXISTS "StoryDecision_storyId_status_idx" ON "StoryDecision"("storyId", "status");
 CREATE UNIQUE INDEX IF NOT EXISTS "WorldSlice_instant_key" ON "WorldSlice"("instant");
 CREATE INDEX IF NOT EXISTS "WorldSlice_instant_idx" ON "WorldSlice"("instant");
 CREATE INDEX IF NOT EXISTS "WorldSubject_type_idx" ON "WorldSubject"("type");
@@ -410,6 +481,7 @@ export async function initProjectDatabaseAtRoot(projectRoot: string): Promise<st
         await migratePlotSceneBridgeSchema(client, projectRoot);
         await migrateStorySceneChapterEntity(client);
         await ensureWorldSliceSummaryColumn(client);
+        await ensurePlanningLayerColumns(client);
     } finally {
         await client.close();
         collectReleasedSqliteHandles();
@@ -434,6 +506,25 @@ async function ensureWorldSliceSummaryColumn(client: Client): Promise<void> {
     const hasSummary = result.rows.some((row) => String(row.name ?? "") === "summary");
     if (!hasSummary) {
         await client.execute(`ALTER TABLE "WorldSlice" ADD COLUMN "summary" TEXT NOT NULL DEFAULT ''`);
+    }
+}
+
+/**
+ * 规划层(Task 93)字段幂等补列:StoryThread.miceType、StoryScene.outcomeType/pacingRole。
+ * 新库由 PROJECT_MIGRATION_SQL 的 CREATE TABLE 直接带上;老库靠这里补齐。
+ * 必须在 migrateStorySceneChapterEntity 之后执行,避免补的列被旧库 StoryScene 重建丢掉。
+ */
+async function ensurePlanningLayerColumns(client: Client): Promise<void> {
+    const threadColumns = await tableColumns(client, "StoryThread");
+    if (!threadColumns.has("miceType")) {
+        await client.execute(`ALTER TABLE "StoryThread" ADD COLUMN "miceType" TEXT`);
+    }
+    const sceneColumns = await tableColumns(client, "StoryScene");
+    if (!sceneColumns.has("outcomeType")) {
+        await client.execute(`ALTER TABLE "StoryScene" ADD COLUMN "outcomeType" TEXT`);
+    }
+    if (!sceneColumns.has("pacingRole")) {
+        await client.execute(`ALTER TABLE "StoryScene" ADD COLUMN "pacingRole" TEXT`);
     }
 }
 

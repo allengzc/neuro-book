@@ -9,6 +9,8 @@ Read this reference when a user asks how Neuro Book's agent harness, TSX profile
 - Session truth
 - Invoke lifecycle
 - Profile contract
+- Settings resolution
+- Profile home lifecycle
 - ProfileTurnPlan sections
 - TSX DSL nodes
 - Reminder and Watch state
@@ -37,7 +39,6 @@ Useful ordinary-user explanation:
 Current active stack:
 
 - Active backend: `server/agent`.
-- Old v2 reference only: `server/agent-v2` and `assets/agent-v2`.
 - HTTP entry: `/api/agent/sessions/**`.
 - Profile roots:
   - system: `assets/workspace/.nbook/agent/profiles`
@@ -56,7 +57,7 @@ Important entry kinds:
 
 - `message`: model-visible user / assistant / toolResult messages.
 - `custom_message`: profile or harness messages. When `visibleToModel: true`, they enter model context and the frontend history.
-- `custom`: reduced into `ctx.session.customState`, for example `agent.tasks`, `agent.planMode`, `plot.selection`, and `profileState.<profileKey>`.
+- `custom`: reduced into `ctx.session.customState`, for example `agent.tasks`, `agent.mode`, `plot.selection`, and `profileState.<profileKey>`.
 - `session_update`: title and summary changes.
 - `model_change`, `thinking_level_change`, `profile_change`: per-session runtime configuration.
 - `variable_patch`: variable changes. `global.*` and `project.*` also write their variable files; `session.*` lives in the session JSONL.
@@ -70,7 +71,7 @@ The reducer builds `NeuroSessionContext` with:
 - `messages`
 - `customState`
 - `linkedAgents`
-- model, thinking level, profile key, title, summary, plan mode, workspace root, and other session state
+- model, thinking level, profile key, title, summary, agent mode (normal/discuss/plan), workspace root, and other session state
 
 If something should be visible in frontend history and replayable after refresh, it must be written as a session entry. Model-only context is invisible to the stable chat history.
 
@@ -94,7 +95,7 @@ Prompt invocation order:
 10. Harness builds final ReAct input from reduced session messages plus `modelContextMessages`.
 11. ReAct loop streams assistant/tool events.
 12. `message_end` persists assistant and toolResult messages.
-13. Current `ingest` hook runs after the loop.
+13. Profile runtime hooks (for example `settleRun` stages declared through `defineAgentRuntime`) run after the loop.
 14. Harness writes lifecycle end/error/aborted.
 15. Steer queue drains at safe points before the next model call when possible.
 16. Follow-up queue drains after the current loop truly ends, one item at a time.
@@ -113,14 +114,18 @@ Profile modules use TypeBox and `defineAgentProfile`:
 
 ```ts
 defineAgentProfile({
-    manifest,
-    inputSchema,
+    manifest, // key/name/description, optional version (positive integer, drives home upgrade)
+    initialSchema,
+    payloadSchema, // optional per-invocation payload schema
     outputSchema,
+    settingsForm, // optional low-code settings form (defineLowCodeForm)
+    home, // optional profile home lifecycle (defineProfileHome)
+    skills, // optional skill catalog whitelist: {include: ["key-a"]}
     tools,
-    mainRunToolKeys, // optional execution subset
+    toolKeys, // optional execution subset
     context, // recommended
     prepare, // advanced
-    ingest, // optional post-run hook
+    runtime, // optional runtime hooks (defineAgentRuntime)
 });
 ```
 
@@ -130,21 +135,49 @@ Rules:
 - `prepare(ctx) => ProfileTurnPlan` is the low-level override path.
 - `context` and `prepare` are mutually exclusive.
 - Tools visible to the model come from root `tools`, not from `prepare`.
-- `mainRunToolKeys` and sidecar `toolKeys` can only reference keys already present in root `tools`.
-- `InputSchema` validates agent/session creation input. It is not the per-turn user prompt.
-- `InputSchema = Type.Object({})` means the agent does not need special creation input.
+- `toolKeys` and sidecar `toolKeys` can only reference keys already present in root `tools`.
+- `InitialSchema` validates agent/session creation input. It is not the per-turn user prompt.
+- `InitialSchema = Type.Object({})` means the agent does not need special creation input.
+- `PayloadSchema` validates the optional per-invocation `invoke_agent.input` payload.
 - `OutputSchema` describes `report_result.data`. The report protocol is enabled only when root `tools` contains `report_result`.
 - `OutputSchema = Type.Object({})` plus `report_result` means the final report has `result` text but no extra structured data fields.
 - `OutputSchema` without `report_result` is just metadata until a profile allows that tool.
+- `skills.include` filters the prepare-time `ctx.skills` snapshot to the listed keys. All consumers (`<SkillCatalog />`, custom text functions) see the same filtered list. It is catalog visibility only, not file-level permission isolation.
 
 `ctx.runtime.pendingUserMessage` may be available during prompt mode. It lets the profile inspect the current user input before it is written to session. The harness still writes the user message after profile pre-loop writes.
 
 Variable context:
 
-- `ctx.input` is profile creation input. It is not the every-turn user prompt and it no longer carries browser state.
-- `ctx.invocation` may carry one-turn invocation data such as current frontend client state.
+- `ctx.initial` is profile creation input. It is not the every-turn user prompt and it no longer carries browser state.
+- `ctx.invocation` may carry one-turn invocation data such as `payload` and current frontend client state.
+- `ctx.settings` is the merged settings-form value (defaults -> Global Config -> Project Config). Empty object when the profile has no `settingsForm`.
+- `ctx.home` is the profile home facade when a home is declared; project sessions read project-first with global fallback.
 - `ctx.vars` is the variable accessor for `client.*`, `global.*`, `project.*`, and `session.*`.
 - `project.*` requires a current Project Workspace from `client.currentProjectWorkspace`; it does not fall back to old `novelId` state.
+
+## Settings Resolution
+
+`settingsForm` is declared with `defineLowCodeForm({schema, defaults, fields, validate})`:
+
+- Stored values live in config files, keyed by `agent.profiles.<profileKey>.settings`:
+  - Global: `workspace/.nbook/config.json`
+  - Project: `workspace/{project}/.nbook/config.json`
+- Effective value = `defaults` merged with Global settings, then Project settings. Project fields override global fields of the same name.
+- The settings dialog's Agent Profile panel renders the form for both scopes; `hasSettingsForm` in the catalog snapshot tells the UI whether a profile has one.
+- `validateLowCodeFormValue(form, value, {profileKey, scope, home})` validates a candidate value; save rejects invalid settings, and a corrupted stored value falls back to `defaults` at runtime.
+- `resource-preset` fields (`profileHomeResource({directory, extension, template})`) select `.md` resources from the profile home; the form persists only the selected key. First version does not support subdirectories.
+
+## Profile Home Lifecycle
+
+`home: defineProfileHome({init, upgrade, reset})` manages a per-profile default resource directory:
+
+- Global home root: `workspace/.nbook/agents/{profileKey}/` (safe-encoded profile id).
+- Project home root: `{Project Workspace}/agents/{profileKey}/`.
+- Project sessions read layered: project home first, global home fallback. Writes go to the primary layer only. Global Config editing uses the global home only.
+- `home.json` records `{profileKey, version, initializedAt, updatedAt}`. Runtime-managed; do not hand-edit.
+- Lifecycle: missing/absent metadata triggers `init`; recorded version lower than `manifest.version` triggers `upgrade(ctx, oldVersion, targetVersion)`; explicit reset triggers `reset` (typically `clear()` then re-init).
+- Upgrades should use `writeText(..., {mode: "create"})` so existing user files are preserved and only missing defaults are added.
+- Example: writer declares `home` and seeds `styles/<key>.md` / `references/<key>.md` from the system preset sources (`assets/workspace/.nbook/agent/profiles/builtin/writer.home/{styles,references}` plus user same-path overrides); leader.default seeds `personas/`.
 
 ## ProfileTurnPlan Sections
 
@@ -195,7 +228,7 @@ Active core nodes:
 - `<Variable>`: renders selected variable values into model context.
 - `<VariableSchema>`: renders selected variable schema and read/write capability notes into model context.
 
-Convenience string/reminder nodes also exist in the runtime, including `SystemReminder`, `RuntimeContext`, `LinkedAgentsSummary`, `WorkspaceReminder`, `LinkedAgentsReminder`, `TaskReminder`, `PlanModeReminder`, `ActivePlanModeReminder`, `MentionedSkillsReminder`, and `PlotFocusReminder`.
+Convenience string/reminder nodes also exist in the runtime, including `SystemReminder`, `Import`, `LinkedAgentsSummary`, `LinkedAgentsReminder`, `RuntimeLocationReminder`, `WorkspaceFocusReminder`, `TaskReminder`, `ModeReminder`, `ModeAvailabilityReminder`, `ModeSlot`, and `MentionedSkillsReminder`. `<SkillCatalog mode="userAssets" />` switches the default catalog text to the Workspace Root `.nbook` cwd wording for user-assets profiles.
 
 Old name:
 
@@ -236,7 +269,7 @@ Explain to users:
 Path guidance:
 
 - `watchPath` and `Watch path` are variable paths such as `client.currentProjectWorkspace`, `global.userPreferences`, `project.affections`, or `session.draftGoal`.
-- Use function watches for non-variable facts such as `ctx.session.planModeActive` or a custom fingerprint.
+- Use function watches for non-variable facts such as `ctx.session.agentMode` or a custom fingerprint.
 - Do not use old roots such as `ctx.workspace` or `ctx.input.studio`.
 
 ## Skills And Profiles
@@ -249,6 +282,8 @@ Skills are discovered by directory key:
 
 Model-visible skill catalog is produced by `<SkillCatalog />`. The current runtime does not expose a separate `skill` tool. The agent should use the catalog `location` and the normal `read` tool to open the relevant `SKILL.md`. If that entry points to references, scripts, templates, or examples, read only the specific relative files needed for the task.
 
+A profile can narrow its own catalog with `skills: {include: [...]}` in `defineAgentProfile`. The prepare-time `ctx.skills` snapshot is filtered before any consumer sees it, so `<SkillCatalog />` and custom catalog text stay consistent. This whitelist controls model visibility only; the file tools can still read any skill directory.
+
 Current runtime discovers profile source files, but it only runs fresh `.compiled` artifacts. Source files are the editing truth, while compiled artifacts are the runtime truth. A loaded profile becomes runnable through its `manifest.key`. Bad, uncompiled, or stale profile files should be fixed through source editing and compile diagnostics; they are not normal runnable catalog items.
 
 ## User-Assets Overlay
@@ -257,7 +292,7 @@ System baselines:
 
 - profiles: `assets/workspace/.nbook/agent/profiles`
 - skills: `assets/workspace/.nbook/agent/skills`
-- writer default home resources: `assets/workspace/.nbook/agent/profiles/builtin/writer.home`
+- writer system preset sources: `assets/workspace/.nbook/agent/profiles/builtin/writer.home`
 - variable definitions: `assets/workspace/.nbook/agent/variables`
 - templates: `assets/workspace/.nbook/templates`
 
@@ -265,7 +300,9 @@ User editable overlay:
 
 - profiles: `workspace/.nbook/agent/profiles`
 - skills: `workspace/.nbook/agent/skills`
-- project writer resources: `{Project Workspace}/agents/writer`
+- global profile home (per profile): `workspace/.nbook/agents/{profileKey}`
+- project profile home (per profile): `{Project Workspace}/agents/{profileKey}`
+- profile settings values: `workspace/.nbook/config.json` and `workspace/{project}/.nbook/config.json` under `agent.profiles.<key>.settings`
 - variable definitions: `workspace/.nbook/agent/variables`
 - templates: `workspace/.nbook/templates`
 
@@ -359,7 +396,7 @@ Content does not show in frontend history:
 Agent cannot use a tool:
 
 - Check root `tools`.
-- Check `mainRunToolKeys` and sidecar `toolKeys`.
+- Check `toolKeys` and sidecar `toolKeys`.
 - Check the actual tool registry.
 - Tools are not returned from `prepare`.
 
@@ -399,19 +436,25 @@ Primary implementation files:
 
 - `server/agent/harness/neuro-agent-harness.ts`
 - `server/agent/profiles/types.ts`
+- `server/agent/profiles/define-agent-profile.ts`
 - `server/agent/profiles/profile-dsl.ts`
+- `server/agent/profiles/profile-home.ts`
 - `server/agent/profiles/catalog.ts`
 - `server/agent/profiles/profile-http-service.ts`
+- `server/low-code-form/`
 - `server/agent/session/session-repo.ts`
 - `server/agent/session/types.ts`
 - `server/agent/skills/skill-catalog.ts`
 
 Primary docs:
 
-- `docs/modules/agent/harness.md`
+- `docs/profile-tsx/`
 - `docs/research/pi-agent-harness.md`
 - `docs/tasks/02-pi-agent-harness-migration/README.md`
 - `docs/tasks/04-tsx-profile-workbench/README.md`
 - `docs/tasks/05-leader-profile-v2-adaptation/README.md`
+- `docs/tasks/58-agent-profile-settings-low-code/README.md`
+- `docs/tasks/60-agent-profile-home/README.md`
+- `docs/tasks/68-global-profile-home-resource-preset/README.md`
 - `docs/tasks/archived/user-assets-workspace/README.md`
 - `reference/workspace/TERMS.md`

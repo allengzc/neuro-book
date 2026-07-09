@@ -7,6 +7,7 @@ import {chapterIdentityFromPath} from "nbook/server/workspace-files/project-work
 import {invalidateProjectWorkspaceIndexAfterMutation} from "nbook/server/workspace-files/project-workspace-index";
 import {parseMarkdownDocument, renderMarkdownDocument, resolveWorkspaceRoot} from "nbook/server/workspace-files/workspace-files";
 import type {WorkspaceFileNode} from "nbook/server/workspace-files/workspace-files";
+import {recordProjectWrite} from "nbook/server/workspace-history/project-history";
 
 /** Bootstrap 执行结果统计。 */
 export type CarrierTreeBootstrapResult = {
@@ -204,6 +205,16 @@ async function writeChapterPointer(
     if (typeof parsed.frontmatter.chapter === "string" && parsed.frontmatter.chapter.trim()) {
         return null;
     }
-    await fs.writeFile(indexPath, renderMarkdownDocument({...parsed.frontmatter, chapter: chapterName}, parsed.body), "utf-8");
-    return `${normalizeNodePath(node.path)}/index.md`;
+    const rendered = renderMarkdownDocument({...parsed.frontmatter, chapter: chapterName}, parsed.body);
+    await fs.writeFile(indexPath, rendered, "utf-8");
+    const relativePath = `${normalizeNodePath(node.path)}/index.md`;
+    // frontmatter 反指绕过常规写入口，这里直接记 system 归因账（fail-open，不阻断 bootstrap）。
+    await recordProjectWrite({
+        projectPath,
+        relativePath,
+        actor: {kind: "system", source: "chapter-bootstrap"},
+        before: Buffer.from(content, "utf-8"),
+        after: Buffer.from(rendered, "utf-8"),
+    });
+    return relativePath;
 }

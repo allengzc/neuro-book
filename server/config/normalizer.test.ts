@@ -1,5 +1,6 @@
 import {describe, expect, it} from "vitest";
 import {normalizeGlobalConfig, resolveEffectiveConfig} from "nbook/server/config/normalizer";
+import type {StoredProjectConfig} from "nbook/server/config/types";
 
 describe("config normalizer theme", () => {
     it("允许内置 8 主题并保留自定义主题选择", () => {
@@ -45,5 +46,129 @@ describe("config normalizer theme", () => {
         expect(resolveEffectiveConfig(normalizeGlobalConfig({
             ui: {theme: "missing-theme"},
         }), null).ui.theme).toBe("sepia");
+    });
+});
+
+describe("config normalizer profile summarizer", () => {
+    const globalWithDisabled = normalizeGlobalConfig({
+        agent: {
+            profiles: {
+                "leader.default": {
+                    model: {},
+                    summarizer: {enabled: false},
+                },
+            },
+        },
+    });
+
+    it("仅 global 配置时 effective 保留 summarizer 开关", () => {
+        const effective = resolveEffectiveConfig(globalWithDisabled, null);
+        expect(effective.agent.profiles["leader.default"]?.summarizer).toEqual({enabled: false});
+    });
+
+    it("project 空/非法 summarizer 不遮蔽 global 的禁用（enabled 字段级合并）", () => {
+        const emptyProject = {
+            agent: {
+                profiles: {
+                    "leader.default": {
+                        model: {},
+                        summarizer: {},
+                    },
+                },
+            },
+        } as StoredProjectConfig;
+        expect(resolveEffectiveConfig(globalWithDisabled, emptyProject).agent.profiles["leader.default"]?.summarizer).toEqual({enabled: false});
+
+        const invalidProject = {
+            agent: {
+                profiles: {
+                    "leader.default": {
+                        model: {},
+                        summarizer: {enabled: "yes"},
+                    },
+                },
+            },
+        } as never as StoredProjectConfig;
+        expect(resolveEffectiveConfig(globalWithDisabled, invalidProject).agent.profiles["leader.default"]?.summarizer).toEqual({enabled: false});
+    });
+
+    it("project 合法 summarizer 覆盖 global；双方未配置时不携带 key", () => {
+        const enabledProject = {
+            agent: {
+                profiles: {
+                    "leader.default": {
+                        model: {},
+                        summarizer: {enabled: true},
+                    },
+                },
+            },
+        } as StoredProjectConfig;
+        expect(resolveEffectiveConfig(globalWithDisabled, enabledProject).agent.profiles["leader.default"]?.summarizer).toEqual({enabled: true});
+
+        const plainGlobal = normalizeGlobalConfig({
+            agent: {
+                profiles: {
+                    "leader.default": {model: {}},
+                },
+            },
+        });
+        const plainProject = {
+            agent: {
+                profiles: {
+                    "leader.default": {model: {}},
+                },
+            },
+        } as StoredProjectConfig;
+        expect(resolveEffectiveConfig(plainGlobal, plainProject).agent.profiles["leader.default"]?.summarizer).toBeUndefined();
+    });
+});
+
+describe("config normalizer workspace history", () => {
+    it("默认值：enabled 开、90 天窗口、auto-accept 14 天", () => {
+        const effective = resolveEffectiveConfig(normalizeGlobalConfig({}), null);
+        expect(effective.history).toEqual({
+            enabled: true,
+            retentionFullDays: 90,
+            keepDailyLastAfterWindow: true,
+            autoAcceptEnabled: true,
+            autoAcceptDays: 14,
+        });
+    });
+
+    it("非法值回退默认：负数/小数天数与非布尔开关不参与遮蔽", () => {
+        const effective = resolveEffectiveConfig(normalizeGlobalConfig({
+            history: {
+                enabled: "yes" as unknown as boolean,
+                retentionFullDays: -3,
+                autoAcceptDays: 2.5,
+                keepDailyLastAfterWindow: "no" as unknown as boolean,
+            },
+        }), null);
+        expect(effective.history).toEqual({
+            enabled: true,
+            retentionFullDays: 90,
+            keepDailyLastAfterWindow: true,
+            autoAcceptEnabled: true,
+            autoAcceptDays: 14,
+        });
+    });
+
+    it("project 覆盖 retention/auto-accept 子集；enabled 被结构性剥离不可遮蔽", () => {
+        const global = normalizeGlobalConfig({
+            history: {enabled: false, retentionFullDays: 30},
+        });
+        const project = {
+            history: {
+                retentionFullDays: 7,
+                autoAcceptEnabled: false,
+                // project 文件手写 enabled 也不会生效（patch 归一化不输出该字段）
+                enabled: true,
+            },
+        } as StoredProjectConfig;
+        const effective = resolveEffectiveConfig(global, project);
+        expect(effective.history.enabled).toBe(false);
+        expect(effective.history.retentionFullDays).toBe(7);
+        expect(effective.history.autoAcceptEnabled).toBe(false);
+        expect(effective.history.autoAcceptDays).toBe(14);
     });
 });

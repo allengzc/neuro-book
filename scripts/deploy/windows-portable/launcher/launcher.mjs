@@ -377,13 +377,17 @@ async function rollbackUpdate(backups) {
 }
 
 /**
- * 创建或重置管理员。
+ * 创建或重置管理员。创建成功后自动开启密码保护。
  */
 async function createAdmin() {
     await assertProductPayload();
     await ensurePortableConfig();
     await migrate();
     await runProductTsScript("cli/create-admin.ts", {stdio: "inherit"});
+    if (!await readAuthEnabled()) {
+        await writeAuthEnabled(true);
+        p.note("已自动开启密码保护；下次访问需要用刚创建的管理员账号登录。", "密码保护");
+    }
 }
 
 /**
@@ -470,16 +474,48 @@ async function prepareSystemAssets() {
 }
 
 /**
- * 首次没有用户时，引导创建管理员。
+ * 首次启动按鉴权开关引导。portable 默认关闭密码保护；开启且无用户时才强制创建管理员。
  */
 async function ensureAdminUser() {
+    if (!await readAuthEnabled()) {
+        p.note([
+            "当前未开启密码保护，浏览器打开即可使用。",
+            "如需设置密码：运行 Create Admin.cmd 创建管理员账号，",
+            "创建成功后会自动开启密码保护。",
+        ].join("\n"), "密码保护");
+        return;
+    }
+
     const result = await runProductTsScript("cli/has-users.ts", {stdio: "pipe"});
     if (result.trim() === "yes") {
         return;
     }
 
-    p.note("当前还没有用户。请先创建管理员账号。", "首次启动");
+    p.note("密码保护已开启，但还没有用户。请先创建管理员账号。", "首次启动");
     await runProductTsScript("cli/create-admin.ts", {stdio: "inherit"});
+}
+
+/**
+ * 读取 Global Config 鉴权开关。
+ * 文件缺失或损坏时按服务端默认值 true 处理，避免误把已上锁部署当成未开启。
+ */
+async function readAuthEnabled() {
+    try {
+        const config = JSON.parse(await readFile(join(DATA_WORKSPACE_DIR, ".nbook", "config.json"), "utf8"));
+        return config?.auth?.enabled ?? true;
+    } catch {
+        return true;
+    }
+}
+
+/**
+ * 写回 Global Config 鉴权开关，保留其他配置字段。
+ */
+async function writeAuthEnabled(enabled) {
+    const configPath = join(DATA_WORKSPACE_DIR, ".nbook", "config.json");
+    const config = existsSync(configPath) ? JSON.parse(await readFile(configPath, "utf8")) : {};
+    config.auth = {...config.auth, enabled};
+    await writeFile(configPath, `${JSON.stringify(config, null, 4)}\n`, "utf8");
 }
 
 /**
@@ -821,7 +857,8 @@ database:
 
 function renderGlobalConfig() {
     return `${JSON.stringify({
-        auth: {enabled: true},
+        // Windows portable 是本机单人场景，默认不上锁；Create Admin 会把它翻回 true。
+        auth: {enabled: false},
         models: {
             default: null,
             providers: [],

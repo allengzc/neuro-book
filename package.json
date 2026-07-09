@@ -1,6 +1,6 @@
 {
   "name": "neuro-book",
-  "version": "0.5.7-canary.20260706.113859Z.a884fcfc",
+  "version": "0.6.0",
   "description": "A local AI workspace for long-form novel writing, integrating a file-based workspace, Markdown Studio, story structure management, and multi-agent writing workflows.",
   "license": "PolyForm-Noncommercial-1.0.0",
   "repository": {
@@ -38,6 +38,7 @@
     "migrate:writer-session-initial": "bun scripts/db/migrate-writer-session-initial.ts",
     "generate": "bun scripts/db/prisma-generate.mjs",
     "generate:openapi": "bun scripts/build/generate-openapi-meta.ts",
+    "sync:nb-history": "bun scripts/cli/sync-nb-history.ts",
     "config:migrate": "bun scripts/db/migrate-config-system.ts",
     "docker:publish": "bun scripts/deploy/publish-ghcr-image.mjs",
     "package:windows-portable": "bun scripts/deploy/windows-portable.mjs",

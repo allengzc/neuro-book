@@ -1,6 +1,8 @@
 import {Prisma, PrismaClient} from "nbook/server/generated/project-prisma/client";
 import {PlotDtoAssembler} from "nbook/server/plot/assemblers/plot-dto.assembler";
 import {PrismaChapterRepository} from "nbook/server/plot/repositories/prisma-chapter.repository";
+import {PrismaDecisionRepository} from "nbook/server/plot/repositories/prisma-decision.repository";
+import {PrismaPromiseRepository} from "nbook/server/plot/repositories/prisma-promise.repository";
 import {PrismaSceneRepository} from "nbook/server/plot/repositories/prisma-scene.repository";
 import {PrismaStoryRepository} from "nbook/server/plot/repositories/prisma-story.repository";
 import {PrismaThreadRepository} from "nbook/server/plot/repositories/prisma-thread.repository";
@@ -14,6 +16,8 @@ import {ChapterProseService, type ChapterProseNode} from "nbook/server/plot/serv
 import {OrderService} from "nbook/server/plot/services/order.service";
 import {ChapterWriterBriefService} from "nbook/server/plot/services/chapter-writer-brief.service";
 import {PlotScopeGuard} from "nbook/server/plot/services/plot-scope.guard";
+import {DecisionService} from "nbook/server/plot/services/decision.service";
+import {PromiseService} from "nbook/server/plot/services/promise.service";
 import {RefResolverService} from "nbook/server/plot/services/ref-resolver.service";
 import {SceneService} from "nbook/server/plot/services/scene.service";
 import {SceneWorldAnchorValidator} from "nbook/server/plot/services/scene-world-anchor.validator";
@@ -21,7 +25,8 @@ import {SceneWorldAnchorResolutionService} from "nbook/server/plot/services/scen
 import {SceneWorldContextService} from "nbook/server/plot/services/scene-world-context.service";
 import {StoryService} from "nbook/server/plot/services/story.service";
 import {ThreadService} from "nbook/server/plot/services/thread.service";
-import {initProjectDatabase, normalizeProjectPath, resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
+import {normalizeProjectPath, resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
+import {assertProjectOpen, markProjectActivity} from "nbook/server/workspace-files/project-session";
 import {readProjectWorkspaceTreeSnapshot} from "nbook/server/workspace-files/project-workspace-index";
 import {worldEngineFacade} from "nbook/server/world-engine";
 import {
@@ -38,7 +43,9 @@ import type {
     PlotWorkbenchDto,
     CreateStoryActRequestDto,
     CreateStoryChapterRequestDto,
+    CreateStoryDecisionRequestDto,
     CreateStoryPhaseRequestDto,
+    CreateStoryPromiseRequestDto,
     CreateStorySceneRequestDto,
     CreateStoryThreadRequestDto,
     PlotTreeDto,
@@ -46,17 +53,23 @@ import type {
     ReorderStoryScenesRequestDto,
     ReorderStoryThreadsRequestDto,
     SceneWorldContextDto,
+    SetPromiseBeatRequestDto,
     StoryActDto,
     StoryChapterDto,
+    StoryDecisionDto,
     StoryDto,
     StoryPhaseDto,
+    StoryPromiseDetailDto,
+    StoryPromiseDto,
     StorySceneDetailDto,
     StorySceneWriteResponseDto,
     StoryThreadDetailDto,
     StoryThreadWriteResponseDto,
     UpdateStoryActRequestDto,
     UpdateStoryChapterRequestDto,
+    UpdateStoryDecisionRequestDto,
     UpdateStoryPhaseRequestDto,
+    UpdateStoryPromiseRequestDto,
     UpdateStoryRequestDto,
     UpdateStorySceneRequestDto,
     UpdateStoryThreadRequestDto,
@@ -74,11 +87,15 @@ type PlotModule = {
     sceneWorldContextService: SceneWorldContextService;
     chapterWriterBriefService: ChapterWriterBriefService;
     refResolverService: RefResolverService;
+    promiseService: PromiseService;
+    decisionService: DecisionService;
 };
 
 type PlotClientEntry = {
     client: PrismaClient;
     adapter: TrackedPrismaLibSql;
+    /** 该 client 归属的 projectPath（workspace/<slug> 归一形），closeAllProjects 委托 closeProject 用。 */
+    projectPath: string;
 };
 
 /**
@@ -147,6 +164,16 @@ export class PlotFacade {
         await entry.client.$disconnect();
         entry.adapter.closeTrackedClients();
         collectReleasedSqliteHandles();
+    }
+
+    /**
+     * 关闭全部已打开的 Project SQLite PrismaClient。服务关停与统一资源生命周期用；
+     * 逐项委托 {@link closeProject}，避免复制清理序列。
+     */
+    async closeAllProjects(): Promise<void> {
+        for (const entry of [...this.clients.values()]) {
+            await this.closeProject(entry.projectPath);
+        }
     }
 
     /**
@@ -478,6 +505,116 @@ export class PlotFacade {
     }
 
     /**
+     * 查询 Promise 摘要列表(open 优先、importance 高在前,含派生阶段与 beat 计数)。
+     */
+    async listStoryPromises(projectPath: string): Promise<StoryPromiseDto[]> {
+        return (await this.createModule(projectPath)).promiseService.listStoryPromises(normalizeProjectPath(projectPath));
+    }
+
+    /**
+     * 查询 Promise 详情(含 beats 及各 beat 所在 Scene/章位)。
+     */
+    async getStoryPromiseDetailDto(projectPath: string, promiseId: number): Promise<StoryPromiseDetailDto> {
+        return (await this.createModule(projectPath)).promiseService.getStoryPromiseDetailDto(normalizeProjectPath(projectPath), promiseId);
+    }
+
+    /**
+     * 创建 Promise(读者债务账本条目)。
+     */
+    async createStoryPromise(projectPath: string, input: CreateStoryPromiseRequestDto): Promise<StoryPromiseDetailDto> {
+        const processedInput = processTextFieldsWithResults(input, ["summary", "payoffExpectation"]);
+        return this.runInTransaction(projectPath, (module) => (
+            module.promiseService.createStoryPromise(normalizeProjectPath(projectPath), module.inputParser.parseCreatePromise({
+                ...processedInput.values,
+            }))
+        ));
+    }
+
+    /**
+     * 更新 Promise。status 直改承载 abandon/fulfill/reopen。
+     */
+    async updateStoryPromise(projectPath: string, promiseId: number, patch: UpdateStoryPromiseRequestDto): Promise<StoryPromiseDetailDto> {
+        const processedPatch = processTextFieldsWithResults(patch, ["summary", "payoffExpectation"]);
+        return this.runInTransaction(projectPath, (module) => (
+            module.promiseService.updateStoryPromise(normalizeProjectPath(projectPath), promiseId, module.inputParser.parseUpdatePromise({
+                ...processedPatch.values,
+            }))
+        ));
+    }
+
+    /**
+     * 物理删除 Promise(beats 级联)。只给 UI/人工使用,不开放给 Agent(Task 97 D4)。
+     */
+    async deleteStoryPromise(projectPath: string, promiseId: number): Promise<void> {
+        await this.runInTransaction(projectPath, (module) => module.promiseService.deleteStoryPromise(normalizeProjectPath(projectPath), promiseId));
+    }
+
+    /**
+     * set beat(upsert:同场同线仅一条)。kind=payoff 且 autoFulfill!==false 时自动置 fulfilled。
+     */
+    async setPromiseBeat(projectPath: string, promiseId: number, input: SetPromiseBeatRequestDto): Promise<StoryPromiseDetailDto> {
+        const processedInput = processTextFieldsWithResults(input, ["note"]);
+        return this.runInTransaction(projectPath, (module) => (
+            module.promiseService.setPromiseBeat(normalizeProjectPath(projectPath), promiseId, module.inputParser.parseSetPromiseBeat({
+                ...processedInput.values,
+            }))
+        ));
+    }
+
+    /**
+     * remove beat。删除后跑 fulfilled 回退检查(D5 回退边界)。
+     */
+    async removePromiseBeat(projectPath: string, promiseId: number, sceneId: number): Promise<StoryPromiseDetailDto> {
+        return this.runInTransaction(projectPath, (module) => module.promiseService.removePromiseBeat(normalizeProjectPath(projectPath), promiseId, sceneId));
+    }
+
+    /**
+     * 查询 Decision 列表(open 优先,含死引用标注与期限章摘要)。
+     */
+    async listStoryDecisions(projectPath: string): Promise<StoryDecisionDto[]> {
+        return (await this.createModule(projectPath)).decisionService.listStoryDecisions(normalizeProjectPath(projectPath));
+    }
+
+    /**
+     * 查询 Decision 详情。
+     */
+    async getStoryDecisionDto(projectPath: string, decisionId: number): Promise<StoryDecisionDto> {
+        return (await this.createModule(projectPath)).decisionService.getStoryDecisionDto(normalizeProjectPath(projectPath), decisionId);
+    }
+
+    /**
+     * 创建 Decision(恒 open 态;decided 走 update 的 decide 转换)。
+     */
+    async createStoryDecision(projectPath: string, input: CreateStoryDecisionRequestDto): Promise<StoryDecisionDto> {
+        const processedInput = processTextFieldsWithResults(input, ["question", "note"]);
+        return this.runInTransaction(projectPath, (module) => (
+            module.decisionService.createStoryDecision(normalizeProjectPath(projectPath), module.inputParser.parseCreateDecision({
+                ...processedInput.values,
+            }))
+        ));
+    }
+
+    /**
+     * 更新 Decision。status 直改承载 decide/drop/supersede/reopen;
+     * decide 转换(risk 必填、options 未选项转否决骨架)在服务层统一发生。
+     */
+    async updateStoryDecision(projectPath: string, decisionId: number, patch: UpdateStoryDecisionRequestDto): Promise<StoryDecisionDto> {
+        const processedPatch = processTextFieldsWithResults(patch, ["question", "decision", "motivation", "risk", "note"]);
+        return this.runInTransaction(projectPath, (module) => (
+            module.decisionService.updateStoryDecision(normalizeProjectPath(projectPath), decisionId, module.inputParser.parseUpdateDecision({
+                ...processedPatch.values,
+            }))
+        ));
+    }
+
+    /**
+     * 物理删除 Decision。只给 UI/人工使用,不开放给 Agent(Task 97 D4;Agent 软删出口是 action=drop)。
+     */
+    async deleteStoryDecision(projectPath: string, decisionId: number): Promise<void> {
+        await this.runInTransaction(projectPath, (module) => module.decisionService.deleteStoryDecision(normalizeProjectPath(projectPath), decisionId));
+    }
+
+    /**
      * 将 HTTP DTO 的日历字符串解析为服务层 World Anchor。
      */
     private async parseWorldAnchorDto(projectPath: string, dto?: StorySceneWorldAnchorInputDto): Promise<SceneWorldAnchor> {
@@ -630,7 +767,8 @@ export class PlotFacade {
      */
     private async client(projectPath: string): Promise<PrismaClient> {
         const normalizedProjectPath = normalizeProjectPath(projectPath);
-        await initProjectDatabase(normalizedProjectPath);
+        assertProjectOpen(normalizedProjectPath);
+        markProjectActivity(normalizedProjectPath);
         const databasePath = resolveProjectDatabasePath(normalizedProjectPath);
         const cacheKey = databasePath.replace(/\\/g, "/");
         const existing = this.clients.get(cacheKey);
@@ -641,7 +779,7 @@ export class PlotFacade {
         const client = new PrismaClient({
             adapter,
         });
-        this.clients.set(cacheKey, {client, adapter});
+        this.clients.set(cacheKey, {client, adapter, projectPath: normalizedProjectPath});
         return client;
     }
 
@@ -655,29 +793,49 @@ export class PlotFacade {
         const threadRepository = new PrismaThreadRepository(executor);
         const sceneRepository = new PrismaSceneRepository(executor);
         const chapterRepository = new PrismaChapterRepository(executor);
+        const promiseRepository = new PrismaPromiseRepository(executor);
+        const decisionRepository = new PrismaDecisionRepository(executor);
         const orderService = new OrderService(storyRepository, threadRepository, sceneRepository);
         const scopeGuard = new PlotScopeGuard(
             storyRepository,
             threadRepository,
             sceneRepository,
             chapterRepository,
+            promiseRepository,
+            decisionRepository,
         );
         const storyService = new StoryService(
             storyRepository,
             threadRepository,
             chapterRepository,
+            promiseRepository,
+            decisionRepository,
             orderService,
             assembler,
             scopeGuard,
         );
         const refResolverService = new RefResolverService(threadRepository, scopeGuard);
         const worldAnchorValidator = new SceneWorldAnchorValidator();
+        const promiseService = new PromiseService(
+            promiseRepository,
+            storyService,
+            scopeGuard,
+            assembler,
+        );
+        const decisionService = new DecisionService(
+            decisionRepository,
+            chapterRepository,
+            storyService,
+            scopeGuard,
+            assembler,
+        );
         const threadService = new ThreadService(
             threadRepository,
             storyService,
             scopeGuard,
             orderService,
             assembler,
+            promiseService,
         );
         const sceneService = new SceneService(
             sceneRepository,
@@ -687,6 +845,7 @@ export class PlotFacade {
             refResolverService,
             worldAnchorValidator,
             assembler,
+            promiseService,
         );
         const sceneWorldContextService = new SceneWorldContextService(
             sceneRepository,
@@ -712,6 +871,9 @@ export class PlotFacade {
             sceneWorldContextService,
             this.sceneWorldAnchorResolutionService,
             assembler,
+            promiseRepository,
+            chapterRepository,
+            decisionService,
         );
 
         return {
@@ -724,6 +886,8 @@ export class PlotFacade {
             sceneWorldContextService,
             chapterWriterBriefService,
             refResolverService,
+            promiseService,
+            decisionService,
         };
     }
 }

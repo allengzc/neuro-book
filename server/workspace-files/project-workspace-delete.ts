@@ -5,11 +5,8 @@ import path from "node:path";
 import process from "node:process";
 import {consola} from "consola";
 import {useAgentHarness} from "nbook/server/agent/http";
-import {closeAgentSqliteClient} from "nbook/server/agent/tools/sql-tool";
-import {plotFacade} from "nbook/server/plot";
 import {invalidateNovelListCache} from "nbook/server/utils/novel-chapter";
-import {worldEngineFacade} from "nbook/server/world-engine";
-import {closeWorkspaceTreeIndex} from "nbook/server/workspace-files/project-workspace-index";
+import {closeProject} from "nbook/server/workspace-files/project-session";
 import {
     assertProjectWorkspaceDirectory,
     PROJECT_DELETED_MARKER_RELATIVE_PATH,
@@ -37,10 +34,9 @@ export async function deleteProjectWorkspace(projectPath: string, options: Proje
     const archiveProjectSessions = options.archiveProjectSessions
         ?? ((targetProjectPath, reason) => useAgentHarness().archiveSessionsByProjectPath(targetProjectPath, reason));
 
-    await plotFacade.closeProject(normalizedProjectPath);
-    await worldEngineFacade.closeProject(normalizedProjectPath);
-    await closeAgentSqliteClient(normalizedProjectPath);
-    await closeWorkspaceTreeIndex(projectRoot);
+    // 统一关闭该 Project 的会话并释放本进程内常驻资源（Plot PrismaClient、execute_sql client、tree index watcher 等），
+    // 属主清单由 project-session 注册表维护，新资源种类自注册即可，不再手工逐模块枚举。
+    await closeProject(normalizedProjectPath, "delete");
     await deleteProjectRoot(projectRoot);
     try {
         await archiveProjectSessions(normalizedProjectPath, "project.deleted");

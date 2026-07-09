@@ -13,6 +13,13 @@ import {
     type PlotThreadPanelChapter,
     type PlotThreadPanelScene,
 } from "nbook/app/components/novel-ide/plot/thread-panel/plot-thread-panel.types";
+import {
+    SCENE_OUTCOME_TYPE_OPTIONS,
+    SCENE_PACING_ROLE_OPTIONS,
+    PLANNING_TONE_CLASSES,
+    PROMISE_BEAT_KIND_META,
+    PROMISE_BEAT_STATE_META,
+} from "nbook/app/components/novel-ide/plot/planning/plot-planning.types";
 import type {
     PlotThreadPanelDetail,
     PlotThreadQuickSceneUpdate,
@@ -38,6 +45,7 @@ const emit = defineEmits<{
     (e: "close"): void;
     (e: "edit"): void;
     (e: "updateScene", payload: PlotThreadQuickSceneUpdate): void;
+    (e: "focusPromise", promiseId: string): void;
 }>();
 
 const panelHeight = ref(0);
@@ -82,6 +90,15 @@ const chapterLabel = computed(() => {
     return `${props.detail.chapter.numberLabel} ${props.detail.chapter.title}`;
 });
 const detailHistoryKey = computed(() => props.detail?.scene ? `plot-scene:${props.detail.scene.id}` : "");
+// 节奏字段只读标签(编辑走完整编辑器);为空表示未填写,不显示 chip。
+const outcomeTypeLabel = computed(() => {
+    const value = props.detail?.scene.outcomeType;
+    return value ? (SCENE_OUTCOME_TYPE_OPTIONS.find((option) => option.value === value)?.label ?? value) : null;
+});
+const pacingRoleLabel = computed(() => {
+    const value = props.detail?.scene.pacingRole;
+    return value ? (SCENE_PACING_ROLE_OPTIONS.find((option) => option.value === value)?.label ?? value) : null;
+});
 const {
     isDirty,
     canUndo: canRollback,
@@ -327,6 +344,29 @@ watch(() => props.detail, () => {
                     <span class="rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1 text-right">#{{ props.detail.scene.threadSortOrder + 1 }}</span>
                     <span class="rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1">Scene</span>
                     <span class="rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1 text-right">R {{ refCount }}</span>
+                    <!-- 节奏字段只读 chip:有值才显示 -->
+                    <span v-if="outcomeTypeLabel" class="truncate rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1" :title="outcomeTypeLabel">{{ outcomeTypeLabel }}</span>
+                    <span v-if="pacingRoleLabel" class="truncate rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1 text-right" :title="pacingRoleLabel">{{ pacingRoleLabel }}</span>
+                </div>
+
+                <!-- 本场服务的承诺线(promise beats):只读芯片,点击跳承诺账本聚焦该 Promise -->
+                <div v-if="props.detail.promiseBeats.length" class="space-y-1">
+                    <span class="text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--text-muted)]">服务承诺</span>
+                    <div class="flex flex-wrap gap-1.5">
+                        <button
+                            v-for="beat in props.detail.promiseBeats"
+                            :key="beat.id"
+                            type="button"
+                            data-testid="plot-detail-promise-beat-chip"
+                            class="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] transition-opacity hover:opacity-80"
+                            :class="PLANNING_TONE_CLASSES[PROMISE_BEAT_STATE_META[beat.state].tone].chip"
+                            :title="`${PROMISE_BEAT_KIND_META[beat.kind].label} · ${PROMISE_BEAT_STATE_META[beat.state].label}${beat.note ? ` · ${beat.note}` : ''}`"
+                            @click="emit('focusPromise', beat.promiseId)"
+                        >
+                            <span class="h-3 w-3 shrink-0" :class="PROMISE_BEAT_KIND_META[beat.kind].iconClass"></span>
+                            <span class="max-w-[140px] truncate">{{ beat.promiseTitle }}</span>
+                        </button>
+                    </div>
                 </div>
 
                 <label class="block space-y-1">

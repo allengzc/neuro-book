@@ -200,6 +200,21 @@ export async function readConfig(options) {
 
     const databaseMode = normalizeDatabaseMode(options.database ?? 'sqlite');
 
+    const existingAuthEnabled = await readExistingAuthEnabled(deployDir);
+    const rawAuth = String(await askSelect({
+        interactive,
+        value: options.auth,
+        message: '密码保护（全站登录）',
+        initialValue: existingAuthEnabled === false ? 'disabled' : 'enabled',
+        options: [
+            {value: 'enabled', label: '开启', hint: '推荐；部署后需创建管理员账号登录'},
+            {value: 'disabled', label: '关闭', hint: '免登录，仅限完全可信的本地环境'},
+        ],
+    })).toLowerCase();
+    if (!['enabled', 'disabled'].includes(rawAuth)) {
+        throw new Error(`--auth 只支持 enabled 或 disabled：${rawAuth}`);
+    }
+
     const image = deployMode === 'ghcr'
         ? await resolveGhcrImageOption({
             interactive,
@@ -210,6 +225,9 @@ export async function readConfig(options) {
 
     return {
         apiKey,
+        // 用户是否显式选择过鉴权开关：交互确认或 --auth 传参。redeploy 时只有显式选择才会改已有配置。
+        authEnabled: rawAuth === 'enabled',
+        authExplicit: Boolean(options.auth) || interactive,
         databaseMode,
         deployDir,
         deployMode,
@@ -222,6 +240,20 @@ export async function readConfig(options) {
         repo: options.repo,
         windowsPackageManager,
     };
+}
+
+/** 读取部署目录已有 Global Config 的鉴权开关；无配置或不可解析时返回 null。 */
+async function readExistingAuthEnabled(deployDir) {
+    const path = resolve(deployDir, GLOBAL_CONFIG_FILENAME);
+    if (!existsSync(path)) {
+        return null;
+    }
+    try {
+        const parsed = JSON.parse(await readFile(path, 'utf-8'));
+        return typeof parsed?.auth?.enabled === 'boolean' ? parsed.auth.enabled : null;
+    } catch {
+        return null;
+    }
 }
 
 /** 拉取或更新应用仓库。 */
@@ -292,7 +324,7 @@ async function migrateLegacyPrivateFile({from, to, label}) {
 }
 
 /** 生成管理员创建命令提示。 */
-function adminCommand(config, mode) {
+export function adminCommand(config) {
     if (config.deployMode === LOCAL_GIT_DEPLOY_MODE) {
         return nativeStartHelp('bun run auth:create-admin');
     }
@@ -351,7 +383,7 @@ ${upCommand(config, mode)}
 Create or reset admin:
 
 \`\`\`${commandLanguage}
-${adminCommand(config, mode)}
+${adminCommand(config)}
 \`\`\`
 
 Do not pass admin passwords as command arguments. Use the interactive prompt, or set AUTH_ADMIN_PASSWORD only in a short-lived shell/secret environment.
@@ -456,7 +488,11 @@ export async function writeDeployFiles(config, mode) {
 
     const legacyConfigText = existsSync(legacyConfigPath) ? await readFile(legacyConfigPath, 'utf-8') : null;
     if (existsSync(globalConfigPath)) {
-        p.log.info(`Preserved ${globalConfigPath}`);
+        if (config.authExplicit && await patchGlobalConfigAuth(globalConfigPath, config.authEnabled)) {
+            p.log.success(`Updated auth.enabled=${config.authEnabled} in ${globalConfigPath}`);
+        } else {
+            p.log.info(`Preserved ${globalConfigPath}`);
+        }
     } else {
         await mkdir(dirname(globalConfigPath), {recursive: true});
         await writePrivateFile(globalConfigPath, renderGlobalConfig(config, legacyConfigText));
@@ -501,6 +537,23 @@ export async function writeDeployFiles(config, mode) {
     await writeFile(readmePath, renderDeployReadme(config, mode), 'utf-8');
 
     return parseEnv(envText);
+}
+
+/** 按用户显式选择更新已有 Global Config 鉴权开关；其余字段保持不动。返回是否发生了修改。 */
+async function patchGlobalConfigAuth(path, enabled) {
+    let parsed;
+    try {
+        parsed = JSON.parse(await readFile(path, 'utf-8'));
+    } catch {
+        p.log.warn(`无法解析 ${path}，跳过鉴权开关更新。`);
+        return false;
+    }
+    if ((parsed?.auth?.enabled ?? true) === enabled) {
+        return false;
+    }
+    parsed.auth = {...parsed.auth, enabled};
+    await writePrivateFile(path, `${JSON.stringify(parsed, null, 4)}\n`);
+    return true;
 }
 
 /** Docker 模式启动 Compose。 */

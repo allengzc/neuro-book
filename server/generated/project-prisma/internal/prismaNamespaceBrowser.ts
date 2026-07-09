@@ -60,6 +60,9 @@ export const ModelName = {
   StoryThread: 'StoryThread',
   StoryScene: 'StoryScene',
   StorySceneRef: 'StorySceneRef',
+  StoryPromise: 'StoryPromise',
+  StoryPromiseBeat: 'StoryPromiseBeat',
+  StoryDecision: 'StoryDecision',
   WorldSubject: 'WorldSubject',
   WorldSlice: 'WorldSlice',
   WorldPatch: 'WorldPatch'
@@ -173,6 +176,7 @@ export const StoryThreadScalarFieldEnum = {
   title: 'title',
   isMainThread: 'isMainThread',
   status: 'status',
+  miceType: 'miceType',
   summary: 'summary',
   tags: 'tags',
   writingTip: 'writingTip',
@@ -193,6 +197,8 @@ export const StorySceneScalarFieldEnum = {
   chapterSortOrder: 'chapterSortOrder',
   title: 'title',
   status: 'status',
+  outcomeType: 'outcomeType',
+  pacingRole: 'pacingRole',
   summary: 'summary',
   purpose: 'purpose',
   writingTip: 'writingTip',
@@ -224,6 +230,69 @@ export const StorySceneRefScalarFieldEnum = {
 } as const
 
 export type StorySceneRefScalarFieldEnum = (typeof StorySceneRefScalarFieldEnum)[keyof typeof StorySceneRefScalarFieldEnum]
+
+
+export const StoryPromiseScalarFieldEnum = {
+  id: 'id',
+  storyId: 'storyId',
+  name: 'name',
+  title: 'title',
+  status: 'status',
+  importance: 'importance',
+  summary: 'summary',
+  payoffExpectation: 'payoffExpectation',
+  cadenceChapters: 'cadenceChapters',
+  deadlineChapterId: 'deadlineChapterId',
+  tags: 'tags',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type StoryPromiseScalarFieldEnum = (typeof StoryPromiseScalarFieldEnum)[keyof typeof StoryPromiseScalarFieldEnum]
+
+
+export const StoryPromiseBeatScalarFieldEnum = {
+  id: 'id',
+  promiseId: 'promiseId',
+  sceneId: 'sceneId',
+  kind: 'kind',
+  note: 'note',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type StoryPromiseBeatScalarFieldEnum = (typeof StoryPromiseBeatScalarFieldEnum)[keyof typeof StoryPromiseBeatScalarFieldEnum]
+
+
+export const StoryDecisionScalarFieldEnum = {
+  id: 'id',
+  storyId: 'storyId',
+  name: 'name',
+  title: 'title',
+  status: 'status',
+  question: 'question',
+  options: 'options',
+  deadlineChapterId: 'deadlineChapterId',
+  decision: 'decision',
+  motivation: 'motivation',
+  rejectedAlternatives: 'rejectedAlternatives',
+  risk: 'risk',
+  serves: 'serves',
+  dependsOn: 'dependsOn',
+  supersededById: 'supersededById',
+  anchorKind: 'anchorKind',
+  anchorActId: 'anchorActId',
+  anchorChapterId: 'anchorChapterId',
+  anchorThreadId: 'anchorThreadId',
+  anchorSceneId: 'anchorSceneId',
+  anchorPromiseId: 'anchorPromiseId',
+  anchorPath: 'anchorPath',
+  note: 'note',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type StoryDecisionScalarFieldEnum = (typeof StoryDecisionScalarFieldEnum)[keyof typeof StoryDecisionScalarFieldEnum]
 
 
 export const WorldSubjectScalarFieldEnum = {

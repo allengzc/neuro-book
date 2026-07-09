@@ -52,3 +52,12 @@ datasets/aigc-detection/converted/
 server/agent/variables/generated-profile-variable-types.d.ts
 Makefile
 .agent*
+# Crash dumps
+*.stackdump
+# Test output
+test-results/
+# Agent session / workspace runtime data (server-side)
+server/workspace/.nbook/
+server/.agent/
+# Temporary screenshots / assets
+t16-editor-heat.png

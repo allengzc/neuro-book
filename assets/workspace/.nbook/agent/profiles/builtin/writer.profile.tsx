@@ -3,7 +3,7 @@
 import {isAbsolute, posix} from "node:path";
 import {Type, type Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
+import {builtin, plotReadBindings, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {WriterInitialSchema, WriterOutputSchema, WriterPayloadSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {AppendingSet, HistorySet, If, Import, Message, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
@@ -41,6 +41,11 @@ export const SettingsSchema = Type.Object({
     wordCountControl: Type.String(),
     polishingWorkflow: Type.String(),
     adultStylePrompt: Type.String(),
+    fileChangeAwareness: Type.Union([
+        Type.Literal("off"),
+        Type.Literal("minimal"),
+        Type.Literal("full"),
+    ]),
 }, {additionalProperties: false});
 
 export type Initial = Static<typeof InitialSchema>;
@@ -59,6 +64,7 @@ export const WriterSettingsForm = defineLowCodeForm({
         wordCountControl: DEFAULT_WORD_COUNT_CONTROL,
         polishingWorkflow: DEFAULT_POLISHING_WORKFLOW,
         adultStylePrompt: "",
+        fileChangeAwareness: "minimal",
     },
     fields: [
         {
@@ -132,6 +138,17 @@ export const WriterSettingsForm = defineLowCodeForm({
             label: "成人风格增强",
             description: "填写后作为成人场景写作约束注入；留空则完全不注入。",
             placeholder: "例如：注重情绪推进与关系变化，避免机械描写。",
+        },
+        {
+            path: "fileChangeAwareness",
+            component: "radio",
+            label: "文件变更感知",
+            description: "每轮开始前提醒 agent：上次看过之后，项目文件被其他人（用户 / 其他 agent / 外部工具）改过哪些。",
+            options: [
+                {value: "minimal", label: "精简", description: "只列变更文件路径和条数。"},
+                {value: "full", label: "完整", description: "含归因（谁改的）与操作类型，并提示续写前先重读相关文件。"},
+                {value: "off", label: "关闭", description: "不注入文件变更提醒。"},
+            ],
         },
     ],
     async validate(value, ctx) {
@@ -232,13 +249,8 @@ export default defineAgentProfile({
         builtin.file.edit,
         builtin.file.bash,
         builtin.world.execute("readonly"),
-        // autonomous 模式:writer 自主读 Plot(只读),可自取章节 brief 与场景/世界上下文;不含 Plot 写工具。
-        builtin.plot.getChapterWriterBrief,
-        builtin.plot.getChapter,
-        builtin.plot.getSceneContext,
-        builtin.plot.getSceneWorldContext,
-        builtin.plot.getTree,
-        builtin.plot.getThread,
+        // autonomous 模式:writer 只 spread Plot 读 bundle(Task 97 D7),可自取章节 brief 与场景/世界上下文;不含 save_* 写工具。
+        ...plotReadBindings,
         builtin.result.main(),
     ),
     compaction: {},
@@ -291,7 +303,7 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                         <hard_rules>
                             - 只根据已有设定、剧情点和明确要求写作，不新增超出任务范围的关键设定。
                             - 你处于 autonomous（自主全知）模式：拥有 Plot 只读、World Engine 只读、lorebook 读能力。message 里的 brief 只给框架与查询提示，不含可查询状态；HP / 位置 / 属性等状态**由你自己查证**，不要当作 brief 遗漏。
-                            - 有 input.chapterId 时优先 get_chapter_writer_brief 自取 brief；需要场景/世界上下文用 get_chapter_plot / get_story_scene_context / get_scene_world_context；需要角色当前状态用 execute_world。
+                            - 有 input.chapterId 时优先 get_chapter_writer_brief 自取 brief；需要场景/世界上下文用 get_story_chapter / get_story_scene_context / get_scene_world_context；需要角色当前状态用 execute_world。
                             - Profile settings 提供长期默认偏好；如果本轮 message 明确指定段落节奏、字数、人称、润色流程或风格约束，优先服从本轮 message。
                             - 如果设定缺失但不影响完成正文，可以用不改变世界观的细节补足场面；如果缺失会导致剧情方向无法判断，先用工具读取必要文件或在 report_result.result 里说明限制。
                             - 完成任务后必须调用 report_result 提交最终结果；调用 report_result 成功后对话会自动结束。
@@ -314,12 +326,12 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                         - **read / write / edit**：文件操作
                         - **bash**：执行 CLI 工具（如 llmlint）
                         - **execute_world**：World Engine 只读查询（CodeAct 沙盒）
-                        - **get_chapter_writer_brief / get_chapter_plot / get_story_scene_context / get_scene_world_context / get_plot_tree / get_story_thread**：Plot 只读
+                        - **get_chapter_writer_brief / get_story_chapter / get_story_scene_context / get_scene_world_context / get_story_tree / get_story_thread / get_story_promise / get_story_decision**：Plot 只读。brief 已含本章 Promise 任务与未决决策警告；需要核对某条线的 payoffExpectation 或某条决策（D-x）的详情时，再用 get_story_promise / get_story_decision 按需查询
                         - **report_result**：提交最终结果
 
                         核心约束：
                         - World Engine 只读，不能写入、修改或删除切面
-                        - Plot 只读，不能创建或修改 Thread / Scene / Chapter；剧情设计权在 leader
+                        - Plot 只读，不能创建或修改任何 Plot 实体（Thread / Scene / Act / Chapter / Promise / Decision）；剧情设计权在 leader
                         - 默认按 brief 写作，不新增超出范围的关键设定
                         - 只有 brief 明确授权自由发挥时，才可新增角色或改变状态
 

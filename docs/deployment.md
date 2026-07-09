@@ -4,7 +4,7 @@ NeuroBook 默认面向本地或单机部署。正式 release 主线采用 Produc
 
 ## 发布模型
 
-- Product Payload：预构建应用本体，包含 `package.json`、`.output/`、运行资产、SQLite migrations、产品脚本和 `.output/server/node_modules` Nitro vendor。
+- Product Payload：预构建应用本体，包含 `package.json`、`.output/`、运行资产、SQLite migrations、产品脚本和 `.output/server/node_modules` Nitro vendor。`source/` 目录携带完整源码快照（git tracked 文件，不含 `node_modules` 和构建产物）；运行不依赖它，但后续排障时可以让 Agent 在 `source/` 内安装依赖并重新构建。
 - Platform Launcher：平台启动壳，负责初始化运行状态、迁移数据库、创建管理员、启动服务和后续更新。Windows Launcher 是第一版落地。
 - 运行状态：`workspace/`、`.env`、`config.yaml` 和 SQLite 数据库属于用户数据，升级时保留，不随 Product Payload 覆盖。
 
@@ -71,13 +71,14 @@ Windows Product Portable 是 Windows x64 的 Product Payload + Windows Launcher 
 - 初始化 `data/.env`、`data/config.yaml` 和 `data/workspace/.nbook/config.json`。
 - 将 `app/workspace` 映射到 `data/workspace`，让服务 cwd 保持 Product Root，同时把用户数据留在 `data/`。
 - 执行 SQLite migration。
-- 引导创建管理员。
+- 提示密码保护状态。Windows Portable 默认关闭密码保护，浏览器打开即可使用；运行 `Create Admin.cmd` 创建管理员后会自动开启密码保护。
 - 启动本地网页。
 
 目录边界：
 
 - 解压目录是 Portable Root。
 - `app/` 是可替换 Product Payload 和服务 cwd。
+- `app/source/` 是随包分发的完整源码快照；运行不依赖它，排障时可让 Agent 在其中 `bun install` + 重新构建。
 - `data/` 是升级保留的运行状态，保存 `workspace/`、`.env`、`config.yaml` 和 SQLite。
 - `runtime/bun/` 是内置 Bun runtime。
 - `launcher/` 是 Windows Launcher。
@@ -158,7 +159,7 @@ bunx --bun --package github:notnotype/neuro-book neuro-book-deploy --deploy-mode
 
 `ghcr` 模式仍会把 `workspace/` 挂载为持久目录。Provider key、管理员用户、Project Workspace 和 SQLite 数据都保存在本机运行状态中。
 
-GHCR app 镜像保留源码目录用于排障，但运行合同遵循 Product Docker：final runner 使用 Bun runtime，服务入口、启动前 user-assets 同步、SQLite migration 和管理员脚本都从预构建 `.output/server/scripts/**` 运行，依赖由 `.output/server/node_modules` Nitro vendor 承载。部署机和容器启动时不执行 `bun install`，也不要求根 `node_modules`。Product Runtime 判定会在无根 `node_modules` 时使用 `.output/server/package.json`，版本接口优先读取可用的 package manifest。
+GHCR app 镜像携带完整项目源码（含 `world-engine/`、`plugins/` 和全部构建配置），可在容器内直接排障或让 Agent 重新构建，但运行合同遵循 Product Docker：final runner 使用 Bun runtime，服务入口、启动前 user-assets 同步、SQLite migration 和管理员脚本都从预构建 `.output/server/scripts/**` 运行，依赖由 `.output/server/node_modules` Nitro vendor 承载。部署机和容器启动时不执行 `bun install`，也不要求根 `node_modules`。Product Runtime 判定会在无根 `node_modules` 时使用 `.output/server/package.json`，版本接口优先读取可用的 package manifest。
 
 ## Source Docker
 
@@ -189,7 +190,11 @@ NeuroBook 的运行状态默认不进 Git。
 
 ## 管理员与鉴权
 
-全站鉴权默认开启。首次部署后创建管理员。
+服务器部署默认开启全站鉴权；Windows Product Portable 默认关闭，运行 `Create Admin.cmd` 创建管理员后自动开启。
+
+`neuro-book-deploy` 交互部署会询问是否开启密码保护，也可以用 `--auth enabled` / `--auth disabled` 显式指定（非交互默认开启）。redeploy 时显式选择会更新已有 `workspace/.nbook/config.json` 的 `auth.enabled`，未显式选择则保持原值。
+
+开启鉴权的部署在首次使用前创建管理员。
 
 local-git：
 

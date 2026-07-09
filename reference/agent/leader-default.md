@@ -109,20 +109,19 @@ ORDER BY "threadSortOrder";
 
 - 文件正文、manuscript、lorebook 和普通文档必须用 `read` / `write` / `edit` / `apply_patch`，不要用 SQL 读写长正文。
 
-## Plan Mode
+## Agent 模式（normal / discuss / plan）
 
-- `enter_plan_mode` 用于请求进入计划模式，适合大型、多步、风险高或需求仍需共同确认的改动。
-- `exit_plan_mode` 用于请求退出计划模式。
+- Agent 有三种工作模式：`normal`（可读可写，默认）、`discuss`（只读讨论）、`plan`（只读计划）。
+- `switch_mode` 用于发起一次模式切换审批；切换只在用户批准后生效。`targetMode: "plan"` 适合大型、多步、风险高或需求仍需共同确认的改动前先做计划；`targetMode: "discuss"` 适合用户想先讨论方向、分析方案而不动手；`targetMode: "normal"` 用于结论或计划确认后开始执行。
+- discuss / plan 都是只读模式：仍可读文件、搜索、运行只读命令；文件写工具会挂起等待用户审批，bash 只做只读查询。改状态的非文件工具（`execute_sql` 的 INSERT/UPDATE/DELETE、`execute_world` 的切面写入/patch、plot 的 `save_*`、`variable_patch`）也一律保持只读，只做查询（SELECT、world 读取、`get_*`、`variable_read`），需要写入时用 `switch_mode` 切回 normal 再操作。两者的区别是导向：discuss 面向回答与方案对比，plan 面向产出可执行计划。
 - 计划模式里的计划应足够具体，可直接执行，但不要把当前对话里的临时口癖写进长期提示词。
-- Plan Mode 是 soft mode：进入后仍可做只读调查、列计划、阅读源码和运行不会改写仓库状态的验证；不要执行产品代码、配置、数据或工作区内容修改。
-- 需要实现时，先准备执行计划，再用 `exit_plan_mode` 请求用户批准。不要用普通文本或 `request_user_input` 代替 `exit_plan_mode`。
-- Plan Mode 工作目录会在 system-reminder 中给出，固定为当前 Project Workspace 的 `.agent/plan/`，适合保存计划草案、walkthrough 和调研 notes。
-- 普通 Project agent 的文件工具 cwd 是 Workspace Root；写计划文件时使用 system-reminder 给出的文件工具路径，例如 `<project>/.agent/plan/<slug>.md`。调用 `exit_plan_mode` 时，`planFilePath` 必须使用 Project Workspace 相对路径，例如 `.agent/plan/<slug>.md`。
-- 进入 Plan Mode 时不会绑定固定文件名；需要持久化计划时自行选择短且可读的 Markdown 文件名。
-- Plan Mode 激活时，只能编辑 `.agent/plan/` 内的 Markdown 计划 / 记录文件。
+- 需要开始实现时，用 `switch_mode`（`targetMode: "normal"`）请求用户批准。不要用普通文本或 `request_user_input` 代替 `switch_mode` 请求计划批准。
+- Plan Mode 工作目录会在 system-reminder 中给出，固定为当前 Project Workspace 的 `.agent/plan/`，适合保存计划草案、walkthrough 和调研 notes；plan 模式下写该目录内的 Markdown 文件不需要审批。
+- 普通 Project agent 的文件工具 cwd 是 Workspace Root；写计划文件时使用 system-reminder 给出的文件工具路径，例如 `<project>/.agent/plan/<slug>.md`。调用 `switch_mode` 退出到 normal 时，`planFilePath` 必须使用 Project Workspace 相对路径，例如 `.agent/plan/<slug>.md`。
+- 进入 plan 模式时不会绑定固定文件名；需要持久化计划时自行选择短且可读的 Markdown 文件名。
 - 不要把 scratch / cache / 命令输出草稿放进 Project Workspace `.agent`，临时文件使用系统 tmp。
 - 不要创建或调用 Explore agent。需要探索时使用当前 agent 的只读 `read` / search / `bash` 验证能力。
-- 退出 Plan Mode 前，如果写了计划文件，先在聊天中简短报告计划状态并引用 `.agent/plan/` 内的 Markdown 文件路径，再用 `exit_plan_mode` 请求批准；正式计划文件必须传 `planFilePath`，让审批 UI 展示该 Project Workspace 计划文件。
+- 退出 plan 模式前，如果写了计划文件，先在聊天中简短报告计划状态并引用 `.agent/plan/` 内的 Markdown 文件路径，再用 `switch_mode` 请求批准；正式计划文件必须传 `planFilePath`，让审批 UI 展示该 Project Workspace 计划文件。
 
 ## Skills
 

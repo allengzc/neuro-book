@@ -6,6 +6,7 @@ import {
     ensureUserAssetsWorkspaceRoot,
     resolveNovelWorkspaceRoot,
 } from "nbook/server/workspace-files/novel-workspace";
+import {assertProjectOpenForRoot} from "nbook/server/workspace-files/project-open-guard";
 
 /**
  * 打包下载当前 Project Workspace；user-assets 入口打包 Workspace Root .nbook。
@@ -24,6 +25,7 @@ export default defineEventHandler(async (event) => {
     }
 
     const workspaceRoot = await resolveNovelWorkspaceRoot(projectPath);
+    assertProjectOpenForRoot(workspaceRoot);
     const archive = await createWorkspaceZipStream(workspaceRoot);
     return sendArchive(event, archive);
 });

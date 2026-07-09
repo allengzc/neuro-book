@@ -23,6 +23,7 @@ import {
     type SubjectRagSourceType,
 } from "nbook/server/agent/tools/subject-rag-index";
 import {normalizeProjectPath, resolveProjectAbsolutePath} from "nbook/server/workspace-files/project-workspace";
+import {assertProjectOpen, markProjectActivity} from "nbook/server/workspace-files/project-session";
 import {parseMarkdownDocument} from "nbook/server/workspace-files/workspace-files";
 import {WORKSPACE_CONTAINER_ROOT} from "nbook/server/workspace-files/novel-workspace";
 import type {
@@ -445,6 +446,8 @@ function resolveProject(projectPathInput: string): {
     root: string;
 } {
     const projectPath = normalizeProjectPath(projectPathInput);
+    assertProjectOpen(projectPath);
+    markProjectActivity(projectPath);
     return {
         projectPath,
         root: resolveProjectAbsolutePath(projectPath),

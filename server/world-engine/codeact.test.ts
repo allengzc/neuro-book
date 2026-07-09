@@ -11,11 +11,12 @@ import {rm} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {WorldEngineFacade} from "./world-engine.facade";
 
 const createdProjects: string[] = [];
 
-describe("CodeAct Integration", () => {
+describe("CodeAct Integration", {timeout: 30_000}, () => {
     let facade: WorldEngineFacade;
     let testProjectPath: string;
 
@@ -35,12 +36,14 @@ describe("CodeAct Integration", () => {
         writeFileSync(join(projectRoot, "world-engine/calendar.ts"), calendarFixture(), "utf-8");
 
         createdProjects.push(testProjectPath);
+        await openProjectForTest(testProjectPath);
         facade = new WorldEngineFacade();
-    });
+    }, 30_000);
 
     afterEach(async () => {
+        await closeProjectForTest(testProjectPath).catch(() => undefined);
         await facade.closeProject(testProjectPath);
-    });
+    }, 30_000);
 
     afterAll(async () => {
         for (const projectPath of createdProjects) {

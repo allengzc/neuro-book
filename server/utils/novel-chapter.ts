@@ -109,6 +109,8 @@ type EntityIdLabel =
     | "plotId"
     | "actId"
     | "chapterId"
+    | "promiseId"
+    | "decisionId"
     | "entryId"
     | "parentId";
 

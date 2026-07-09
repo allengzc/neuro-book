@@ -11,12 +11,12 @@ import {plotFacade} from "nbook/server/plot";
 import {listNovels} from "nbook/server/utils/novel-chapter";
 import {worldEngineFacade} from "nbook/server/world-engine";
 import {
-    initProjectDatabase,
     isProjectRootDeleted,
     resolveProjectAbsolutePath,
     writeProjectManifest,
 } from "nbook/server/workspace-files/project-workspace";
 import {deleteProjectWorkspace} from "nbook/server/workspace-files/project-workspace-delete";
+import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {
     closeWorkspaceTreeIndex,
     readProjectWorkspaceTreeSnapshot,
@@ -32,7 +32,6 @@ describe("deleteProjectWorkspace", () => {
                 title: "Delete Project",
                 summary: "",
             });
-            await initProjectDatabase(projectPath);
             await mkdir(join(projectRoot, "manuscript"), {recursive: true});
             await mkdir(join(projectRoot, "world-engine", "schema"), {recursive: true});
             await writeFile(join(projectRoot, "manuscript", "chapter-1.md"), "# Chapter 1\n", "utf8");
@@ -57,6 +56,7 @@ describe("deleteProjectWorkspace", () => {
                 "};",
                 "",
             ].join("\n"), "utf8");
+            await openProjectForTest(projectPath);
 
             await plotFacade.getStoryDto(projectPath);
             await worldEngineFacade.createSubject(projectPath, {id: "world", type: "world", name: "世界", at: 0n});
@@ -74,6 +74,7 @@ describe("deleteProjectWorkspace", () => {
 
             await expect(projectRootDeleted(projectRoot)).resolves.toBe(true);
         } finally {
+            await closeProjectForTest(projectPath).catch(() => undefined);
             await plotFacade.closeProject(projectPath).catch(() => undefined);
             await worldEngineFacade.closeProject(projectPath).catch(() => undefined);
             await closeAgentSqliteClient(projectPath).catch(() => undefined);

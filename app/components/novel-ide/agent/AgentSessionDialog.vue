@@ -33,6 +33,7 @@ const emit = defineEmits<{
     (e: "select", sessionId: number): void;
     (e: "create", profileKey?: string): void;
     (e: "archive", session: AgentSessionSummaryDto): void;
+    (e: "rename", session: AgentSessionSummaryDto): void;
     (e: "refresh", query: AgentSessionListQueryDto): void;
     (e: "loadMore", query: AgentSessionListQueryDto): void;
 }>();
@@ -308,10 +309,15 @@ onClickOutside(filterPanelRef, () => {
                             <span v-if="session.parentSessionId" class="rounded border border-[var(--border-color)] px-1.5 py-0.5 text-[10px] font-medium tracking-normal text-[var(--text-secondary)]">{{ t("agent.session.parentSession", {id: session.parentSessionId}) }}</span>
                         </div>
                     </div>
-                    <button class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] opacity-50 transition-all hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)] hover:opacity-100 group-hover:opacity-100 disabled:opacity-40" :disabled="actionId === session.sessionId || loading || !canArchiveSession(session)" :title="t('agent.session.archive')" @click.stop="emit('archive', session)">
-                        <span v-if="actionId === session.sessionId" class="i-lucide-loader-circle h-4 w-4 animate-spin"></span>
-                        <span v-else class="i-lucide-archive h-4 w-4"></span>
-                    </button>
+                    <div class="flex shrink-0 flex-col gap-1">
+                        <button class="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-muted)] opacity-50 transition-all hover:bg-[var(--bg-input)] hover:text-[var(--accent-text)] hover:opacity-100 group-hover:opacity-100 disabled:opacity-40" :disabled="actionId === session.sessionId || loading" :title="t('agent.session.rename')" @click.stop="emit('rename', session)">
+                            <span class="i-lucide-pencil-line h-4 w-4"></span>
+                        </button>
+                        <button class="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-muted)] opacity-50 transition-all hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)] hover:opacity-100 group-hover:opacity-100 disabled:opacity-40" :disabled="actionId === session.sessionId || loading || !canArchiveSession(session)" :title="t('agent.session.archive')" @click.stop="emit('archive', session)">
+                            <span v-if="actionId === session.sessionId" class="i-lucide-loader-circle h-4 w-4 animate-spin"></span>
+                            <span v-else class="i-lucide-archive h-4 w-4"></span>
+                        </button>
+                    </div>
                 </div>
 
                 <div v-if="props.hasMore" class="flex justify-center py-2">

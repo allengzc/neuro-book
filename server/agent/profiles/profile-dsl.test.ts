@@ -668,6 +668,7 @@ describe("profile TSX DSL", () => {
                     builtin: true,
                     loadStatus: "loaded",
                     hasSettingsForm: false,
+                    hasSummarizer: false,
                     canResetHome: false,
                 }],
                 issues: [],
@@ -692,6 +693,118 @@ describe("profile TSX DSL", () => {
         expect(text).toContain("when_to_use");
         expect(text).not.toContain("## Available Agents");
         expect(text).not.toContain("writer");
+    });
+
+    it("SkillCatalog mode=userAssets 切换 roots 与长期资产纪律行", async () => {
+        const renderCatalog = async (mode?: "workspace" | "userAssets") => {
+            const profile = defineAgentProfile({
+                manifest: {
+                    key: "test.skill-catalog-mode",
+                    name: "Skill Catalog Mode",
+                },
+                initialSchema: Type.Object({}),
+                allowedToolKeys: [],
+                context() {
+                    return ProfilePrompt({
+                        children: [
+                            HistorySet({
+                                children: Message({
+                                    children: SkillCatalog(mode ? {mode} : {}),
+                                }),
+                            }),
+                        ],
+                    });
+                },
+            });
+            const plan = await profile.prepare!({
+                ...context(),
+                skills: [{
+                    key: "draft",
+                    name: "Draft Skill",
+                    description: "Write a draft.",
+                    source: "system",
+                    rootPath: "assets/workspace/.nbook/agent/skills/draft",
+                    skillPath: "assets/workspace/.nbook/agent/skills/draft/SKILL.md",
+                }],
+            });
+            return (plan.historyInitMessages ?? []).map(messageText).join("\n");
+        };
+        const workspaceText = await renderCatalog();
+        const userAssetsText = await renderCatalog("userAssets");
+
+        expect(workspaceText).toContain("- Skill roots: workspace/.nbook/agent/skills/ overrides assets/workspace/.nbook/agent/skills/.");
+        expect(workspaceText).toContain("Stable world facts belong in Lorebook, plot progress belongs in Plot System");
+        expect(userAssetsText).toContain("- Skill roots: agent/skills/ overrides assets/workspace/.nbook/agent/skills/.");
+        expect(userAssetsText).not.toContain("Stable world facts belong in Lorebook");
+        expect(userAssetsText).toContain("Do not hard-code temporary conversation preferences into long-term profiles or skill files");
+        // 两种 mode 共享同一份主体原则。
+        expect(userAssetsText).toContain("You may proactively choose a skill");
+        expect(userAssetsText).toContain("If a skill conflicts with the user's goal, prioritize the user's goal");
+        expect(userAssetsText).toContain("After using a skill, the final response should report key output");
+    });
+
+    it("profile skills.include 白名单在 prepare 层过滤可见 skill", async () => {
+        const profile = defineAgentProfile({
+            manifest: {
+                key: "test.skill-include",
+                name: "Skill Include",
+            },
+            initialSchema: Type.Object({}),
+            allowedToolKeys: [],
+            skills: {include: ["profile-system-guide"]},
+            context() {
+                return ProfilePrompt({
+                    children: [
+                        HistorySet({
+                            children: Message({
+                                children: SkillCatalog({}),
+                            }),
+                        }),
+                    ],
+                });
+            },
+        });
+        const plan = await profile.prepare!({
+            ...context(),
+            skills: [{
+                key: "profile-system-guide",
+                name: "Profile System Guide",
+                description: "Profile 系统指南。",
+                source: "system",
+                rootPath: "assets/workspace/.nbook/agent/skills/profile-system-guide",
+                skillPath: "assets/workspace/.nbook/agent/skills/profile-system-guide/SKILL.md",
+            }, {
+                key: "novel-workflow-09-chapter-writing",
+                name: "Chapter Writing",
+                description: "章节写作流程。",
+                source: "system",
+                rootPath: "assets/workspace/.nbook/agent/skills/novel-workflow-09-chapter-writing",
+                skillPath: "assets/workspace/.nbook/agent/skills/novel-workflow-09-chapter-writing/SKILL.md",
+            }],
+        });
+        const text = (plan.historyInitMessages ?? []).map(messageText).join("\n");
+
+        expect(text).toContain("key: profile-system-guide");
+        expect(text).not.toContain("novel-workflow-09-chapter-writing");
+
+        expect(() => defineAgentProfile({
+            manifest: {key: "test.skill-include-dup", name: "Dup"},
+            initialSchema: Type.Object({}),
+            allowedToolKeys: [],
+            skills: {include: ["a", "a"]},
+            context() {
+                return ProfilePrompt({children: []});
+            },
+        })).toThrow("skills.include 重复");
+        expect(() => defineAgentProfile({
+            manifest: {key: "test.skill-include-empty", name: "Empty"},
+            initialSchema: Type.Object({}),
+            allowedToolKeys: [],
+            skills: {include: [" "]},
+            context() {
+                return ProfilePrompt({children: []});
+            },
+        })).toThrow("skills.include 不能包含空 key");
     });
 
     it("AgentCatalog 只渲染 agent profile 索引", async () => {
@@ -734,6 +847,7 @@ describe("profile TSX DSL", () => {
                     builtin: true,
                     loadStatus: "loaded",
                     hasSettingsForm: false,
+                    hasSummarizer: false,
                     canResetHome: false,
                 }],
                 issues: [],

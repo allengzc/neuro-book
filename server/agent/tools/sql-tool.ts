@@ -4,8 +4,9 @@ import {Type} from "typebox";
 import type {Static} from "typebox";
 import type {NeuroAgentTool, ToolExecutionContext} from "nbook/server/agent/tools/types";
 import type {JsonValue} from "nbook/server/agent/messages/types";
-import {initProjectDatabase, readProjectManifest, resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
+import {normalizeProjectPath, readProjectManifest, resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
+import {assertProjectOpen, markProjectActivity, registerProjectResourceOwner} from "nbook/server/workspace-files/project-session";
 
 const ExecuteSqlSchema = Type.Object({
     sql: Type.String({description: "A single Project SQLite statement: SELECT / WITH / INSERT / UPDATE / DELETE. DDL, transaction control, PRAGMA, ATTACH/DETACH, and multi-statement queries are prohibited."}),
@@ -161,6 +162,13 @@ export async function closeAgentSqliteClient(projectPath?: string): Promise<void
         clearAgentSqlSchemaSummaryCache();
     }
 }
+
+// Project 资源生命周期：execute_sql 的单槽 libsql client 交由统一注册表关闭（删除/空闲/关停）。
+registerProjectResourceOwner({
+    name: "agent-sql-client",
+    close: (projectPath) => closeAgentSqliteClient(projectPath),
+    closeAll: () => closeAgentSqliteClient(),
+});
 
 function agentSqlSchemaSummaryCacheMatches(targetUrl: string): boolean {
     if (!targetUrl || !agentSqlSchemaSummaryCacheProjectPath) {
@@ -528,9 +536,11 @@ function toExecuteSqlResult(normalized: string, rows: Record<string, unknown>[],
 }
 
 async function useSqliteClient(projectPath: string): Promise<LibsqlClient> {
-    await readProjectManifest(projectPath);
-    await initProjectDatabase(projectPath);
-    const url = toSqliteFileUrl(resolveProjectDatabasePath(projectPath));
+    const normalizedProjectPath = normalizeProjectPath(projectPath);
+    assertProjectOpen(normalizedProjectPath);
+    await readProjectManifest(normalizedProjectPath);
+    markProjectActivity(normalizedProjectPath);
+    const url = toSqliteFileUrl(resolveProjectDatabasePath(normalizedProjectPath));
     if (!sqliteClient || sqliteClientUrl !== url) {
         if (sqliteClient) {
             await sqliteClient.close();

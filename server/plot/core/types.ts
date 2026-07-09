@@ -2,7 +2,10 @@ import type {Prisma} from "nbook/server/generated/project-prisma/client";
 import type {
     StoryAct,
     StoryChapter,
+    StoryDecision,
     StoryPhase,
+    StoryPromise,
+    StoryPromiseBeat,
     StoryScene,
     StorySceneRef,
     StoryThread,
@@ -10,14 +13,19 @@ import type {
 import type {
     CreateStoryActRequestDto,
     CreateStoryChapterRequestDto,
+    CreateStoryDecisionRequestDto,
+    CreateStoryPromiseRequestDto,
     CreateStorySceneRequestDto,
     CreateStoryThreadRequestDto,
     ReorderStoryPhasesRequestDto,
     ReorderStoryScenesRequestDto,
     ReorderStoryThreadsRequestDto,
+    SetPromiseBeatRequestDto,
     StoryRefDto,
     UpdateStoryActRequestDto,
     UpdateStoryChapterRequestDto,
+    UpdateStoryDecisionRequestDto,
+    UpdateStoryPromiseRequestDto,
     UpdateStorySceneRequestDto,
     UpdateStoryThreadRequestDto,
 } from "nbook/shared/dto/plot.dto";
@@ -34,6 +42,9 @@ export type PrismaExecutor = Prisma.TransactionClient | {
     storyThread: Prisma.TransactionClient["storyThread"];
     storyScene: Prisma.TransactionClient["storyScene"];
     storySceneRef: Prisma.TransactionClient["storySceneRef"];
+    storyPromise: Prisma.TransactionClient["storyPromise"];
+    storyPromiseBeat: Prisma.TransactionClient["storyPromiseBeat"];
+    storyDecision: Prisma.TransactionClient["storyDecision"];
     $executeRaw: Prisma.TransactionClient["$executeRaw"];
     $executeRawUnsafe: Prisma.TransactionClient["$executeRawUnsafe"];
 };
@@ -111,6 +122,143 @@ export type StoryThreadWithScenes = StoryThreadEntity & {
 export type StorySceneWithDetails = StorySceneWithChapter & {
     refs: StorySceneRefWithTargets[];
     thread: StoryThreadEntity;
+    promiseBeats: StoryPromiseBeatWithPromise[];
+};
+
+/**
+ * Plot 层对外使用的 Promise 实体。
+ * 数据库中 `tags` 是 JSON array 文本;进入 service 后统一归一化为 string[]。
+ */
+export type StoryPromiseEntity = Omit<StoryPromise, "tags"> & {
+    tags: string[];
+};
+
+/**
+ * beat + 所在 Scene(含所属章轻量摘要)聚合。
+ * Scene.status 驱动 beat 三态派生;chapter 提供章位展示。
+ */
+export type StoryPromiseBeatWithScene = StoryPromiseBeat & {
+    scene: StorySceneWithChapter;
+};
+
+/**
+ * Promise 详情聚合:beats 及其所在场/章位 + 期限章轻量摘要;派生态从 beats 计算。
+ */
+export type StoryPromiseWithBeats = StoryPromiseEntity & {
+    beats: StoryPromiseBeatWithScene[];
+    // `deadlineChapter` 为空表示无兑现期限或期限章已被删除(外键 SetNull)。
+    deadlineChapter: StoryChapterRef | null;
+};
+
+/**
+ * Scene 视角的 beat + 所属 Promise 摘要(scene detail 的 promiseBeats 与 brief 任务段共用)。
+ * payoffExpectation 供 brief「本章 Promise 任务」段在兑现场输出预期戏剧效果(D25)。
+ */
+export type StoryPromiseBeatWithPromise = StoryPromiseBeat & {
+    promise: Pick<StoryPromise, "id" | "name" | "title" | "status" | "payoffExpectation">;
+};
+
+/**
+ * Decision open 态候选方案条目(options JSON 的元素)。
+ */
+export type StoryDecisionOption = {
+    option: string;
+    // `note` 为空表示该候选没有补充说明。
+    note: string | null;
+};
+
+/**
+ * Decision decided 态否决记录条目(rejectedAlternatives JSON 的元素)。
+ * decide 转换从 options 未选项生成骨架(whyRejected=null),理由由调用方补(D11)。
+ */
+export type StoryDecisionRejectedAlternative = {
+    option: string;
+    // `whyRejected` 为空表示否决理由尚未补全。
+    whyRejected: string | null;
+};
+
+/**
+ * Plot 层对外使用的 Decision 实体。
+ * 数据库中 options/rejectedAlternatives/serves/dependsOn 是 JSON 文本;进入 service 后统一归一化为结构化数组。
+ */
+export type StoryDecisionEntity = Omit<StoryDecision, "options" | "rejectedAlternatives" | "serves" | "dependsOn"> & {
+    options: StoryDecisionOption[];
+    rejectedAlternatives: StoryDecisionRejectedAlternative[];
+    serves: string[];
+    dependsOn: string[];
+};
+
+/**
+ * serves/dependsOn 引用条目的读取解析结果(D12 死引用容错)。
+ */
+export type StoryDecisionRefResolved = {
+    target: string;
+    // 目标剧情对象已被删除(JSON 引用无 SetNull 保护)时 false;content 路径不校验存在性,恒 true。
+    valid: boolean;
+};
+
+/**
+ * Decision 读取聚合:引用死引用标注与期限章摘要已由 service 解析,assembler 只做 DTO 映射。
+ */
+export type StoryDecisionResolved = Omit<StoryDecisionEntity, "serves" | "dependsOn"> & {
+    // `deadlineChapter` 为空且 deadlineChapterId 非空 = 期限章已被删除(死引用,无外键保护)。
+    deadlineChapter: StoryChapterRef | null;
+    serves: StoryDecisionRefResolved[];
+    dependsOn: StoryDecisionRefResolved[];
+};
+
+/**
+ * Decision anchor 解析结果:kind 已按载体路由到对应外键列,其余列为 null(写库形态)。
+ */
+export type ResolvedStoryDecisionAnchor = {
+    anchorKind: StoryDecision["anchorKind"];
+    anchorActId: number | null;
+    anchorChapterId: number | null;
+    anchorThreadId: number | null;
+    anchorSceneId: number | null;
+    anchorPromiseId: number | null;
+    anchorPath: string | null;
+};
+
+/**
+ * Decision 创建输入(HTTP DTO 的 id 字符串已解析为 number)。
+ */
+export type ParsedCreateStoryDecisionInput = Omit<CreateStoryDecisionRequestDto, "deadlineChapterId"> & {
+    // `deadlineChapterId` 为 null 表示无拍板期限。
+    deadlineChapterId: number | null;
+};
+
+/**
+ * Decision 更新输入。
+ */
+export type ParsedUpdateStoryDecisionInput = Omit<UpdateStoryDecisionRequestDto, "deadlineChapterId" | "supersededById"> & {
+    // `deadlineChapterId` 为 undefined 表示不修改;null 表示清空拍板期限。
+    deadlineChapterId?: number | null;
+    // `supersededById` 为 undefined 表示不修改;null 表示清空取代链接。
+    supersededById?: number | null;
+};
+
+/**
+ * Promise 创建输入(HTTP DTO 的 id 字符串已解析为 number)。
+ */
+export type ParsedCreateStoryPromiseInput = Omit<CreateStoryPromiseRequestDto, "deadlineChapterId"> & {
+    // `deadlineChapterId` 为 null 表示无兑现期限。
+    deadlineChapterId: number | null;
+};
+
+/**
+ * Promise 更新输入。
+ */
+export type ParsedUpdateStoryPromiseInput = Omit<UpdateStoryPromiseRequestDto, "deadlineChapterId"> & {
+    // `deadlineChapterId` 为 undefined 表示不修改;null 表示清空兑现期限。
+    deadlineChapterId?: number | null;
+};
+
+/**
+ * beat set 输入(upsert:同场同线仅一条)。
+ */
+export type ParsedSetPromiseBeatInput = Omit<SetPromiseBeatRequestDto, "sceneId"> & {
+    sceneId: number;
 };
 
 /**

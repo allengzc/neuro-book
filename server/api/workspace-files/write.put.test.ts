@@ -84,4 +84,28 @@ describe("PUT /api/workspace-files/write", () => {
             expect(parsed.success).toBe(true);
         }
     });
+
+    it("Project root 未 open 时返回 PROJECT_NOT_OPEN", async () => {
+        vi.doMock("nbook/server/workspace-files/novel-workspace", async (importOriginal) => {
+            const actual = await importOriginal<typeof import("nbook/server/workspace-files/novel-workspace")>();
+            return {
+                ...actual,
+                resolveWorkspaceRootInput: vi.fn(async () => "workspace/not-open"),
+            };
+        });
+        readBodyMock.mockResolvedValue({
+            projectPath: "workspace/not-open",
+            path: "note.md",
+            content: "不会写入\n",
+        });
+
+        const handler = (await import("nbook/server/api/workspace-files/write.put")).default;
+        await expect(handler({} as never)).rejects.toMatchObject({
+            statusCode: 409,
+            data: {
+                code: "PROJECT_NOT_OPEN",
+                projectPath: "workspace/not-open",
+            },
+        });
+    });
 });

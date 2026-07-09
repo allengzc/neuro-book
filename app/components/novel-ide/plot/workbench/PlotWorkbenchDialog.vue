@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import {computed, ref} from "vue";
+import {storeToRefs} from "pinia";
 import Dialog from "nbook/app/components/common/Dialog.vue";
+import PlotDecisionLedgerTab from "nbook/app/components/novel-ide/plot/planning/PlotDecisionLedgerTab.vue";
+import PlotPromiseLedgerTab from "nbook/app/components/novel-ide/plot/planning/PlotPromiseLedgerTab.vue";
 import PlotWorkbenchInspector from "nbook/app/components/novel-ide/plot/workbench/PlotWorkbenchInspector.vue";
 import PlotWorkbenchSceneList from "nbook/app/components/novel-ide/plot/workbench/PlotWorkbenchSceneList.vue";
 import PlotWorkbenchSidebar from "nbook/app/components/novel-ide/plot/workbench/PlotWorkbenchSidebar.vue";
@@ -12,6 +15,9 @@ import type {
 } from "nbook/app/components/novel-ide/plot/thread-panel/plot-thread-panel.types";
 import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
 import type {WorkbenchManualRef} from "nbook/app/components/novel-ide/plot/workbench/plot-workbench.types";
+import type {StoryActDto, StoryScenePromiseBeatDto} from "nbook/shared/dto/plot.dto";
+import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
+import {buildWorkspaceReferenceSections} from "nbook/app/utils/workspace-reference-menu";
 
 type PlotWorkbenchStory = {
     id: string;
@@ -43,8 +49,12 @@ const props = defineProps<{
     threads: PlotThreadPanelThread[];
     scenes: PlotThreadPanelScene[];
     chapters: PlotThreadPanelChapter[];
+    // 承载树卷实体:决策记录 tab 的锚点 kind=act 下拉与卷名解析;为空表示宿主未接承载树(如演示页)。
+    acts?: StoryActDto[];
     selectedThreadId: string | null;
     selectedSceneId: string | null;
+    // 当前选中 Scene 的 promise beats(「这场戏服务哪些线」);为空表示宿主未接 Scene 详情(如演示页)或该场无节拍。
+    scenePromiseBeats?: StoryScenePromiseBeatDto[];
     pinnedThreadIds: string[];
     loading?: boolean;
     error?: string;
@@ -64,22 +74,26 @@ const emit = defineEmits<{
     (e: "updateThread", threadId: string, patch: Partial<PlotThreadPanelThread>): void;
     (e: "updateScene", sceneId: string, patch: Partial<PlotThreadPanelScene>): void;
     (e: "openWorldEngine"): void;
+    // 账本 tab(承诺/决策)UI 写操作成功的转发信号:宿主刷新剧情树计数,sceneIds 为需强刷详情缓存的场景。
+    (e: "planningMutated", payload: {sceneIds?: string[]}): void;
 }>();
 
 const MARKDOWN_LINK_PATTERN = /\[([^\]]+)]\(([^)]+)\)/g;
 
-const activeTab = ref<"overview" | "chapter" | "thread" | "draft" | "timeline" | "tree">("thread");
+const novelIdeStore = useNovelIdeStore();
+// activeTab 直接读写 store 的 plotWorkbenchTab:侧栏计数入口、Scene 芯片跳转都通过它定位 tab;
+// plotPlanningFocusId 是账本聚焦请求(Inspector 芯片跳转时写入,对应 tab 消费一次);
+// workspaceTree 是 refs 目标候选的内容节点来源(与 @ 引用菜单同源)。
+const {plotWorkbenchTab: activeTab, plotPlanningFocusId, workspaceTree} = storeToRefs(novelIdeStore);
 const inspectorMode = ref<"thread" | "scene" | null>(null);
 const search = ref("");
 const threadMode = ref<"all" | "main" | "support" | "active" | "draft" | "paused" | "unmounted" | "pinned">("all");
 
-const tabs: Array<{value: "overview" | "chapter" | "thread" | "draft" | "timeline" | "tree"; label: string; icon: string}> = [
-    {value: "overview", label: "总览", icon: "i-lucide-layout-dashboard"},
-    {value: "chapter", label: "章节设计", icon: "i-lucide-book-open"},
+// 三个真 tab:线程规划(默认)/承诺账本/决策记录,主体随 tab 切换。
+const tabs: Array<{value: "thread" | "promises" | "decisions"; label: string; icon: string}> = [
     {value: "thread", label: "线程规划", icon: "i-lucide-git-branch-plus"},
-    {value: "draft", label: "草稿池", icon: "i-lucide-clipboard-list"},
-    {value: "timeline", label: "Timeline", icon: "i-lucide-move-horizontal"},
-    {value: "tree", label: "Tree", icon: "i-lucide-network"},
+    {value: "promises", label: "承诺账本", icon: "i-lucide-scroll-text"},
+    {value: "decisions", label: "决策记录", icon: "i-lucide-gavel"},
 ];
 
 const selectedThread = computed(() => {
@@ -101,7 +115,8 @@ const effectiveRefs = computed<WorkbenchInlineRef[]>(() => {
         ["writingTip", selectedScene.value.writingTip ?? ""],
     ]);
 });
-const refTargetOptions = computed(() => buildRefTargetOptions());
+// 空 query 的默认候选:引用卡片的展示解析(label/icon)与弹层初始列表用。
+const refTargetOptions = computed(() => buildRefTargetOptions(""));
 const manualRefs = computed<WorkbenchManualRef[]>(() => {
     if (inspectorMode.value !== "scene") {
         return [];
@@ -149,20 +164,55 @@ function updateManualRefs(refs: WorkbenchManualRef[]): void {
 }
 
 /**
- * 生成 refs target 候选列表。
+ * 生成 refs target 候选列表:thread/scene 来自工作台 props(按 query 本地匹配),
+ * 内容节点候选与 @ 引用菜单同源(workspace tree),query 透传给搜索器按需搜索——
+ * 空 query 只返回默认截断列表(maxResults),带 query 才能覆盖大型 workspace 靠后的节点,
+ * 因此消费方(引用弹层)必须走 searchRefTargetOptions 而不是只过滤一次性列表。
  */
-function buildRefTargetOptions(): SelectOption[] {
+function buildRefTargetOptions(query: string): SelectOption[] {
+    const normalized = query.trim().toLowerCase();
+    // thread/scene 数量可控,按标题/摘要包含匹配即可。
+    const matches = (label: string, description: string): boolean => !normalized
+        || label.toLowerCase().includes(normalized)
+        || description.toLowerCase().includes(normalized);
     const options: SelectOption[] = [];
     for (const thread of props.threads) {
-        options.push({ value: `thread://${thread.id}`, label: thread.title || "未命名 Thread", iconClass: "i-lucide-git-branch", description: thread.summary });
+        const label = thread.title || "未命名 Thread";
+        if (matches(label, thread.summary)) {
+            options.push({ value: `thread://${thread.id}`, label, iconClass: "i-lucide-git-branch", description: thread.summary });
+        }
     }
     for (const scene of props.scenes) {
-        options.push({ value: `scene://${scene.id}`, label: scene.title || "未命名 Scene", iconClass: "i-lucide-clapperboard", description: scene.summary });
+        const label = scene.title || "未命名 Scene";
+        if (matches(label, scene.summary)) {
+            options.push({ value: `scene://${scene.id}`, label, iconClass: "i-lucide-clapperboard", description: scene.summary });
+        }
     }
-    options.push({ value: "lorebook/location/initial-stage/", label: "初始舞台", iconClass: "i-lucide-map-pin", description: "lorebook/location/initial-stage/" });
-    options.push({ value: "lorebook/character/slave-girl/", label: "奴隶少女", iconClass: "i-lucide-user", description: "lorebook/character/slave-girl/" });
-    options.push({ value: "lorebook/item/debt-contract/", label: "债务契约", iconClass: "i-lucide-box", description: "lorebook/item/debt-contract/" });
+    for (const section of buildWorkspaceReferenceSections(workspaceTree.value, query)) {
+        for (const item of section.items) {
+            if (!item.workspaceReference) {
+                continue;
+            }
+            options.push({ value: item.workspaceReference.target, label: item.label, iconClass: item.iconClass, description: item.description });
+        }
+    }
     return options;
+}
+
+/**
+ * 承诺账本节拍行点场景:切回线程规划 tab,并转发给宿主选中该 Scene。
+ */
+function jumpToSceneFromLedger(sceneId: string): void {
+    activeTab.value = "thread";
+    emit("selectScene", sceneId);
+}
+
+/**
+ * Inspector 的 Scene 芯片跳转:置聚焦请求并切到承诺账本 tab(工作台已开着,不动 open)。
+ */
+function focusPromiseFromInspector(promiseId: string): void {
+    plotPlanningFocusId.value = promiseId;
+    activeTab.value = "promises";
 }
 
 /**
@@ -257,22 +307,25 @@ function toPanelRefs(refs: WorkbenchManualRef[]): PlotThreadPanelRef[] {
         @update:model-value="emit('update:modelValue', $event)"
     >
         <template #header>
-            <!-- 剧本工作台顶部栏 -->
+            <!-- 剧本工作台顶部栏:面包屑 = 小说标题 › 阶段 › 选中线(主/支按 isMainThread);状态区只报加载中/失败,不虚构保存状态 -->
             <div class="flex min-w-0 flex-1 items-center gap-3">
                 <span class="workbench-accent-icon">
                     <span class="i-lucide-pen-line h-4 w-4"></span>
                 </span>
                 <span class="text-[16px] font-semibold text-[var(--text-main)]">剧本工作台</span>
-                <span class="hidden text-[13px] text-[var(--text-muted)] md:inline">新小说</span>
+                <span class="hidden max-w-[200px] truncate text-[13px] text-[var(--text-muted)] md:inline">{{ props.story.title }}</span>
                 <span class="hidden text-[13px] text-[var(--text-muted)] md:inline">›</span>
                 <span class="hidden truncate text-[13px] text-[var(--text-secondary)] md:inline">{{ selectedPhase?.title ?? "未分阶段" }}</span>
-                <span class="hidden text-[13px] text-[var(--text-muted)] lg:inline">›</span>
-                <span class="hidden max-w-[260px] truncate text-[13px] text-[var(--text-secondary)] lg:inline">主线：{{ selectedThread?.title ?? props.story.title }}</span>
+                <template v-if="selectedThread">
+                    <span class="hidden text-[13px] text-[var(--text-muted)] lg:inline">›</span>
+                    <span class="hidden max-w-[260px] truncate text-[13px] text-[var(--text-secondary)] lg:inline">{{ selectedThread.isMainThread ? "主线" : "支线" }}：{{ selectedThread.title }}</span>
+                </template>
 
                 <span class="ml-auto flex items-center gap-2 text-[11px] text-[var(--text-muted)]">
-                    <span class="h-2 w-2 rounded-full" :class="props.error ? 'bg-[var(--status-danger)]' : props.loading ? 'bg-[var(--status-warning)]' : 'bg-[var(--status-success)]'"></span>
-                    {{ props.error ? "加载失败" : props.loading ? "加载中" : "已保存" }}
-                    <span v-if="!props.error">刚刚</span>
+                    <template v-if="props.error || props.loading">
+                        <span class="h-2 w-2 rounded-full" :class="props.error ? 'bg-[var(--status-danger)]' : 'bg-[var(--status-warning)]'"></span>
+                        {{ props.error ? "加载失败" : "加载中" }}
+                    </template>
                 </span>
 
                 <button type="button" class="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="emit('update:modelValue', false)">
@@ -303,52 +356,77 @@ function toPanelRefs(refs: WorkbenchManualRef[]): PlotThreadPanelRef[] {
                     {{ props.error }}
                 </div>
 
-                <PlotWorkbenchSidebar
-                    v-model:search="search"
-                    v-model:mode="threadMode"
+                <!-- 线程规划 tab:Sidebar + SceneList + Inspector 三件套 -->
+                <template v-if="activeTab === 'thread'">
+                    <PlotWorkbenchSidebar
+                        v-model:search="search"
+                        v-model:mode="threadMode"
+                        :threads="props.threads"
+                        :scenes="props.scenes"
+                        :pinned-thread-ids="props.pinnedThreadIds"
+                        :selected-thread-id="props.selectedThreadId"
+                        @select-thread="selectThread"
+                        @edit-thread="editThread"
+                        @create-thread="emit('createThread')"
+                        @toggle-thread-pin="emit('toggleThreadPin', $event)"
+                        @toggle-thread-main="emit('toggleThreadMain', $event)"
+                        @delete-thread="emit('deleteThread', $event)"
+                    />
+
+                    <PlotWorkbenchSceneList
+                        :thread="selectedThread"
+                        :phase-title="selectedPhase?.title ?? null"
+                        :scenes="props.scenes"
+                        :chapters="props.chapters"
+                        :selected-scene-id="props.selectedSceneId"
+                        @select-scene="selectScene"
+                        @edit-scene="editScene"
+                        @create-scene="emit('createScene', $event)"
+                        @auto-sort-scenes="emit('autoSortScenes', $event)"
+                        @reorder-scenes="emit('reorderScenes', $event)"
+                    />
+
+                    <Transition name="inspector">
+                        <PlotWorkbenchInspector
+                            v-if="inspectorMode"
+                            :mode="inspectorMode"
+                            :project-path="props.projectPath"
+                            :thread="selectedThread"
+                            :scene="selectedScene"
+                            :chapters="props.chapters"
+                            :scene-promise-beats="props.scenePromiseBeats ?? []"
+                            :effective-refs="effectiveRefs"
+                            :manual-refs="manualRefs"
+                            :ref-target-options="refTargetOptions"
+                            @close="inspectorMode = null"
+                            @update-thread="(threadId, patch) => emit('updateThread', threadId, patch)"
+                            @update-scene="(sceneId, patch) => emit('updateScene', sceneId, patch)"
+                            @update-refs="updateManualRefs"
+                            @focus-promise="focusPromiseFromInspector"
+                            @open-world-engine="emit('openWorldEngine')"
+                        />
+                    </Transition>
+                </template>
+
+                <!-- 承诺账本 tab:自含数据加载,节拍行点场景跳回线程规划 -->
+                <PlotPromiseLedgerTab
+                    v-else-if="activeTab === 'promises'"
+                    :project-path="props.projectPath"
+                    :chapters="props.chapters"
                     :threads="props.threads"
                     :scenes="props.scenes"
-                    :pinned-thread-ids="props.pinnedThreadIds"
-                    :selected-thread-id="props.selectedThreadId"
-                    @select-thread="selectThread"
-                    @edit-thread="editThread"
-                    @create-thread="emit('createThread')"
-                    @toggle-thread-pin="emit('toggleThreadPin', $event)"
-                    @toggle-thread-main="emit('toggleThreadMain', $event)"
-                    @delete-thread="emit('deleteThread', $event)"
+                    @select-scene="jumpToSceneFromLedger"
                 />
 
-                <PlotWorkbenchSceneList
-                    :thread="selectedThread"
-                    :phase-title="selectedPhase?.title ?? null"
-                    :scenes="props.scenes"
+                <!-- 决策记录 tab:自含数据加载,引用/锚点点场景同样跳回线程规划 -->
+                <PlotDecisionLedgerTab
+                    v-else
+                    :project-path="props.projectPath"
                     :chapters="props.chapters"
-                    :selected-scene-id="props.selectedSceneId"
-                    @select-scene="selectScene"
-                    @edit-scene="editScene"
-                    @create-scene="emit('createScene', $event)"
-                    @auto-sort-scenes="emit('autoSortScenes', $event)"
-                    @reorder-scenes="emit('reorderScenes', $event)"
+                    :threads="props.threads"
+                    :scenes="props.scenes"
+                    @select-scene="jumpToSceneFromLedger"
                 />
-
-                <Transition name="inspector">
-                    <PlotWorkbenchInspector
-                        v-if="inspectorMode"
-                        :mode="inspectorMode"
-                        :project-path="props.projectPath"
-                        :thread="selectedThread"
-                        :scene="selectedScene"
-                        :chapters="props.chapters"
-                        :effective-refs="effectiveRefs"
-                        :manual-refs="manualRefs"
-                        :ref-target-options="refTargetOptions"
-                        @close="inspectorMode = null"
-                        @update-thread="(threadId, patch) => emit('updateThread', threadId, patch)"
-                        @update-scene="(sceneId, patch) => emit('updateScene', sceneId, patch)"
-                        @update-refs="updateManualRefs"
-                        @open-world-engine="emit('openWorldEngine')"
-                    />
-                </Transition>
             </div>
         </div>
     </Dialog>

@@ -351,6 +351,8 @@ export type StoryChapterWhereInput = {
   story?: Prisma.XOR<Prisma.StoryScalarRelationFilter, Prisma.StoryWhereInput>
   act?: Prisma.XOR<Prisma.StoryActNullableScalarRelationFilter, Prisma.StoryActWhereInput> | null
   scenes?: Prisma.StorySceneListRelationFilter
+  promiseDeadlines?: Prisma.StoryPromiseListRelationFilter
+  anchoredDecisions?: Prisma.StoryDecisionListRelationFilter
 }
 
 export type StoryChapterOrderByWithRelationInput = {
@@ -377,6 +379,8 @@ export type StoryChapterOrderByWithRelationInput = {
   story?: Prisma.StoryOrderByWithRelationInput
   act?: Prisma.StoryActOrderByWithRelationInput
   scenes?: Prisma.StorySceneOrderByRelationAggregateInput
+  promiseDeadlines?: Prisma.StoryPromiseOrderByRelationAggregateInput
+  anchoredDecisions?: Prisma.StoryDecisionOrderByRelationAggregateInput
 }
 
 export type StoryChapterWhereUniqueInput = Prisma.AtLeast<{
@@ -407,6 +411,8 @@ export type StoryChapterWhereUniqueInput = Prisma.AtLeast<{
   story?: Prisma.XOR<Prisma.StoryScalarRelationFilter, Prisma.StoryWhereInput>
   act?: Prisma.XOR<Prisma.StoryActNullableScalarRelationFilter, Prisma.StoryActWhereInput> | null
   scenes?: Prisma.StorySceneListRelationFilter
+  promiseDeadlines?: Prisma.StoryPromiseListRelationFilter
+  anchoredDecisions?: Prisma.StoryDecisionListRelationFilter
 }, "id" | "storyId_name">
 
 export type StoryChapterOrderByWithAggregationInput = {
@@ -484,6 +490,8 @@ export type StoryChapterCreateInput = {
   story: Prisma.StoryCreateNestedOneWithoutChaptersInput
   act?: Prisma.StoryActCreateNestedOneWithoutChaptersInput
   scenes?: Prisma.StorySceneCreateNestedManyWithoutChapterInput
+  promiseDeadlines?: Prisma.StoryPromiseCreateNestedManyWithoutDeadlineChapterInput
+  anchoredDecisions?: Prisma.StoryDecisionCreateNestedManyWithoutAnchorChapterInput
 }
 
 export type StoryChapterUncheckedCreateInput = {
@@ -508,6 +516,8 @@ export type StoryChapterUncheckedCreateInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   scenes?: Prisma.StorySceneUncheckedCreateNestedManyWithoutChapterInput
+  promiseDeadlines?: Prisma.StoryPromiseUncheckedCreateNestedManyWithoutDeadlineChapterInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedCreateNestedManyWithoutAnchorChapterInput
 }
 
 export type StoryChapterUpdateInput = {
@@ -531,6 +541,8 @@ export type StoryChapterUpdateInput = {
   story?: Prisma.StoryUpdateOneRequiredWithoutChaptersNestedInput
   act?: Prisma.StoryActUpdateOneWithoutChaptersNestedInput
   scenes?: Prisma.StorySceneUpdateManyWithoutChapterNestedInput
+  promiseDeadlines?: Prisma.StoryPromiseUpdateManyWithoutDeadlineChapterNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUpdateManyWithoutAnchorChapterNestedInput
 }
 
 export type StoryChapterUncheckedUpdateInput = {
@@ -555,6 +567,8 @@ export type StoryChapterUncheckedUpdateInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   scenes?: Prisma.StorySceneUncheckedUpdateManyWithoutChapterNestedInput
+  promiseDeadlines?: Prisma.StoryPromiseUncheckedUpdateManyWithoutDeadlineChapterNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedUpdateManyWithoutAnchorChapterNestedInput
 }
 
 export type StoryChapterCreateManyInput = {
@@ -834,6 +848,38 @@ export type StoryChapterUpdateOneWithoutScenesNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.StoryChapterUpdateToOneWithWhereWithoutScenesInput, Prisma.StoryChapterUpdateWithoutScenesInput>, Prisma.StoryChapterUncheckedUpdateWithoutScenesInput>
 }
 
+export type StoryChapterCreateNestedOneWithoutPromiseDeadlinesInput = {
+  create?: Prisma.XOR<Prisma.StoryChapterCreateWithoutPromiseDeadlinesInput, Prisma.StoryChapterUncheckedCreateWithoutPromiseDeadlinesInput>
+  connectOrCreate?: Prisma.StoryChapterCreateOrConnectWithoutPromiseDeadlinesInput
+  connect?: Prisma.StoryChapterWhereUniqueInput
+}
+
+export type StoryChapterUpdateOneWithoutPromiseDeadlinesNestedInput = {
+  create?: Prisma.XOR<Prisma.StoryChapterCreateWithoutPromiseDeadlinesInput, Prisma.StoryChapterUncheckedCreateWithoutPromiseDeadlinesInput>
+  connectOrCreate?: Prisma.StoryChapterCreateOrConnectWithoutPromiseDeadlinesInput
+  upsert?: Prisma.StoryChapterUpsertWithoutPromiseDeadlinesInput
+  disconnect?: Prisma.StoryChapterWhereInput | boolean
+  delete?: Prisma.StoryChapterWhereInput | boolean
+  connect?: Prisma.StoryChapterWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.StoryChapterUpdateToOneWithWhereWithoutPromiseDeadlinesInput, Prisma.StoryChapterUpdateWithoutPromiseDeadlinesInput>, Prisma.StoryChapterUncheckedUpdateWithoutPromiseDeadlinesInput>
+}
+
+export type StoryChapterCreateNestedOneWithoutAnchoredDecisionsInput = {
+  create?: Prisma.XOR<Prisma.StoryChapterCreateWithoutAnchoredDecisionsInput, Prisma.StoryChapterUncheckedCreateWithoutAnchoredDecisionsInput>
+  connectOrCreate?: Prisma.StoryChapterCreateOrConnectWithoutAnchoredDecisionsInput
+  connect?: Prisma.StoryChapterWhereUniqueInput
+}
+
+export type StoryChapterUpdateOneWithoutAnchoredDecisionsNestedInput = {
+  create?: Prisma.XOR<Prisma.StoryChapterCreateWithoutAnchoredDecisionsInput, Prisma.StoryChapterUncheckedCreateWithoutAnchoredDecisionsInput>
+  connectOrCreate?: Prisma.StoryChapterCreateOrConnectWithoutAnchoredDecisionsInput
+  upsert?: Prisma.StoryChapterUpsertWithoutAnchoredDecisionsInput
+  disconnect?: Prisma.StoryChapterWhereInput | boolean
+  delete?: Prisma.StoryChapterWhereInput | boolean
+  connect?: Prisma.StoryChapterWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.StoryChapterUpdateToOneWithWhereWithoutAnchoredDecisionsInput, Prisma.StoryChapterUpdateWithoutAnchoredDecisionsInput>, Prisma.StoryChapterUncheckedUpdateWithoutAnchoredDecisionsInput>
+}
+
 export type StoryChapterCreateWithoutStoryInput = {
   sortOrder: number
   name: string
@@ -854,6 +900,8 @@ export type StoryChapterCreateWithoutStoryInput = {
   updatedAt?: Date | string
   act?: Prisma.StoryActCreateNestedOneWithoutChaptersInput
   scenes?: Prisma.StorySceneCreateNestedManyWithoutChapterInput
+  promiseDeadlines?: Prisma.StoryPromiseCreateNestedManyWithoutDeadlineChapterInput
+  anchoredDecisions?: Prisma.StoryDecisionCreateNestedManyWithoutAnchorChapterInput
 }
 
 export type StoryChapterUncheckedCreateWithoutStoryInput = {
@@ -877,6 +925,8 @@ export type StoryChapterUncheckedCreateWithoutStoryInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   scenes?: Prisma.StorySceneUncheckedCreateNestedManyWithoutChapterInput
+  promiseDeadlines?: Prisma.StoryPromiseUncheckedCreateNestedManyWithoutDeadlineChapterInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedCreateNestedManyWithoutAnchorChapterInput
 }
 
 export type StoryChapterCreateOrConnectWithoutStoryInput = {
@@ -950,6 +1000,8 @@ export type StoryChapterCreateWithoutActInput = {
   updatedAt?: Date | string
   story: Prisma.StoryCreateNestedOneWithoutChaptersInput
   scenes?: Prisma.StorySceneCreateNestedManyWithoutChapterInput
+  promiseDeadlines?: Prisma.StoryPromiseCreateNestedManyWithoutDeadlineChapterInput
+  anchoredDecisions?: Prisma.StoryDecisionCreateNestedManyWithoutAnchorChapterInput
 }
 
 export type StoryChapterUncheckedCreateWithoutActInput = {
@@ -973,6 +1025,8 @@ export type StoryChapterUncheckedCreateWithoutActInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   scenes?: Prisma.StorySceneUncheckedCreateNestedManyWithoutChapterInput
+  promiseDeadlines?: Prisma.StoryPromiseUncheckedCreateNestedManyWithoutDeadlineChapterInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedCreateNestedManyWithoutAnchorChapterInput
 }
 
 export type StoryChapterCreateOrConnectWithoutActInput = {
@@ -1020,6 +1074,8 @@ export type StoryChapterCreateWithoutScenesInput = {
   updatedAt?: Date | string
   story: Prisma.StoryCreateNestedOneWithoutChaptersInput
   act?: Prisma.StoryActCreateNestedOneWithoutChaptersInput
+  promiseDeadlines?: Prisma.StoryPromiseCreateNestedManyWithoutDeadlineChapterInput
+  anchoredDecisions?: Prisma.StoryDecisionCreateNestedManyWithoutAnchorChapterInput
 }
 
 export type StoryChapterUncheckedCreateWithoutScenesInput = {
@@ -1043,6 +1099,8 @@ export type StoryChapterUncheckedCreateWithoutScenesInput = {
   briefDoNotWrite?: string | null
   createdAt?: Date | string
   updatedAt?: Date | string
+  promiseDeadlines?: Prisma.StoryPromiseUncheckedCreateNestedManyWithoutDeadlineChapterInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedCreateNestedManyWithoutAnchorChapterInput
 }
 
 export type StoryChapterCreateOrConnectWithoutScenesInput = {
@@ -1081,6 +1139,8 @@ export type StoryChapterUpdateWithoutScenesInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   story?: Prisma.StoryUpdateOneRequiredWithoutChaptersNestedInput
   act?: Prisma.StoryActUpdateOneWithoutChaptersNestedInput
+  promiseDeadlines?: Prisma.StoryPromiseUpdateManyWithoutDeadlineChapterNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUpdateManyWithoutAnchorChapterNestedInput
 }
 
 export type StoryChapterUncheckedUpdateWithoutScenesInput = {
@@ -1104,6 +1164,236 @@ export type StoryChapterUncheckedUpdateWithoutScenesInput = {
   briefDoNotWrite?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  promiseDeadlines?: Prisma.StoryPromiseUncheckedUpdateManyWithoutDeadlineChapterNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedUpdateManyWithoutAnchorChapterNestedInput
+}
+
+export type StoryChapterCreateWithoutPromiseDeadlinesInput = {
+  sortOrder: number
+  name: string
+  title: string
+  note?: string | null
+  briefGoal?: string | null
+  briefPov?: string | null
+  briefTone?: string | null
+  briefPacing?: string | null
+  briefReaderKnows?: string | null
+  briefProtagonistKnows?: string | null
+  briefMustHide?: string | null
+  briefHintOnly?: string | null
+  briefOpening?: string | null
+  briefEnding?: string | null
+  briefDoNotWrite?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  story: Prisma.StoryCreateNestedOneWithoutChaptersInput
+  act?: Prisma.StoryActCreateNestedOneWithoutChaptersInput
+  scenes?: Prisma.StorySceneCreateNestedManyWithoutChapterInput
+  anchoredDecisions?: Prisma.StoryDecisionCreateNestedManyWithoutAnchorChapterInput
+}
+
+export type StoryChapterUncheckedCreateWithoutPromiseDeadlinesInput = {
+  id?: number
+  storyId: number
+  actId?: number | null
+  sortOrder: number
+  name: string
+  title: string
+  note?: string | null
+  briefGoal?: string | null
+  briefPov?: string | null
+  briefTone?: string | null
+  briefPacing?: string | null
+  briefReaderKnows?: string | null
+  briefProtagonistKnows?: string | null
+  briefMustHide?: string | null
+  briefHintOnly?: string | null
+  briefOpening?: string | null
+  briefEnding?: string | null
+  briefDoNotWrite?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  scenes?: Prisma.StorySceneUncheckedCreateNestedManyWithoutChapterInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedCreateNestedManyWithoutAnchorChapterInput
+}
+
+export type StoryChapterCreateOrConnectWithoutPromiseDeadlinesInput = {
+  where: Prisma.StoryChapterWhereUniqueInput
+  create: Prisma.XOR<Prisma.StoryChapterCreateWithoutPromiseDeadlinesInput, Prisma.StoryChapterUncheckedCreateWithoutPromiseDeadlinesInput>
+}
+
+export type StoryChapterUpsertWithoutPromiseDeadlinesInput = {
+  update: Prisma.XOR<Prisma.StoryChapterUpdateWithoutPromiseDeadlinesInput, Prisma.StoryChapterUncheckedUpdateWithoutPromiseDeadlinesInput>
+  create: Prisma.XOR<Prisma.StoryChapterCreateWithoutPromiseDeadlinesInput, Prisma.StoryChapterUncheckedCreateWithoutPromiseDeadlinesInput>
+  where?: Prisma.StoryChapterWhereInput
+}
+
+export type StoryChapterUpdateToOneWithWhereWithoutPromiseDeadlinesInput = {
+  where?: Prisma.StoryChapterWhereInput
+  data: Prisma.XOR<Prisma.StoryChapterUpdateWithoutPromiseDeadlinesInput, Prisma.StoryChapterUncheckedUpdateWithoutPromiseDeadlinesInput>
+}
+
+export type StoryChapterUpdateWithoutPromiseDeadlinesInput = {
+  sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  note?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefGoal?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefPov?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefTone?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefPacing?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefReaderKnows?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefProtagonistKnows?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefMustHide?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefHintOnly?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefOpening?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefEnding?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefDoNotWrite?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  story?: Prisma.StoryUpdateOneRequiredWithoutChaptersNestedInput
+  act?: Prisma.StoryActUpdateOneWithoutChaptersNestedInput
+  scenes?: Prisma.StorySceneUpdateManyWithoutChapterNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUpdateManyWithoutAnchorChapterNestedInput
+}
+
+export type StoryChapterUncheckedUpdateWithoutPromiseDeadlinesInput = {
+  id?: Prisma.IntFieldUpdateOperationsInput | number
+  storyId?: Prisma.IntFieldUpdateOperationsInput | number
+  actId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  note?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefGoal?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefPov?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefTone?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefPacing?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefReaderKnows?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefProtagonistKnows?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefMustHide?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefHintOnly?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefOpening?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefEnding?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefDoNotWrite?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  scenes?: Prisma.StorySceneUncheckedUpdateManyWithoutChapterNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedUpdateManyWithoutAnchorChapterNestedInput
+}
+
+export type StoryChapterCreateWithoutAnchoredDecisionsInput = {
+  sortOrder: number
+  name: string
+  title: string
+  note?: string | null
+  briefGoal?: string | null
+  briefPov?: string | null
+  briefTone?: string | null
+  briefPacing?: string | null
+  briefReaderKnows?: string | null
+  briefProtagonistKnows?: string | null
+  briefMustHide?: string | null
+  briefHintOnly?: string | null
+  briefOpening?: string | null
+  briefEnding?: string | null
+  briefDoNotWrite?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  story: Prisma.StoryCreateNestedOneWithoutChaptersInput
+  act?: Prisma.StoryActCreateNestedOneWithoutChaptersInput
+  scenes?: Prisma.StorySceneCreateNestedManyWithoutChapterInput
+  promiseDeadlines?: Prisma.StoryPromiseCreateNestedManyWithoutDeadlineChapterInput
+}
+
+export type StoryChapterUncheckedCreateWithoutAnchoredDecisionsInput = {
+  id?: number
+  storyId: number
+  actId?: number | null
+  sortOrder: number
+  name: string
+  title: string
+  note?: string | null
+  briefGoal?: string | null
+  briefPov?: string | null
+  briefTone?: string | null
+  briefPacing?: string | null
+  briefReaderKnows?: string | null
+  briefProtagonistKnows?: string | null
+  briefMustHide?: string | null
+  briefHintOnly?: string | null
+  briefOpening?: string | null
+  briefEnding?: string | null
+  briefDoNotWrite?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  scenes?: Prisma.StorySceneUncheckedCreateNestedManyWithoutChapterInput
+  promiseDeadlines?: Prisma.StoryPromiseUncheckedCreateNestedManyWithoutDeadlineChapterInput
+}
+
+export type StoryChapterCreateOrConnectWithoutAnchoredDecisionsInput = {
+  where: Prisma.StoryChapterWhereUniqueInput
+  create: Prisma.XOR<Prisma.StoryChapterCreateWithoutAnchoredDecisionsInput, Prisma.StoryChapterUncheckedCreateWithoutAnchoredDecisionsInput>
+}
+
+export type StoryChapterUpsertWithoutAnchoredDecisionsInput = {
+  update: Prisma.XOR<Prisma.StoryChapterUpdateWithoutAnchoredDecisionsInput, Prisma.StoryChapterUncheckedUpdateWithoutAnchoredDecisionsInput>
+  create: Prisma.XOR<Prisma.StoryChapterCreateWithoutAnchoredDecisionsInput, Prisma.StoryChapterUncheckedCreateWithoutAnchoredDecisionsInput>
+  where?: Prisma.StoryChapterWhereInput
+}
+
+export type StoryChapterUpdateToOneWithWhereWithoutAnchoredDecisionsInput = {
+  where?: Prisma.StoryChapterWhereInput
+  data: Prisma.XOR<Prisma.StoryChapterUpdateWithoutAnchoredDecisionsInput, Prisma.StoryChapterUncheckedUpdateWithoutAnchoredDecisionsInput>
+}
+
+export type StoryChapterUpdateWithoutAnchoredDecisionsInput = {
+  sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  note?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefGoal?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefPov?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefTone?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefPacing?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefReaderKnows?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefProtagonistKnows?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefMustHide?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefHintOnly?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefOpening?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefEnding?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefDoNotWrite?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  story?: Prisma.StoryUpdateOneRequiredWithoutChaptersNestedInput
+  act?: Prisma.StoryActUpdateOneWithoutChaptersNestedInput
+  scenes?: Prisma.StorySceneUpdateManyWithoutChapterNestedInput
+  promiseDeadlines?: Prisma.StoryPromiseUpdateManyWithoutDeadlineChapterNestedInput
+}
+
+export type StoryChapterUncheckedUpdateWithoutAnchoredDecisionsInput = {
+  id?: Prisma.IntFieldUpdateOperationsInput | number
+  storyId?: Prisma.IntFieldUpdateOperationsInput | number
+  actId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  note?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefGoal?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefPov?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefTone?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefPacing?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefReaderKnows?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefProtagonistKnows?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefMustHide?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefHintOnly?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefOpening?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefEnding?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  briefDoNotWrite?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  scenes?: Prisma.StorySceneUncheckedUpdateManyWithoutChapterNestedInput
+  promiseDeadlines?: Prisma.StoryPromiseUncheckedUpdateManyWithoutDeadlineChapterNestedInput
 }
 
 export type StoryChapterCreateManyStoryInput = {
@@ -1148,6 +1438,8 @@ export type StoryChapterUpdateWithoutStoryInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   act?: Prisma.StoryActUpdateOneWithoutChaptersNestedInput
   scenes?: Prisma.StorySceneUpdateManyWithoutChapterNestedInput
+  promiseDeadlines?: Prisma.StoryPromiseUpdateManyWithoutDeadlineChapterNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUpdateManyWithoutAnchorChapterNestedInput
 }
 
 export type StoryChapterUncheckedUpdateWithoutStoryInput = {
@@ -1171,6 +1463,8 @@ export type StoryChapterUncheckedUpdateWithoutStoryInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   scenes?: Prisma.StorySceneUncheckedUpdateManyWithoutChapterNestedInput
+  promiseDeadlines?: Prisma.StoryPromiseUncheckedUpdateManyWithoutDeadlineChapterNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedUpdateManyWithoutAnchorChapterNestedInput
 }
 
 export type StoryChapterUncheckedUpdateManyWithoutStoryInput = {
@@ -1237,6 +1531,8 @@ export type StoryChapterUpdateWithoutActInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   story?: Prisma.StoryUpdateOneRequiredWithoutChaptersNestedInput
   scenes?: Prisma.StorySceneUpdateManyWithoutChapterNestedInput
+  promiseDeadlines?: Prisma.StoryPromiseUpdateManyWithoutDeadlineChapterNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUpdateManyWithoutAnchorChapterNestedInput
 }
 
 export type StoryChapterUncheckedUpdateWithoutActInput = {
@@ -1260,6 +1556,8 @@ export type StoryChapterUncheckedUpdateWithoutActInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   scenes?: Prisma.StorySceneUncheckedUpdateManyWithoutChapterNestedInput
+  promiseDeadlines?: Prisma.StoryPromiseUncheckedUpdateManyWithoutDeadlineChapterNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedUpdateManyWithoutAnchorChapterNestedInput
 }
 
 export type StoryChapterUncheckedUpdateManyWithoutActInput = {
@@ -1291,10 +1589,14 @@ export type StoryChapterUncheckedUpdateManyWithoutActInput = {
 
 export type StoryChapterCountOutputType = {
   scenes: number
+  promiseDeadlines: number
+  anchoredDecisions: number
 }
 
 export type StoryChapterCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   scenes?: boolean | StoryChapterCountOutputTypeCountScenesArgs
+  promiseDeadlines?: boolean | StoryChapterCountOutputTypeCountPromiseDeadlinesArgs
+  anchoredDecisions?: boolean | StoryChapterCountOutputTypeCountAnchoredDecisionsArgs
 }
 
 /**
@@ -1312,6 +1614,20 @@ export type StoryChapterCountOutputTypeDefaultArgs<ExtArgs extends runtime.Types
  */
 export type StoryChapterCountOutputTypeCountScenesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   where?: Prisma.StorySceneWhereInput
+}
+
+/**
+ * StoryChapterCountOutputType without action
+ */
+export type StoryChapterCountOutputTypeCountPromiseDeadlinesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.StoryPromiseWhereInput
+}
+
+/**
+ * StoryChapterCountOutputType without action
+ */
+export type StoryChapterCountOutputTypeCountAnchoredDecisionsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.StoryDecisionWhereInput
 }
 
 
@@ -1339,6 +1655,8 @@ export type StoryChapterSelect<ExtArgs extends runtime.Types.Extensions.Internal
   story?: boolean | Prisma.StoryDefaultArgs<ExtArgs>
   act?: boolean | Prisma.StoryChapter$actArgs<ExtArgs>
   scenes?: boolean | Prisma.StoryChapter$scenesArgs<ExtArgs>
+  promiseDeadlines?: boolean | Prisma.StoryChapter$promiseDeadlinesArgs<ExtArgs>
+  anchoredDecisions?: boolean | Prisma.StoryChapter$anchoredDecisionsArgs<ExtArgs>
   _count?: boolean | Prisma.StoryChapterCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["storyChapter"]>
 
@@ -1420,6 +1738,8 @@ export type StoryChapterInclude<ExtArgs extends runtime.Types.Extensions.Interna
   story?: boolean | Prisma.StoryDefaultArgs<ExtArgs>
   act?: boolean | Prisma.StoryChapter$actArgs<ExtArgs>
   scenes?: boolean | Prisma.StoryChapter$scenesArgs<ExtArgs>
+  promiseDeadlines?: boolean | Prisma.StoryChapter$promiseDeadlinesArgs<ExtArgs>
+  anchoredDecisions?: boolean | Prisma.StoryChapter$anchoredDecisionsArgs<ExtArgs>
   _count?: boolean | Prisma.StoryChapterCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type StoryChapterIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1437,6 +1757,8 @@ export type $StoryChapterPayload<ExtArgs extends runtime.Types.Extensions.Intern
     story: Prisma.$StoryPayload<ExtArgs>
     act: Prisma.$StoryActPayload<ExtArgs> | null
     scenes: Prisma.$StoryScenePayload<ExtArgs>[]
+    promiseDeadlines: Prisma.$StoryPromisePayload<ExtArgs>[]
+    anchoredDecisions: Prisma.$StoryDecisionPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: number
@@ -1856,6 +2178,8 @@ export interface Prisma__StoryChapterClient<T, Null = never, ExtArgs extends run
   story<T extends Prisma.StoryDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.StoryDefaultArgs<ExtArgs>>): Prisma.Prisma__StoryClient<runtime.Types.Result.GetResult<Prisma.$StoryPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
   act<T extends Prisma.StoryChapter$actArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.StoryChapter$actArgs<ExtArgs>>): Prisma.Prisma__StoryActClient<runtime.Types.Result.GetResult<Prisma.$StoryActPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   scenes<T extends Prisma.StoryChapter$scenesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.StoryChapter$scenesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$StoryScenePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  promiseDeadlines<T extends Prisma.StoryChapter$promiseDeadlinesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.StoryChapter$promiseDeadlinesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$StoryPromisePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  anchoredDecisions<T extends Prisma.StoryChapter$anchoredDecisionsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.StoryChapter$anchoredDecisionsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$StoryDecisionPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -2339,6 +2663,54 @@ export type StoryChapter$scenesArgs<ExtArgs extends runtime.Types.Extensions.Int
   take?: number
   skip?: number
   distinct?: Prisma.StorySceneScalarFieldEnum | Prisma.StorySceneScalarFieldEnum[]
+}
+
+/**
+ * StoryChapter.promiseDeadlines
+ */
+export type StoryChapter$promiseDeadlinesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the StoryPromise
+   */
+  select?: Prisma.StoryPromiseSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the StoryPromise
+   */
+  omit?: Prisma.StoryPromiseOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.StoryPromiseInclude<ExtArgs> | null
+  where?: Prisma.StoryPromiseWhereInput
+  orderBy?: Prisma.StoryPromiseOrderByWithRelationInput | Prisma.StoryPromiseOrderByWithRelationInput[]
+  cursor?: Prisma.StoryPromiseWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.StoryPromiseScalarFieldEnum | Prisma.StoryPromiseScalarFieldEnum[]
+}
+
+/**
+ * StoryChapter.anchoredDecisions
+ */
+export type StoryChapter$anchoredDecisionsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the StoryDecision
+   */
+  select?: Prisma.StoryDecisionSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the StoryDecision
+   */
+  omit?: Prisma.StoryDecisionOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.StoryDecisionInclude<ExtArgs> | null
+  where?: Prisma.StoryDecisionWhereInput
+  orderBy?: Prisma.StoryDecisionOrderByWithRelationInput | Prisma.StoryDecisionOrderByWithRelationInput[]
+  cursor?: Prisma.StoryDecisionWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.StoryDecisionScalarFieldEnum | Prisma.StoryDecisionScalarFieldEnum[]
 }
 
 /**

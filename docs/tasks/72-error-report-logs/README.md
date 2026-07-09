@@ -22,6 +22,7 @@
 - 新增 `server/app-logs/archive.ts`：
   - 日志包只包含 `logs/*` 和 `manifest.json`。
   - 不读取 config、数据库或 workspace 内容。
+  - **隐私红线（Task 95 登记）**：`workspace/<slug>/.nbook/history.sqlite`（文件历史库）含项目文件全文快照，严禁纳入日志包或任何可分享诊断导出。
 - 新增运行时接入：
   - Nitro plugin 桥接 `consola`、`console.warn/error`、`unhandledRejection`、`uncaughtException`。
   - 请求 middleware 记录 method/path/query 摘要/status/duration。

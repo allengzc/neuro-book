@@ -9,6 +9,7 @@ import type {
 import {throwPlotBadRequest} from "nbook/server/plot/core/errors";
 import {OrderService} from "nbook/server/plot/services/order.service";
 import {PlotScopeGuard} from "nbook/server/plot/services/plot-scope.guard";
+import {PromiseService} from "nbook/server/plot/services/promise.service";
 import {RefResolverService} from "nbook/server/plot/services/ref-resolver.service";
 import {SceneWorldAnchorValidator} from "nbook/server/plot/services/scene-world-anchor.validator";
 import {StoryService} from "nbook/server/plot/services/story.service";
@@ -30,6 +31,7 @@ export class SceneService {
         private readonly refResolverService: RefResolverService,
         private readonly worldAnchorValidator: SceneWorldAnchorValidator,
         private readonly assembler: PlotDtoAssembler,
+        private readonly promiseService: PromiseService,
     ) {}
 
     /**
@@ -75,6 +77,8 @@ export class SceneService {
             chapterSortOrder: await this.orderService.getNextSceneChapterSortOrder(chapterId),
             title: input.title,
             status: input.status ?? "draft",
+            outcomeType: input.outcomeType ?? null,
+            pacingRole: input.pacingRole ?? null,
             summary: input.summary ?? "",
             purpose: input.purpose ?? null,
             writingTip: input.writingTip ?? null,
@@ -131,6 +135,8 @@ export class SceneService {
                         : undefined,
             title: patch.title,
             status: patch.status,
+            outcomeType: patch.outcomeType,
+            pacingRole: patch.pacingRole,
             summary: patch.summary,
             purpose: patch.purpose,
             writingTip: patch.writingTip,
@@ -150,19 +156,26 @@ export class SceneService {
         if (chapterChanged && scene.chapterId !== null) {
             await this.orderService.normalizeSceneChapter(scene.chapterId);
         }
+        // Scene 归档后其 beats 不再是有效派生输入(D5),同步 fulfilled 回退边界。
+        if (patch.status === "archived") {
+            await this.promiseService.syncFulfilledAfterSceneChange(scene.id);
+        }
 
         return this.getStorySceneDetailDto(projectPath, scene.id);
     }
 
     /**
-     * 删除场景。
+     * 删除场景。级联删除其 beats,删除后同步受影响 Promise 的 fulfilled 回退边界(D5)。
      */
     async deleteStoryScene(projectPath: string, sceneId: number): Promise<void> {
         const story = await this.storyService.ensureStory(projectPath);
         const scene = await this.scopeGuard.assertScene(story.id, sceneId);
+        // beats 随 Scene 级联删除,必须先收集受影响 promise 再删。
+        const affectedPromiseIds = await this.promiseService.promiseIdsWithBeatOnScene(scene.id);
         await this.sceneRepository.deleteScene(scene.id);
         await this.orderService.normalizeSceneThread(scene.threadId);
         await this.orderService.normalizeSceneChapter(scene.chapterId);
+        await this.promiseService.revertFulfilledWithoutValidPayoff(affectedPromiseIds);
     }
 
     /**

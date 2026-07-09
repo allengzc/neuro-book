@@ -46,3 +46,89 @@ export const StoryRefVisibility = {
 } as const
 
 export type StoryRefVisibility = (typeof StoryRefVisibility)[keyof typeof StoryRefVisibility]
+
+
+export const StoryPromiseStatus = {
+  open: 'open',
+  fulfilled: 'fulfilled',
+  abandoned: 'abandoned'
+} as const
+
+export type StoryPromiseStatus = (typeof StoryPromiseStatus)[keyof typeof StoryPromiseStatus]
+
+
+export const StoryPromiseImportance = {
+  low: 'low',
+  medium: 'medium',
+  high: 'high'
+} as const
+
+export type StoryPromiseImportance = (typeof StoryPromiseImportance)[keyof typeof StoryPromiseImportance]
+
+
+export const StoryPromiseBeatKind = {
+  plant: 'plant',
+  advance: 'advance',
+  setback: 'setback',
+  payoff: 'payoff'
+} as const
+
+export type StoryPromiseBeatKind = (typeof StoryPromiseBeatKind)[keyof typeof StoryPromiseBeatKind]
+
+
+export const StoryDecisionStatus = {
+  open: 'open',
+  decided: 'decided',
+  superseded: 'superseded',
+  dropped: 'dropped'
+} as const
+
+export type StoryDecisionStatus = (typeof StoryDecisionStatus)[keyof typeof StoryDecisionStatus]
+
+
+export const StorySceneOutcomeType = {
+  yes_but: 'yes_but',
+  no_and: 'no_and',
+  yes_and: 'yes_and',
+  no_but: 'no_but',
+  yes: 'yes',
+  no: 'no',
+  no_conflict: 'no_conflict',
+  passive: 'passive'
+} as const
+
+export type StorySceneOutcomeType = (typeof StorySceneOutcomeType)[keyof typeof StorySceneOutcomeType]
+
+
+export const StoryScenePacingRole = {
+  setup: 'setup',
+  escalation: 'escalation',
+  breather: 'breather',
+  climax: 'climax',
+  resolution: 'resolution'
+} as const
+
+export type StoryScenePacingRole = (typeof StoryScenePacingRole)[keyof typeof StoryScenePacingRole]
+
+
+export const StoryThreadMiceType = {
+  milieu: 'milieu',
+  idea: 'idea',
+  character: 'character',
+  event: 'event'
+} as const
+
+export type StoryThreadMiceType = (typeof StoryThreadMiceType)[keyof typeof StoryThreadMiceType]
+
+
+export const StoryDecisionAnchorKind = {
+  story: 'story',
+  act: 'act',
+  chapter: 'chapter',
+  thread: 'thread',
+  scene: 'scene',
+  promise: 'promise',
+  content: 'content'
+} as const
+
+export type StoryDecisionAnchorKind = (typeof StoryDecisionAnchorKind)[keyof typeof StoryDecisionAnchorKind]

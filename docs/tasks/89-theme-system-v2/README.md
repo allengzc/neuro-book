@@ -36,7 +36,7 @@
 - 取色改为 vue3-colorpicker `is-widget` 内嵌 + 自绘 popover（teleport 到主题宿主），并带原生 EyeDropper 吸管（Chromium）；设置入口为迷你配色预览卡片网格，操作按钮下放到卡片悬停。
 - 规范文档已同步：`AGENTS.md`、`CLAUDE.md`（含 DialogWindow / FormColorField 组件索引）、`app/utils/theme/README.md`、`reference/theme/system.md`、`PROJECT-STATUS.md`。
 - P2 修复已补齐：Agent client patch 等待主题保存结果再 ack；主题 JSON 导入校验每个变量值必须是可编辑具体颜色；World Engine preview 与真实 Dialog 共用 `.world-engine-workbench-theme` 映射；普通 UI 硬编码状态色和阴影继续收口；Reference chip / Profile template / Markdown 内容色 / JsonViewer / Monaco 等分类或内容色板边界已登记。
-- 浏览器验证已获用户许可，待本轮文档和命令验证完成后执行聚焦验收。
+- P2 聚焦浏览器验收已完成：主题切换、坏 JSON 导入提示、World Engine preview 共用映射、Markdown chip / inline comment 明暗主题外观均通过。
 
 ## Decisions / Discussion
 
@@ -56,7 +56,9 @@
   - `bun run typecheck` 仍失败，但失败集中在既有 Agent plan-mode / Profile DSL / writer fixture / low-code-form 基线；本轮未发现主题路径错误。
   - `bun run test` 仍失败，但失败集中在既有 Agent/Profile/Workspace/Auth/Web/Plot/World Engine 超时或契约问题；主题聚焦测试通过。
 - P2 聚焦测试通过：`bunx vitest run app/components/novel-ide/agent/client-variables.test.ts app/utils/theme/theme-io.test.ts app/utils/theme/theme-tokens.test.ts app/utils/world-engine-ide-entry.test.ts app/utils/world-engine-workbench-preview.test.ts`，5 files / 20 tests passed。
-- 人工回归清单见 PLAN.md「验证方案」节；浏览器验证尚未执行。
+- P2 收尾复核：`bun run typecheck` 仍失败，归因 Agent harness/profile fixture 与 `server/low-code-form/index.ts` 既有非主题类型基线；`bun run test` 仍失败，13 files failed / 37 tests failed / 1312 passed / 87 skipped / 3 errors，失败集中在 Agent harness/profile/catalog、workspace-files、auth、web-tools、plot API；同一组 P2 targeted tests 通过；`bun run generate:openapi` 通过，40 routes updated / 0 failed。
+- P2 聚焦浏览器验收通过：`node .agent/workspace/theme-p2-browser.mjs`，覆盖主题切换、坏 JSON 导入提示、World Engine preview 共用映射、Markdown chip / inline comment 明暗主题外观。
+- B10 全量人工回归清单见 PLAN.md「验证方案」节；本轮 P2 浏览器验收只覆盖追加修复面。
 
 ## Implementation Walkthrough
 
@@ -81,4 +83,3 @@
 - 滚动条样式目前无人定制，规范中给出派生建议即可
 - 分类色板叠底方式统一为 `color-mix(... var(--bg-panel))`（规范条款，逐步随手改）
 - 吸管依赖原生 EyeDropper API（Chromium 专属）；Firefox/Safari 不显示吸管按钮，后续可评估替代方案
-- 浏览器验证已获用户许可，待执行：新建→调色→覆盖→重新生成→保存→切换→导出→删除→导入→重启保持→Agent 链路切主题；本轮追加：坏 JSON 导入提示、World Engine preview/真实 Dialog 继承当前主题、Markdown chip/inline comment 明暗主题目测。

@@ -1,0 +1,94 @@
+# 96 - Session 标题所有权与 summarizer 策略调整
+
+## 用户需求
+
+1. session 支持手动改名，改名后 agent（summarizer / invoke title）不再自动覆盖标题。
+2. summarizer 生成的 title/summary 可能不准，希望类似 Claude recap 的机制。
+3. 第一次对话完毕自动生成 title+summary（现有首跑行为已满足）；用户改过 title 后 summary 不再覆盖 title，除非用户用 slash command 交还所有权。
+4. 机制可配置：summarizer 需要能按 profile 禁用。
+
+## 拍板决策
+
+- **解锁语义**：UI 改名和 `/rename` 都锁定标题；专门的 `/summarize` 命令把命名权交还给 AI 并立即重新生成（用户选定的方案）。
+- **空闲触发暂缓**：不做"离开一段时间后台自动 summary"，保留现有 16 轮（sourceInvocation interval）机制；idle 触发记入 PROJECT-STATUS TODO。
+- **配置位置**：`agent.profiles[profileKey].summarizer.enabled`（Global/Project Config），project 覆盖 global；缺省沿用 profile 源码默认（开启）。
+
+## 实现
+
+### 后端
+
+- `server/agent/session/custom-state-keys.ts`：新增 `SESSION_TITLE_OWNER_STATE_KEY = "session.titleOwner"`，值 `{owner: "user" | "auto"}`，缺省视为 auto。
+- `shared/dto/agent-session.dto.ts`：`AgentCommandRequestDtoSchema` 新增 `rename`（带 title）与 `summarize` 两个 command。
+- `server/agent/harness/neuro-agent-harness.ts`：
+  - `rename` 命令：projection 写 `session_update {title}` + titleOwner=user。
+  - `summarize` 命令：写 titleOwner=auto、清掉 `summarizer.state` 的 fingerprint/lastError，强制 `scheduleSessionSummarizer` 立即重跑，返回 started。
+  - `writeInvokeTitle`：owner=user 时跳过 invoke 传入的 title。
+  - `runSessionSummarizerJob`：读取 effective config，`agent.profiles[key].summarizer.enabled === false` 时直接跳过（配置优先于 profile 源码默认）。
+- `assets/workspace/.nbook/agent/profiles/builtin/summarizer.profile.tsx`：写回时读取 source 的 titleOwner，锁定时只写 `{summary}`；已重新编译并同步 user assets。
+
+### 配置
+
+- `shared/dto/config.dto.ts`：`ConfigAgentProfileMapDtoSchema` entry 新增 `summarizer: {enabled?}`；`ConfigAgentProfileSettingsDto.agentProfiles` 新增 `hasSummarizer`。
+- `server/config/types.ts` / `normalizer.ts`：`AgentProfileSummarizerConfig` 类型；normalize/complete/effective 合并链路透传，project 覆盖 global。
+- `server/config/config-service.ts`：`stripProfileResourceMutations` 保留 summarizer 字段（否则 project 保存会丢配置）；DTO 组装读取 catalog item 的 `hasSummarizer`。
+- `server/agent/profiles/types.ts` / `catalog.ts`：`AgentCatalogItem` 新增 `hasSummarizer`（来自 profile.summarizer），避免 settings 接口额外 `profiles.get`（守住"只读取带 settings form 的 profile"契约）。
+
+### 前端
+
+- `AgentChatSurface.vue`：`/rename <标题>`、`/summarize` slash command；`renameSessionFromDialog`（prompt 弹窗改名）并 defineExpose。
+- `AgentModeSessionSidebar.vue` / `AgentSessionDialog.vue`：session 条目 hover 操作新增重命名按钮（emit rename）。
+- `app/pages/index.vue`：sidebar `@rename` 接线。
+- `useStructuredReferenceMenu.ts`：命令菜单新增 rename / summarize 项。
+- `NovelIdeAgentProfileModelSettingsPanel.vue`：声明了 summarizer 的 profile 展示"自动摘要"三态开关（继承/开启/关闭），Global/Project 两级。
+- i18n：zh-CN / en-US 新增相应文案。
+
+## 验证
+
+- `bun test ./server/agent/harness/neuro-agent-harness.test.ts` 161 pass（新增用例：rename 锁定 → summarizer 只更新 summary → summarize 解锁并立即重跑）。
+- `bun test ./server/config/ ./server/agent/profiles/profile-dsl.test.ts` 64 pass。
+- `bun run typecheck` 绿。
+- summarizer profile 重编译 + `prepare-system-assets --sync-user-assets`（updated profiles 1）。
+
+## 与计划的出入
+
+- 初版把 `hasSummarizer` 放在 config-service 里逐个 `profiles.get`，触发既有契约测试失败（settings 接口只允许对带 settings form 的 profile get）；改为在 catalog snapshot 层携带该信息，更系统。
+- 空闲触发（idle debounce）按用户拍板暂缓，未实现。
+
+## 2026-07-08 审查修复轮（code review 10 findings）
+
+high effort code review 确认 10 个问题（9 CONFIRMED + 1 PLAUSIBLE），本轮系统性修复，不打补丁。两个新拍板：
+
+- **D1**：配置禁用某 profile 的自动摘要时，用户手动 `/summarize` **绕过禁用**照常执行（禁用只针对后台自动跑）；只有 profile 源码没声明 `summarizer` 才报错，且报错发生在写任何状态之前——标题所有权不会被误解锁。
+- **D2**：`hasExitedPlan` 规格补充——途经 plan 后任何路径回到 normal（含 plan→discuss→normal 间接路径）都算一个计划周期结束，之后再进 plan 走 reentry；plan↔discuss 互切仍不算。已同步 Task 90 README。
+
+### 修复内容
+
+- **标题所有权共享解析器**：`custom-state-keys.ts` 导出 `SessionTitleOwnerState` 类型 + `readTitleOwner()`；harness 私有实现删除，summarizer profile 改 import 共享 helper（消除双解析器漂移）；rename/summarize 写入用 `satisfies` 约束。
+- **summarizer force 机制**：`SessionSummarizerJob.forceRequested` + `scheduleSessionSummarizer(id, {force})`，替代原来"清 fingerprint"的 hack。force 跳过 `shouldRunSummarizer` 判定但保留 token 上限检查；在途 run 的 writeback 覆盖 fingerprint 也不影响 force 重跑（并发窗口关闭）。`/summarize` 命令重写为：预检 profile 声明 → 单 write plan 只写 titleOwner=auto → force 调度（挂 `.catch` 消除 unhandled rejection）。
+- **配置禁用 gate 归位**：effective config 读取从 do/while 循环体提到 job 级缓存（每 job 一次，不再每轮 2 次读盘）；禁用时 `continue` 而非 `return`（保住运行中排队的 force 请求）；force 按 D1 绕过禁用。
+- **normalizer 字段级合并**：`normalizeAgentProfileSummarizer` 非法/空输入返回 `undefined`（不再返回 `{}`）；effective 合并改 `project?.enabled ?? global?.enabled` 字段级——project 的空/非法值不再遮蔽 global 的禁用。`normalizeCompleteAgentProfiles` 补齐同一 normalize（原来裸透传）。
+- **设置面板不丢覆盖**：summarizer 持久化门控从 `hasSummarizer && enabled !== null` 改为仅 `enabled !== null`——profile 编译失败（hasSummarizer=false）时保存其它设置不再丢掉已存的 `enabled:false`；`hasSummarizer` 只保留 UI 展示职责。
+- **writeInvokeTitle 消除冗余读**：签名加可选 `context` 参数，两个调用点复用已读 snapshot，invoke 热路径少一次全量会话文件读。
+- **前端 rename 收口**：`AgentChatSurface.vue` 提取共享 `renameSession()` 核心（UI 弹窗 / `/rename` slash 两处复用）；`/rename` 标题解析改 slice 保留内部空格；`/summarize` 包 try/catch + `notifyAgentError`（后端"未声明摘要功能"报错能显示给用户）。
+- **visitedPlan 机制**（D2）：`agent.mode` state 新增 `visitedPlan` 字段（自上次回 normal 后是否进过 plan）；回 normal 时结算进 `hasExitedPlan` 并重置；`agentModeState` 是唯一写入点。
+- 顺手修：summarizer profile hook 内两次 `ctx.session.read` 合并为一次。
+
+### 验证
+
+- `bun test ./server/agent/harness/neuro-agent-harness.test.ts ./server/agent/profiles/profile-dsl.test.ts`：188 pass / 1 fail（见下方"外部回归"）。新增用例：summarize 对未声明 summarizer 的 profile 报错且不解锁标题所有权；plan→discuss→normal 间接退出后再进 plan 走 reentry。
+- `bun test ./server/config/`：41 pass（新增 normalizer summarizer 字段级合并 3 用例）。
+- `bun run typecheck` exit 0。
+- summarizer profile 重编译 + `--sync-user-assets`，与 workspace 副本 diff 一致。
+
+### 与计划的出入
+
+- **外部回归（非本任务引入）**：harness 测试 "Plan Mode 使用 Project Workspace .agent/plan 并支持 exit preview" 失败。根因是并行 Task 94 会话未提交的 `project-session.ts`（`project-resources.ts` 改名而来）在 `openProject` 里新增 `assertProjectWorkspaceDirectory` 校验——按**全局** `resolveWorkspaceContainerRoot()` 解析项目目录，而该测试的项目建在临时 workspaceRoot 下，invoke 在 pre_loop 阶段死于 404 "Project Workspace 不存在"，pending approval 从未产生。本任务改动不在失败路径上（错误来自 harness L697 的 ensure-open，先于 prepareRun）。修法（如测试用 `setWorkspaceAssetRootContextForTest` 对齐容器根，或 ensure-open 语义调整）应由 Task 94 会话决定，未代为修复——首次 open 还会跑 `initProjectDatabase` 等副作用，贸然给 163 个测试共用的 harness 套件引入 ProjectSession 生命周期风险不值当。
+- configDisabled gate 初版写 `return`，自查发现会丢运行中排队的 force 请求（用户 `/summarize` 恰逢自动 job 在跑且配置禁用时会被吞），改为 `continue` + 循环条件加 `forceRequested`。
+- config 测试首跑出现 1 次无关抖动（同一用例重跑三次全绿），未追根因。
+- "配置禁用 + force 绕过"的 harness 集成测试未加（需在 harness 测试环境落 global config 文件，成本高）；由 normalizer 单测 + gate 代码路径覆盖，与计划中的预案一致。
+
+## 后续 TODO
+
+- 空闲一段时间后台自动 summary（idle debounce 触发），替代/补充现有 16 轮间隔机制。
+- 浏览器验收：改名按钮、/rename、/summarize、设置面板开关（可让 agent 进行浏览器验证）。
+- 等 Task 94 会话收敛后确认 "Plan Mode exit preview" harness 测试恢复绿。

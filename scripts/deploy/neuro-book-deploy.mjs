@@ -15,6 +15,7 @@ import {
     warnLegacyDeployFiles,
     runCompose,
     deployStateDir,
+    adminCommand,
 } from './shared.mjs';
 
 import * as localGit from './local-git.mjs';
@@ -36,6 +37,7 @@ const program = new Command()
     .option('--provider <provider>', 'Model provider: deepseek, doubao, qwen, siliconflow, gemini.')
     .option('--api-key <key>', 'Provider API key.')
     .option('--database <mode>', 'Database mode. Only sqlite is supported.')
+    .option('--auth <mode>', 'Password protection: enabled or disabled. Interactive deploys ask when omitted.', process.env.NEURO_BOOK_AUTH)
     .option('--deploy-mode <mode>', 'Deploy mode: local-git, ghcr, or source. native is accepted as an alias.', process.env.NEURO_BOOK_DEPLOY_MODE)
     .option('--image <image>', 'GHCR app image override.', process.env.NEURO_BOOK_IMAGE)
     .option('--release <tag>', 'GHCR release tag, for example v0.5.3 or v0.5.3-canary.20260701.030929Z.69581b3e.', process.env.NEURO_BOOK_RELEASE)
@@ -85,6 +87,16 @@ async function main() {
     await mode.build(config, env);
     await runCompose(config);
     await mode.postBuild(config);
+
+    if (config.authEnabled) {
+        p.note(`密码保护已开启。首次使用请先创建管理员账号：\n${adminCommand(config)}`, '下一步');
+    } else {
+        p.note([
+            '密码保护已关闭，打开页面即可使用；仅建议在完全可信的本地环境这样部署。',
+            '如需开启：重新运行本命令选择「开启」，或把 workspace/.nbook/config.json 的 auth.enabled 改为 true，',
+            '再创建管理员账号并重启服务。',
+        ].join('\n'), '密码保护');
+    }
 
     p.outro(`Done. Open http://localhost:${config.port}`);
 }

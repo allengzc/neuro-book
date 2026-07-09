@@ -29,19 +29,22 @@ describe("writer profile contract", () => {
         expect(toolKeys).toContain("bash");
         expect(toolKeys).toContain("execute_world");
         expect(toolKeys).toContain("report_result");
-        // autonomous 模式:writer 自主读 Plot。
+        // autonomous 模式:writer 自主读 Plot（plotReadBindings bundle）。
         expect(toolKeys).toContain("get_chapter_writer_brief");
-        expect(toolKeys).toContain("get_chapter_plot");
+        expect(toolKeys).toContain("get_story_chapter");
         expect(toolKeys).toContain("get_story_scene_context");
         expect(toolKeys).toContain("get_scene_world_context");
-        expect(toolKeys).toContain("get_plot_tree");
+        expect(toolKeys).toContain("get_story_tree");
         expect(toolKeys).toContain("get_story_thread");
-        // 只读:不持有 Plot 写工具与文件 apply_patch。
+        // 只读:不持有 Plot save_* 写工具与文件 apply_patch。
         expect(toolKeys).not.toContain("apply_patch");
-        expect(toolKeys).not.toContain("create_story_scene");
-        expect(toolKeys).not.toContain("update_story_scene");
-        expect(toolKeys).not.toContain("create_story_thread");
-        expect(toolKeys).not.toContain("create_story_chapter");
+        expect(toolKeys).not.toContain("save_story_scene");
+        expect(toolKeys).not.toContain("save_story_thread");
+        expect(toolKeys).not.toContain("save_story_chapter");
+        expect(toolKeys).not.toContain("save_story_act");
+        expect(toolKeys).not.toContain("save_story_promise");
+        expect(toolKeys).not.toContain("save_promise_beat");
+        expect(toolKeys).not.toContain("save_story_decision");
         expect(toolKeys).not.toContain("write_world_slice");
         expect(toolKeys).not.toContain("delete_world_slice");
     });
@@ -110,6 +113,7 @@ function defaultWriterSettings() {
         wordCountControl: "2000-2600 字",
         polishingWorkflow: "使用 stop-slop 做自查。",
         adultStylePrompt: "",
+        fileChangeAwareness: "minimal" as const,
     };
 }
 

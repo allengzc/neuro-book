@@ -8,6 +8,7 @@ import type {
 import {throwPlotNotFound} from "nbook/server/plot/core/errors";
 import {OrderService} from "nbook/server/plot/services/order.service";
 import {PlotScopeGuard} from "nbook/server/plot/services/plot-scope.guard";
+import {PromiseService} from "nbook/server/plot/services/promise.service";
 import {StoryService} from "nbook/server/plot/services/story.service";
 import type {
     PlotTreeDto,
@@ -24,6 +25,7 @@ export class ThreadService {
         private readonly scopeGuard: PlotScopeGuard,
         private readonly orderService: OrderService,
         private readonly assembler: PlotDtoAssembler,
+        private readonly promiseService: PromiseService,
     ) {}
 
     /**
@@ -58,6 +60,7 @@ export class ThreadService {
             title: input.title,
             isMainThread: input.isMainThread ?? false,
             status: input.status ?? "draft",
+            miceType: input.miceType ?? null,
             summary: input.summary ?? "",
             tags: input.tags ?? [],
             writingTip: input.writingTip ?? null,
@@ -97,6 +100,7 @@ export class ThreadService {
             title: patch.title,
             isMainThread: patch.isMainThread,
             status: patch.status,
+            miceType: patch.miceType,
             summary: patch.summary,
             tags: patch.tags,
             writingTip: patch.writingTip,
@@ -111,13 +115,21 @@ export class ThreadService {
     }
 
     /**
-     * 删除线程。
+     * 删除线程。Thread 删除会级联删除名下全部 Scene 及这些 Scene 上的 beats(等于批量的 Scene 删除),
+     * 与 deleteStoryScene 同一模式:删除前先按场收集受影响 Promise,删除后统一跑 fulfilled 回退检查(D5)。
      */
     async deleteStoryThread(projectPath: string, threadId: number): Promise<void> {
         const story = await this.storyService.ensureStory(projectPath);
         const thread = await this.scopeGuard.assertThread(story.id, threadId);
+        // beats 随 Scene 级联消失,必须在删除前收集;删除后无从得知哪些 Promise 失去了 payoff。
+        const threadWithScenes = await this.threadRepository.findThreadWithScenesById(thread.id);
+        const affectedPromiseIds: number[] = [];
+        for (const scene of threadWithScenes?.scenes ?? []) {
+            affectedPromiseIds.push(...await this.promiseService.promiseIdsWithBeatOnScene(scene.id));
+        }
         await this.threadRepository.deleteThread(thread.id);
         await this.orderService.normalizeThreads(story.id, thread.storyPhaseId);
+        await this.promiseService.revertFulfilledWithoutValidPayoff(affectedPromiseIds);
     }
 
     /**

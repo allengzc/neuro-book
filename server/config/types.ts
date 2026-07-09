@@ -29,14 +29,24 @@ export type AgentProfileSettingsConfig = {
     [key: string]: JsonValue;
 };
 
+/**
+ * 后台会话摘要开关。enabled 缺省沿用 profile 源码默认（开启）；false 表示对该 profile 禁用 summarizer。
+ */
+export type AgentProfileSummarizerConfig = {
+    enabled?: boolean;
+};
+
 export type AgentProfileConfig = {
     model: AgentProfileModelConfig;
     settings: AgentProfileSettingsConfig;
+    /** 缺省表示未配置，按 profile 源码默认处理。 */
+    summarizer?: AgentProfileSummarizerConfig;
 };
 
 export type StoredAgentProfileConfig = {
     model: Partial<AgentProfileModelConfig>;
     settings?: AgentProfileSettingsConfig;
+    summarizer?: AgentProfileSummarizerConfig;
 };
 
 export type StoredAgentProfileModelDefaultsConfig = Partial<AgentProfileModelConfig>;
@@ -177,6 +187,7 @@ export type EffectiveConfig = {
     };
     web: WebSettingsConfig;
     observability: ObservabilityConfig;
+    history: WorkspaceHistorySettingsConfig;
 };
 
 /** 可观测配置。第一版只有 Pi 请求 trace。 */
@@ -191,6 +202,23 @@ export type PiTraceConfig = {
     maxRecords: number;
     /** 是否完整存 provider 原生请求体（含 prompt）。false 时只留元数据（暂未实现摘要）。 */
     capturePayload: boolean;
+};
+
+/**
+ * 工作区文件历史（操作日志）配置。enabled 是 Global 独有总开关；其余四项 Project 可覆盖。
+ * 改动在项目下次 open 时生效（history 库随 ProjectSession 生命周期打开）。
+ */
+export type WorkspaceHistorySettingsConfig = {
+    /** 总开关。false 时不开库、不记账、不注入变更提醒。 */
+    enabled: boolean;
+    /** 保留窗口天数：窗口内日志条目全量保留。 */
+    retentionFullDays: number;
+    /** 窗口外是否每文件每自然日保留末条（false = 窗口外全删，未接受段等保护规则仍生效）。 */
+    keepDailyLastAfterWindow: boolean;
+    /** 是否自动接受长期未审查的收件箱条目（防止「未接受段永不 prune」导致库只增不减）。 */
+    autoAcceptEnabled: boolean;
+    /** 收件箱组内最后一条条目超过该天数未审查时，整组自动接受。 */
+    autoAcceptDays: number;
 };
 
 export type StoredProviderConfig = Omit<ConfiguredProviderConfig, "models"> & {
@@ -224,6 +252,7 @@ export type StoredGlobalConfig = {
     observability?: {
         piTrace?: Partial<PiTraceConfig>;
     };
+    history?: Partial<WorkspaceHistorySettingsConfig>;
 };
 
 export type StoredProjectConfig = {
@@ -240,6 +269,8 @@ export type StoredProjectConfig = {
         markdown?: Partial<MarkdownEditorPreferences>;
         monaco?: Partial<MonacoEditorPreferences>;
     };
+    /** Project 侧只允许覆盖 retention / auto-accept 四项；enabled 是 Global 独有。 */
+    history?: Partial<Omit<WorkspaceHistorySettingsConfig, "enabled">>;
 };
 
 export type ConfigTarget = {

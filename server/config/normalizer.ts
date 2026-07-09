@@ -24,6 +24,7 @@ import type {
     WebSettingsConfig,
     ObservabilityConfig,
     PiTraceConfig,
+    WorkspaceHistorySettingsConfig,
 } from "nbook/server/config/types";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import {ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
@@ -105,6 +106,49 @@ function normalizeObservability(input: StoredGlobalConfig["observability"]): Obs
     };
 }
 
+const DEFAULT_WORKSPACE_HISTORY: WorkspaceHistorySettingsConfig = {
+    enabled: true,
+    retentionFullDays: 90,
+    keepDailyLastAfterWindow: true,
+    autoAcceptEnabled: true,
+    autoAcceptDays: 14,
+};
+
+/**
+ * 归一化文件历史的 Project 可覆盖字段（retention / auto-accept 四项），非法值丢弃不参与遮蔽。
+ * 结构性不输出 enabled——Project 覆盖走本函数即天然剥掉总开关。
+ */
+function normalizeWorkspaceHistoryPatch(input: Partial<WorkspaceHistorySettingsConfig> | undefined): Partial<Omit<WorkspaceHistorySettingsConfig, "enabled">> {
+    if (!input || typeof input !== "object") {
+        return {};
+    }
+    const patch: Partial<Omit<WorkspaceHistorySettingsConfig, "enabled">> = {};
+    if (typeof input.retentionFullDays === "number" && Number.isInteger(input.retentionFullDays) && input.retentionFullDays >= 1) {
+        patch.retentionFullDays = input.retentionFullDays;
+    }
+    if (typeof input.keepDailyLastAfterWindow === "boolean") {
+        patch.keepDailyLastAfterWindow = input.keepDailyLastAfterWindow;
+    }
+    if (typeof input.autoAcceptEnabled === "boolean") {
+        patch.autoAcceptEnabled = input.autoAcceptEnabled;
+    }
+    if (typeof input.autoAcceptDays === "number" && Number.isInteger(input.autoAcceptDays) && input.autoAcceptDays >= 1) {
+        patch.autoAcceptDays = input.autoAcceptDays;
+    }
+    return patch;
+}
+
+/**
+ * 归一化 Global 的文件历史配置：默认值兜底 + enabled 总开关（仅 Global 持有）。
+ */
+function normalizeWorkspaceHistory(input: Partial<WorkspaceHistorySettingsConfig> | undefined): WorkspaceHistorySettingsConfig {
+    return {
+        ...DEFAULT_WORKSPACE_HISTORY,
+        ...normalizeWorkspaceHistoryPatch(input),
+        enabled: typeof input?.enabled === "boolean" ? input.enabled : DEFAULT_WORKSPACE_HISTORY.enabled,
+    };
+}
+
 /**
  * 创建完整的默认 effective config。
  */
@@ -137,6 +181,7 @@ export function createDefaultEffectiveConfig(): EffectiveConfig {
         },
         web: normalizeWebSettings(undefined),
         observability: normalizeObservability(undefined),
+        history: normalizeWorkspaceHistory(undefined),
     };
 }
 
@@ -207,6 +252,9 @@ export function normalizeProjectConfig(input: Partial<StoredProjectConfig> | nul
                 monaco: raw.editor.monaco ? normalizeMonacoPreferences(raw.editor.monaco) : undefined,
             },
         } : {}),
+        ...(raw.history ? {
+            history: normalizeWorkspaceHistoryPatch(raw.history),
+        } : {}),
     };
 }
 
@@ -233,6 +281,7 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
     effective.editor.monaco = normalizeMonacoPreferences(globalConfig.editor?.monaco);
     effective.web = normalizeWebSettings(globalConfig.web);
     effective.observability = normalizeObservability(globalConfig.observability);
+    effective.history = normalizeWorkspaceHistory(globalConfig.history);
 
     if (!projectConfig) {
         return effective;
@@ -263,19 +312,25 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
         const projectProfiles = normalizeAgentProfiles(projectConfig.agent.profiles);
         effective.agent.profiles = Object.fromEntries(
             [...new Set([...Object.keys(globalProfilePatches), ...Object.keys(projectProfiles)])]
-                .map((profileKey) => [profileKey, {
-                    model: mergeAgentProfileModelConfig(
-                        mergeAgentProfileModelConfig(
-                            effective.agent.profileModelDefaults,
-                            globalProfilePatches[profileKey]?.model,
+                .map((profileKey) => {
+                    // summarizer 开关按 enabled 字段级合并：project 覆盖 global，非法/空配置不参与遮蔽。
+                    const summarizerEnabled = normalizeAgentProfileSummarizer(projectProfiles[profileKey]?.summarizer)?.enabled
+                        ?? normalizeAgentProfileSummarizer(globalProfilePatches[profileKey]?.summarizer)?.enabled;
+                    return [profileKey, {
+                        model: mergeAgentProfileModelConfig(
+                            mergeAgentProfileModelConfig(
+                                effective.agent.profileModelDefaults,
+                                globalProfilePatches[profileKey]?.model,
+                            ),
+                            projectProfiles[profileKey]?.model,
                         ),
-                        projectProfiles[profileKey]?.model,
-                    ),
-                    settings: mergeAgentProfileSettingsConfig(
-                        globalProfilePatches[profileKey]?.settings,
-                        projectProfiles[profileKey]?.settings,
-                    ),
-                } satisfies AgentProfileConfig]),
+                        settings: mergeAgentProfileSettingsConfig(
+                            globalProfilePatches[profileKey]?.settings,
+                            projectProfiles[profileKey]?.settings,
+                        ),
+                        ...(summarizerEnabled !== undefined ? {summarizer: {enabled: summarizerEnabled}} : {}),
+                    } satisfies AgentProfileConfig];
+                }),
         );
     }
     if (projectConfig.editor?.markdown) {
@@ -288,6 +343,13 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
         effective.editor.monaco = {
             ...effective.editor.monaco,
             ...normalizeMonacoPreferences(projectConfig.editor.monaco),
+        };
+    }
+    if (projectConfig.history) {
+        // Project 覆盖 retention / auto-accept；enabled 由 patch 归一化结构性剥离，Global 总开关不可被遮蔽。
+        effective.history = {
+            ...effective.history,
+            ...normalizeWorkspaceHistoryPatch(projectConfig.history),
         };
     }
 
@@ -370,9 +432,11 @@ export function normalizeAgentProfiles(input: Record<string, Partial<StoredAgent
         if (!key) {
             continue;
         }
+        const summarizer = normalizeAgentProfileSummarizer(profile.summarizer);
         entries.push([key, {
             model: normalizeAgentProfileModelPatch(profile.model),
             settings: normalizeAgentProfileSettings(profile.settings),
+            ...(summarizer !== undefined ? {summarizer} : {}),
         }]);
     }
     return Object.fromEntries(entries.sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey)));
@@ -383,10 +447,14 @@ function normalizeCompleteAgentProfiles(
     defaults: AgentProfileModelConfig,
 ): Record<string, AgentProfileConfig> {
     return Object.fromEntries(
-        Object.entries(input ?? {}).map(([profileKey, profile]) => [profileKey, {
-            model: mergeAgentProfileModelConfig(defaults, profile.model),
-            settings: normalizeAgentProfileSettings(profile.settings),
-        } satisfies AgentProfileConfig]),
+        Object.entries(input ?? {}).map(([profileKey, profile]) => {
+            const summarizer = normalizeAgentProfileSummarizer(profile.summarizer);
+            return [profileKey, {
+                model: mergeAgentProfileModelConfig(defaults, profile.model),
+                settings: normalizeAgentProfileSettings(profile.settings),
+                ...(summarizer !== undefined ? {summarizer} : {}),
+            } satisfies AgentProfileConfig];
+        }),
     );
 }
 
@@ -422,6 +490,18 @@ function normalizeAgentProfileModelPatch(input: Partial<AgentProfileModelConfig>
  */
 export function normalizeAgentProfileSettings(input: unknown): AgentProfileSettingsConfig {
     return normalizeJsonRecord(input);
+}
+
+/**
+ * 规范化 profile 级 summarizer 开关。只有携带合法 boolean enabled 时才算配置存在；
+ * 非法/空值返回 undefined（等同未配置），避免空对象在合并时遮蔽上级配置。
+ */
+function normalizeAgentProfileSummarizer(input: unknown): {enabled: boolean} | undefined {
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+        return undefined;
+    }
+    const enabled = (input as {enabled?: unknown}).enabled;
+    return typeof enabled === "boolean" ? {enabled} : undefined;
 }
 
 /**

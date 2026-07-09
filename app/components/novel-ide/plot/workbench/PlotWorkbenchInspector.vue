@@ -17,8 +17,20 @@ import {
     type PlotThreadPanelScene,
     type PlotThreadPanelThread,
 } from "nbook/app/components/novel-ide/plot/thread-panel/plot-thread-panel.types";
+import {
+    PLANNING_TONE_CLASSES,
+    PROMISE_BEAT_KIND_META,
+    PROMISE_BEAT_STATE_META,
+    SCENE_OUTCOME_TYPE_OPTIONS,
+    SCENE_PACING_ROLE_OPTIONS,
+    THREAD_MICE_TYPE_OPTIONS,
+} from "nbook/app/components/novel-ide/plot/planning/plot-planning.types";
 import type {
+    StorySceneOutcomeTypeDto,
+    StoryScenePacingRoleDto,
+    StoryScenePromiseBeatDto,
     StorySceneStatusDto,
+    StoryThreadMiceTypeDto,
     StoryThreadStatusDto,
 } from "nbook/shared/dto/plot.dto";
 
@@ -39,6 +51,8 @@ const props = defineProps<{
     thread: PlotThreadPanelThread | null;
     scene: PlotThreadPanelScene | null;
     chapters: PlotThreadPanelChapter[];
+    // 当前 Scene 的 promise beats(「这场戏服务哪些线」);为空表示宿主未接详情或该场无节拍。
+    scenePromiseBeats?: StoryScenePromiseBeatDto[];
     effectiveRefs: WorkbenchInlineRef[];
     manualRefs: WorkbenchManualRef[];
     refTargetOptions: SelectOption[];
@@ -49,6 +63,7 @@ const emit = defineEmits<{
     (e: "updateThread", threadId: string, patch: Partial<PlotThreadPanelThread>): void;
     (e: "updateScene", sceneId: string, patch: Partial<PlotThreadPanelScene>): void;
     (e: "updateRefs", refs: WorkbenchManualRef[]): void;
+    (e: "focusPromise", promiseId: string): void;
     (e: "openWorldEngine"): void;
 }>();
 
@@ -110,9 +125,7 @@ const sceneStatusOptions: SelectOption[] = Object.entries(PLOT_SCENE_STATUS_LABE
 }));
 const RELATION_LABELS: Record<string, string> = {
     mentions: "提及 (mentions)",
-    foreshadows: "伏笔 (foreshadows)",
     depends_on: "前置依赖 (depends_on)",
-    pays_off: "回收 (pays_off)",
     conflicts_with: "冲突 (conflicts_with)",
     setup_for: "铺垫 (setup_for)",
     derived_from: "派生自 (derived_from)",
@@ -283,6 +296,9 @@ function updateWorldAnchor(patch: Partial<PlotThreadPanelScene["worldAnchor"]>):
                         <FormSelect :model-value="props.thread.status" :options="threadStatusOptions" @update:model-value="updateThread({status: $event as StoryThreadStatusDto})" />
                     </FormField>
                 </div>
+                <FormField label="线型(MICE)">
+                    <FormSelect :model-value="props.thread.miceType ?? ''" :options="THREAD_MICE_TYPE_OPTIONS" @update:model-value="updateThread({miceType: ($event || null) as StoryThreadMiceTypeDto | null})" />
+                </FormField>
                 <FormField label="摘要">
                     <StructuredTextEditor
                         :model-value="props.thread.summary"
@@ -318,6 +334,34 @@ function updateWorldAnchor(patch: Partial<PlotThreadPanelScene["worldAnchor"]>):
                     <FormField label="所属章节">
                         <FormSelect :model-value="props.scene.chapterId ?? ''" :options="chapterOptions" @update:model-value="updateScene({chapterId: $event || null})" />
                     </FormField>
+                </div>
+                <!-- 节奏字段:本场结果与张弛角色(Task 93 规划层,null=未填写) -->
+                <div class="grid grid-cols-2 gap-2">
+                    <FormField label="结果类型">
+                        <FormSelect :model-value="props.scene.outcomeType ?? ''" :options="SCENE_OUTCOME_TYPE_OPTIONS" @update:model-value="updateScene({outcomeType: ($event || null) as StorySceneOutcomeTypeDto | null})" />
+                    </FormField>
+                    <FormField label="节奏角色">
+                        <FormSelect :model-value="props.scene.pacingRole ?? ''" :options="SCENE_PACING_ROLE_OPTIONS" @update:model-value="updateScene({pacingRole: ($event || null) as StoryScenePacingRoleDto | null})" />
+                    </FormField>
+                </div>
+                <!-- 本场服务的承诺线(promise beats):只读芯片,点击跳承诺账本聚焦;节拍增删在账本侧 -->
+                <div v-if="(props.scenePromiseBeats ?? []).length" class="space-y-1">
+                    <div class="text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--text-muted)]">服务承诺</div>
+                    <div class="flex flex-wrap gap-1.5">
+                        <button
+                            v-for="beat in props.scenePromiseBeats"
+                            :key="beat.id"
+                            type="button"
+                            data-testid="workbench-inspector-promise-beat-chip"
+                            class="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] transition-opacity hover:opacity-80"
+                            :class="PLANNING_TONE_CLASSES[PROMISE_BEAT_STATE_META[beat.state].tone].chip"
+                            :title="`${PROMISE_BEAT_KIND_META[beat.kind].label} · ${PROMISE_BEAT_STATE_META[beat.state].label}${beat.note ? ` · ${beat.note}` : ''}`"
+                            @click="emit('focusPromise', beat.promiseId)"
+                        >
+                            <span class="h-3 w-3 shrink-0" :class="PROMISE_BEAT_KIND_META[beat.kind].iconClass"></span>
+                            <span class="max-w-[140px] truncate">{{ beat.promiseTitle }}</span>
+                        </button>
+                    </div>
                 </div>
                 <FormField label="摘要">
                     <StructuredTextEditor

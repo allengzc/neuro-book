@@ -2,10 +2,10 @@
 /** @jsxRuntime automatic */
 import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import type {AgentRuntimeHookContext} from "nbook/server/agent/profiles/define-agent-runtime";
 import {agentRuntimeBuiltins, defineAgentRuntime} from "nbook/server/agent/profiles/define-agent-runtime";
 import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {SessionSummarizerInitialSchema, SessionSummarizerOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {readTitleOwner} from "nbook/server/agent/session/custom-state-keys";
 import {Message, ModelContext, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
 
 export const profileManifest = {
@@ -38,8 +38,9 @@ export default defineAgentProfile({
                 stage: "settleRun",
                 async run(ctx) {
                     const data = normalizeSummaryResult(ctx.runResult?.reportResult?.data);
-                    const state = await readSourceState(ctx.initial.sourceSessionId, ctx);
-                    if (!data || !state.running || state.sourceLeafId !== (await ctx.session.read(ctx.initial.sourceSessionId)).snapshot.leafId) {
+                    const source = await ctx.session.read(ctx.initial.sourceSessionId);
+                    const state = readSourceState(source.context.customState["summarizer.state"]);
+                    if (!data || !state.running || state.sourceLeafId !== source.snapshot.leafId) {
                         return {
                             writePlans: [{
                                 target: {sessionId: ctx.initial.sourceSessionId},
@@ -61,6 +62,8 @@ export default defineAgentProfile({
                             }],
                         };
                     }
+                    // 用户手动改过名（titleOwner=user）时只更新 summary，不覆盖标题。
+                    const titleLocked = readTitleOwner(source.context.customState) === "user";
                     return {
                         writePlans: [{
                             target: {sessionId: ctx.initial.sourceSessionId},
@@ -74,7 +77,7 @@ export default defineAgentProfile({
                                     },
                                     entry: {
                                         type: "session_update",
-                                        updates: data,
+                                        updates: titleLocked ? {summary: data.summary} : data,
                                     },
                                 },
                                 {
@@ -140,7 +143,10 @@ function normalizeSummaryResult(value: unknown): Output | null {
     return {title, summary};
 }
 
-async function readSourceState(sourceSessionId: number, ctx: AgentRuntimeHookContext<Initial>): Promise<{
+/**
+ * 从 source session customState 的 summarizer.state 值解析后台维护状态；非法值按空状态处理。
+ */
+function readSourceState(value: unknown): {
     running?: boolean;
     dirty?: boolean;
     profileKey?: string;
@@ -155,9 +161,7 @@ async function readSourceState(sourceSessionId: number, ctx: AgentRuntimeHookCon
     runningDialogueContentFingerprint?: string;
     runningSourcePromptUserTurnCount?: number;
     summarizerInputFingerprint?: string;
-}> {
-    const source = await ctx.session.read(sourceSessionId);
-    const value = source.context.customState["summarizer.state"];
+} {
     return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 

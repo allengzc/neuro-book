@@ -25,6 +25,7 @@ import {prepareSystemAssets} from "nbook/server/workspace-files/system-assets-pr
 import {resolveSystemNbookRoot, resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
 import {createIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/workspace-assets-test-helper";
 import {createWorkspaceContentState, createWorkspaceDirectory, readWorkspaceTextFile, scanWorkspaceTree, statWorkspacePath, validateWorkspaceContentNodes, validateWorkspaceTree, writeWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
+import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {updateNovelByTool} from "nbook/server/utils/novel-chapter";
 
 const AGENT_WORKSPACE_SCRIPT_PATH = path.join("assets", "workspace", ".nbook", "agent", "scripts", "workspace.ts");
@@ -48,7 +49,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
             rootLabel: "assets/workspace/.nbook/agent/profiles",
             skipFresh: true,
         });
-    });
+    }, 60_000);
 
     beforeEach(async () => {
         assets = await createIsolatedWorkspaceAssets({
@@ -57,11 +58,11 @@ describe("workspace-files", {timeout: 60_000}, () => {
         });
         root = path.join(".agent", "workspace-files-test", randomUUID());
         await fs.mkdir(root, {recursive: true});
-    });
+    }, 60_000);
 
     afterAll(async () => {
         await baseAssets.dispose();
-    });
+    }, 60_000);
 
     afterEach(async () => {
         setUserAssetsSyncStateWriteHookForTest(null);
@@ -70,7 +71,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
         await closeWorkspaceTreeIndex(root);
         await fs.rm(root, {recursive: true, force: true});
         await assets.dispose();
-    });
+    }, 60_000);
 
     it("隔离 Workspace assets context 支持嵌套恢复", async () => {
         const outerSystemRoot = assets.systemNbookRoot;
@@ -2556,6 +2557,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
             encoding: "utf-8",
         });
 
+        let projectOpened = false;
         try {
             expect(stderr).toBe("");
             await expect(readProjectManifest(projectPath)).resolves.toEqual({
@@ -2574,6 +2576,8 @@ describe("workspace-files", {timeout: 60_000}, () => {
             await expect(readWorkspaceTextFile(createdRoot, "world-engine/calendar.ts")).resolves.toContain("type: 'gregorian'");
             await expect(fs.access(path.join(createdRoot, "world-engine", "calendar.yaml"))).rejects.toMatchObject({code: "ENOENT"});
             await expect(fs.access(path.join(createdRoot, "simulation"))).rejects.toMatchObject({code: "ENOENT"});
+            await openProjectForTest(projectPath);
+            projectOpened = true;
             await expect(worldEngineFacade.formatTime(projectPath, 0n)).resolves.toBe("公元1年1月1日 00:00");
             await expect(worldEngineFacade.getWorldSchema(projectPath)).resolves.toEqual(expect.objectContaining({
                 subjectTypes: expect.arrayContaining([
@@ -2637,6 +2641,9 @@ describe("workspace-files", {timeout: 60_000}, () => {
                 issues: [],
             });
         } finally {
+            if (projectOpened) {
+                await closeProjectForTest(projectPath);
+            }
             await worldEngineFacade.closeProject(projectPath);
             await removeDirectoryWithRetry(createdRoot);
         }

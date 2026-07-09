@@ -21,7 +21,8 @@ import type {
     WorldIssue,
 } from "nbook/server/world-engine/types";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
-import {initProjectDatabase, normalizeProjectPath, resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
+import {assertProjectOpen, markProjectActivity} from "nbook/server/workspace-files/project-session";
+import {normalizeProjectPath, resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
 
 type WorldEngineModule = {
     service: WorldEngineService;
@@ -51,9 +52,12 @@ export class WorldEngineFacade {
     private readonly schemaLoader = new WorldSchemaLoader();
     private readonly calendarLoader = new WorldCalendarLoader();
 
-    /** 关闭指定 Project SQLite 的 PrismaClient。 */
+    /**
+     * 释放 World Engine 对该 Project 的句柄占用。World Engine 不缓存 client（每次调用即开即关），
+     * 方法体只做强制 GC 兜底。Task 94 后已不再注册为 ProjectSession 资源属主——生产的删除/关停
+     * 由 ProjectSession closeProject 统一收尾，本方法现仅供测试清理直接调用。
+     */
     async closeProject(_projectPath: string): Promise<void> {
-        // World Engine 不持久缓存 Project PrismaClient；这里保留为删除流程的释放兜底。
         collectReleasedSqliteHandles({force: true});
     }
 
@@ -211,7 +215,8 @@ export class WorldEngineFacade {
 
     private async createClientEntry(projectPath: string): Promise<WorldEngineClientEntry> {
         const normalizedProjectPath = normalizeProjectPath(projectPath);
-        await initProjectDatabase(normalizedProjectPath);
+        assertProjectOpen(normalizedProjectPath);
+        markProjectActivity(normalizedProjectPath);
         const databasePath = resolveProjectDatabasePath(normalizedProjectPath);
         return {client: createClient({url: toSqliteFileUrl(databasePath)})};
     }

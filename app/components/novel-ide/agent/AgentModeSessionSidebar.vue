@@ -22,6 +22,7 @@ const emit = defineEmits<{
     (e: "select", sessionId: number): void;
     (e: "create"): void;
     (e: "archive", session: AgentSessionSummaryDto): void;
+    (e: "rename", session: AgentSessionSummaryDto): void;
     (e: "refresh"): void;
 }>();
 
@@ -230,6 +231,9 @@ watch(storageKey, loadPinnedSessions, {immediate: true});
                 <span class="flex shrink-0 flex-col gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                     <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-[var(--text-muted)] hover:bg-[var(--bg-input)] hover:text-[var(--accent-text)]" :title="pinnedSet.has(session.sessionId) ? t('agent.session.unpin') : t('agent.session.pin')" @click.stop="togglePin(session.sessionId)">
                         <span class="i-lucide-pin h-3.5 w-3.5"></span>
+                    </button>
+                    <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-[var(--text-muted)] hover:bg-[var(--bg-input)] hover:text-[var(--accent-text)] disabled:opacity-40" :title="t('agent.session.rename')" :disabled="loading || actionId === session.sessionId" @click.stop="emit('rename', session)">
+                        <span class="i-lucide-pencil-line h-3.5 w-3.5"></span>
                     </button>
                     <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-[var(--text-muted)] hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)] disabled:opacity-40" :title="t('agent.session.archive')" :disabled="loading || actionId === session.sessionId || !canArchiveSession(session)" @click.stop="emit('archive', session)">
                         <span v-if="actionId === session.sessionId" class="i-lucide-loader-circle h-3.5 w-3.5 animate-spin"></span>

@@ -290,7 +290,9 @@ describe("NeuroAgentHarness black-box contract", () => {
         expectOrdered(observed.events, "agent_start", "turn_start");
         expectOrdered(observed.events, "tool_execution_start", "tool_execution_end");
         expectOrdered(observed.events, "turn_end", "agent_end");
-    });
+    // 文件内首个全链路 invocation 用例承担 harness/faux provider 暖机（>5s 默认预算），显式放宽；
+    // 超时会让 invocation 悬置并级联炸掉下一个用例的 admission（active_invocation_exists）。
+    }, 30000);
 
     it("Idle + continue 从现有 dialogue tail 继续且不新增 user message", async () => {
         const profileKey = registerPlainProfile(harness, {
@@ -448,28 +450,35 @@ describe("NeuroAgentHarness black-box contract", () => {
             workspaceRoot: root,
         });
 
-        const running = harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "start"},
-        });
-        await waitUntil(() => harness.eventHub.lastSeq(created.sessionId) > 0, "first events before followup");
-        const queued = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "followup",
-            message: {text: "queued followup"},
-        });
-        const beforeDrain = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
-        const result = await running;
-        const context = await waitForSessionText(harness, created.sessionId, "queued followup");
-        const snapshot = await harness.getSessionSnapshot(created.sessionId);
+        // 锚定 tool_execution_start（与上方 steer 用例同款）：createAgent 已产生事件使 lastSeq>0 恒真，
+        // 旧锚点会让 followup 赶在 prompt admission 之前提交而被拒（active_invocation_required 竞态）。
+        const observer = await observeSession(harness, created.sessionId);
+        try {
+            const running = harness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "prompt",
+                message: {text: "start"},
+            });
+            await waitUntil(() => eventTypes(observer.events).includes("tool_execution_start"), "tool execution start before followup");
+            const queued = await harness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "followup",
+                message: {text: "queued followup"},
+            });
+            const beforeDrain = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+            const result = await running;
+            const context = await waitForSessionText(harness, created.sessionId, "queued followup");
+            const snapshot = await harness.getSessionSnapshot(created.sessionId);
 
-        expect(queued.queuedItem).toEqual(expect.objectContaining({kind: "followup"}));
-        expect(visibleText(beforeDrain.messages)).not.toContain("queued followup");
-        expect(result.status).toBe("completed");
-        expect(visibleText(context.messages)).toContain("queued followup");
-        expect(visibleText(context.messages)).toContain("followup answered");
-        expect(snapshot.followUpQueue.items).toEqual([]);
+            expect(queued.queuedItem).toEqual(expect.objectContaining({kind: "followup"}));
+            expect(visibleText(beforeDrain.messages)).not.toContain("queued followup");
+            expect(result.status).toBe("completed");
+            expect(visibleText(context.messages)).toContain("queued followup");
+            expect(visibleText(context.messages)).toContain("followup answered");
+            expect(snapshot.followUpQueue.items).toEqual([]);
+        } finally {
+            await observer.stop();
+        }
     });
 
     it("WaitingUser + continue(resolution) 写 resolution toolResult 并复用 invocationId", async () => {

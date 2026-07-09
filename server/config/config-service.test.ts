@@ -18,9 +18,12 @@ import {
     saveGlobalConfig,
     saveProjectConfig,
 } from "nbook/server/config/config-service";
+import {ProjectNotOpenError} from "nbook/server/workspace-files/project-session";
+import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 
 const createdRoots: string[] = [];
 const catalog = createCatalog(["leader.default", "leader.assets", "custom.agent", "writer"]);
+const CONFIG_TEST_PROJECT_PATH = "workspace/config-test-project";
 let globalConfigBackupPath: string | null = null;
 let globalAgentsBackupPath: string | null = null;
 
@@ -29,9 +32,11 @@ describe("config service", {timeout: 30_000}, () => {
         globalConfigBackupPath = await moveGlobalConfigAside();
         globalAgentsBackupPath = await moveGlobalAgentsAside();
         await createProjectFixture();
+        await openProjectForTest(CONFIG_TEST_PROJECT_PATH);
     });
 
     afterEach(async () => {
+        await closeProjectForTest(CONFIG_TEST_PROJECT_PATH).catch(() => undefined);
         await Promise.all(createdRoots.splice(0).map((root) => fs.rm(root, {recursive: true, force: true})));
         await fs.rm(path.join("workspace", ".nbook", "config.json"), {force: true});
         await fs.rm(path.join("workspace", ".nbook", "agents"), {recursive: true, force: true});
@@ -164,6 +169,51 @@ describe("config service", {timeout: 30_000}, () => {
 
         expect(snapshot.defaultProfileSettings.effectiveProfileKey).toBe("custom.agent");
         await fs.access(path.join("workspace", "config-test-project", ".nbook", "config.json"));
+    });
+
+    it("Project 未 open 时拒绝保存 Project Config", async () => {
+        await closeProjectForTest(CONFIG_TEST_PROJECT_PATH);
+
+        await expect(saveProjectConfig({
+            agent: {defaultProfileKey: "custom.agent"},
+        }, {workspaceKind: "novel", projectPath: CONFIG_TEST_PROJECT_PATH}, catalog)).rejects.toBeInstanceOf(ProjectNotOpenError);
+    });
+
+    it("Project 未 open 时拒绝重置 Project Profile Home", async () => {
+        const resourceCatalog = createCatalog(["writer"], {writingStyleResource: true, homeReset: true});
+        await closeProjectForTest(CONFIG_TEST_PROJECT_PATH);
+
+        await expect(resetProjectProfileHome({
+            profileKey: "writer",
+        }, {workspaceKind: "novel", projectPath: CONFIG_TEST_PROJECT_PATH}, resourceCatalog)).rejects.toBeInstanceOf(ProjectNotOpenError);
+    });
+
+    it("Project 未 open 时拒绝读取 project scope Profile settings", async () => {
+        await closeProjectForTest(CONFIG_TEST_PROJECT_PATH);
+
+        await expect(readConfigAgentProfileSettings({
+            workspaceKind: "novel",
+            projectPath: CONFIG_TEST_PROJECT_PATH,
+        }, catalog, {
+            agentProfileSettingsScope: "project",
+        })).rejects.toBeInstanceOf(ProjectNotOpenError);
+    });
+
+    it("Project 未 open 时 global scope Profile settings 仍只初始化 Global Profile Home", async () => {
+        const resourceCatalog = createCatalog(["writer"], {writingStyleResource: true});
+        await closeProjectForTest(CONFIG_TEST_PROJECT_PATH);
+
+        const settings = await readConfigAgentProfileSettings({
+            workspaceKind: "novel",
+            projectPath: CONFIG_TEST_PROJECT_PATH,
+        }, resourceCatalog, {
+            agentProfileSettingsScope: "global",
+        });
+        const writer = settings.agentProfiles.find((profile) => profile.profileKey === "writer");
+
+        expect(writer?.settings).not.toBeNull();
+        await fs.access(path.join("workspace", ".nbook", "agents", "writer", "home.json"));
+        await expect(fs.access(path.join("workspace", "config-test-project", "agents", "writer", "home.json"))).rejects.toMatchObject({code: "ENOENT"});
     });
 
     it("Global secret 写回缺失 value 时保留旧 API key", async () => {
