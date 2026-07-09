@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PRODUCT_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../../../../.." && pwd)
+PRODUCT_VARIABLE_SCRIPT="$PRODUCT_ROOT/.output/server/scripts/build/variable.ts"
+PORTABLE_BUN="$PRODUCT_ROOT/../runtime/bun/bun.exe"
+
+if [ -f "$PRODUCT_VARIABLE_SCRIPT" ]; then
+    if [ -f "$PORTABLE_BUN" ]; then
+        exec "$PORTABLE_BUN" "$PRODUCT_VARIABLE_SCRIPT" "$@"
+    fi
+    exec "${BUN:-bun}" "$PRODUCT_VARIABLE_SCRIPT" "$@"
+fi
+
+exec "${BUN:-bun}" "$SCRIPT_DIR/../scripts/variable.ts" "$@"

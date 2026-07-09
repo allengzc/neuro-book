@@ -1,0 +1,253 @@
+// Project Workspace SQLite schema. This database lives inside each Project
+// Workspace at .nbook/project.sqlite and is portable with the project.
+generator client {
+  provider = "prisma-client"
+  output   = "../server/generated/project-prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum StoryThreadStatus {
+  active
+  draft
+  paused
+  done
+  archived
+}
+
+enum StorySceneStatus {
+  draft
+  active
+  written
+  revised
+  archived
+}
+
+enum StoryRefTargetKind {
+  content
+  thread
+  scene
+}
+
+enum StoryRefVisibility {
+  author
+  reader
+}
+
+model ProjectMetadata {
+  key       String   @id
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
+model DatabaseLock {
+  key       Int      @id
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
+model Story {
+  id        Int            @id @default(autoincrement())
+  title     String
+  summary   String         @default("")
+  note      String?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @default(now()) @updatedAt
+  acts      StoryAct[]
+  chapters  StoryChapter[]
+  phases    StoryPhase[]
+  threads   StoryThread[]
+  scenes    StoryScene[]
+}
+
+// 承载树:Act(卷)。语义对应 manuscript 的 volume 层,但与文件系统切割;排序权威在 sortOrder,目录名前缀只是装饰。
+model StoryAct {
+  id        Int            @id @default(autoincrement())
+  storyId   Int
+  sortOrder Int
+  name      String
+  title     String
+  summary   String         @default("")
+  note      String?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @default(now()) @updatedAt
+  story     Story          @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  chapters  StoryChapter[]
+
+  @@unique([storyId, name])
+  @@index([storyId, sortOrder])
+}
+
+// 承载树:Chapter(章)一等实体。与 manuscript 切割:Prose 文件通过 frontmatter `chapter: <name>` 反指本表 name,
+// 文件移动/改名不影响 Chapter;一个 Chapter 可关联多份 Prose(通常一份)。
+// brief* 字段组 = ChapterBrief(章级写作指令),全部可选、自由文本为主(防限死创造力),兼作写后审查依据;
+// 不保存动态世界状态(那是 World Engine 的职责),也不替代 Scene 剧情点。
+model StoryChapter {
+  id                    Int          @id @default(autoincrement())
+  storyId               Int
+  actId                 Int?
+  sortOrder             Int
+  name                  String
+  title                 String
+  note                  String?
+  briefGoal             String? // 章节目标 / 落点
+  briefPov              String? // 本章视角、叙述距离、切换限制
+  briefTone             String? // 语气 / 情绪温度 / 风格约束
+  briefPacing           String? // 节奏、悬念、下一章牵引
+  briefReaderKnows      String? // 信息控制:读者已知
+  briefProtagonistKnows String? // 信息控制:主角已知
+  briefMustHide         String? // 信息控制:必须隐藏
+  briefHintOnly         String? // 信息控制:可暗示但不可明说
+  briefOpening          String? // 开场钩子
+  briefEnding           String? // 章节落点 / 结尾定句
+  briefDoNotWrite       String? // 禁写事项
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @default(now()) @updatedAt
+  story                 Story        @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  act                   StoryAct?    @relation(fields: [actId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  scenes                StoryScene[]
+
+  @@unique([storyId, name])
+  @@index([storyId, actId, sortOrder])
+}
+
+model StoryPhase {
+  id        Int           @id @default(autoincrement())
+  storyId   Int
+  sortOrder Int
+  name      String
+  title     String
+  summary   String        @default("")
+  note      String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @default(now()) @updatedAt
+  story     Story         @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  threads   StoryThread[]
+
+  @@unique([storyId, name])
+  @@index([storyId, sortOrder])
+}
+
+model StoryThread {
+  id                Int               @id @default(autoincrement())
+  storyId           Int
+  storyPhaseId      Int?
+  sortOrder         Int
+  name              String
+  title             String
+  isMainThread      Boolean           @default(false)
+  status            StoryThreadStatus @default(draft)
+  summary           String            @default("")
+  tags              String            @default("[]")
+  writingTip        String?
+  note              String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @default(now()) @updatedAt
+  story             Story             @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  storyPhase        StoryPhase?       @relation(fields: [storyPhaseId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  scenes            StoryScene[]
+  incomingSceneRefs StorySceneRef[]   @relation("StorySceneRefTargetThread")
+
+  @@unique([storyId, name])
+  @@index([storyId, storyPhaseId, sortOrder])
+  @@index([storyId, isMainThread, status])
+}
+
+model StoryScene {
+  id                 Int               @id @default(autoincrement())
+  storyId            Int
+  threadId           Int
+  chapterId          Int?
+  threadSortOrder    Int
+  chapterSortOrder   Int?
+  title              String
+  status             StorySceneStatus  @default(draft)
+  summary            String            @default("")
+  purpose            String?
+  writingTip         String?
+  note               String?
+  startInstant       BigInt?
+  endInstant         BigInt?
+  subjectIdsJson     String            @default("[]")
+  locationSubjectId  String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @default(now()) @updatedAt
+  story              Story             @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  thread             StoryThread       @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  chapter            StoryChapter?     @relation(fields: [chapterId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  refs               StorySceneRef[]   @relation("StorySceneRefs")
+  incomingSceneRefs  StorySceneRef[]   @relation("StorySceneRefTargetScene")
+
+  @@unique([threadId, threadSortOrder])
+  @@index([threadId, threadSortOrder])
+  @@index([chapterId, chapterSortOrder])
+  @@index([storyId, status])
+  @@index([startInstant])
+}
+
+model StorySceneRef {
+  id                   Int                @id @default(autoincrement())
+  sceneId              Int
+  sortOrder            Int
+  relation             String
+  rawTarget            String
+  targetKind           StoryRefTargetKind
+  targetThreadId       Int?
+  targetSceneId        Int?
+  visibility           StoryRefVisibility @default(author)
+  note                 String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @default(now()) @updatedAt
+  scene                StoryScene         @relation("StorySceneRefs", fields: [sceneId], references: [id], onDelete: Cascade)
+  targetThread         StoryThread?       @relation("StorySceneRefTargetThread", fields: [targetThreadId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  targetScene          StoryScene?        @relation("StorySceneRefTargetScene", fields: [targetSceneId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([sceneId, sortOrder])
+  @@index([targetThreadId])
+  @@index([targetSceneId])
+}
+
+model WorldSubject {
+  id        String          @id
+  type      String
+  name      String          @default("")
+  createdAt DateTime        @default(now())
+  patches   WorldPatch[]
+
+  @@index([type])
+}
+
+model WorldSlice {
+  id        String          @id @default(cuid())
+  instant   BigInt          @unique
+  title     String          @default("")
+  summary   String          @default("")
+  kind      String          @default("event")
+  createdAt DateTime        @default(now())
+  patches   WorldPatch[]
+
+  @@index([instant])
+}
+
+model WorldPatch {
+  id        String       @id @default(cuid())
+  sliceId   String
+  subjectId String
+  instant   BigInt
+  seq       Int          @default(0)
+  path      String
+  op        String
+  value     String?
+  summary   String?
+  text      String?
+  vector    Bytes?
+  model     String?
+  slice     WorldSlice   @relation(fields: [sliceId], references: [id], onDelete: Cascade)
+  subject   WorldSubject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@index([subjectId, instant, seq])
+  @@index([subjectId, path, instant])
+  @@index([path])
+}

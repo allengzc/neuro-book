@@ -1,0 +1,113 @@
+name: Release Container
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  APP_IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/neuro-book
+  RUNTIME_IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/neuro-book-runtime
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract runtime metadata
+        id: runtime-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.RUNTIME_IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ github.event.release.tag_name }}
+            type=raw,value=latest,enable=${{ !github.event.release.prerelease }}
+          labels: |
+            org.opencontainers.image.title=neuro-book-runtime
+            org.opencontainers.image.description=NeuroBook Bun runtime with agent shell tools
+
+      - name: Build and push runtime image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime-base
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.runtime-meta.outputs.tags }}
+          labels: ${{ steps.runtime-meta.outputs.labels }}
+          cache-from: type=gha,scope=runtime
+          cache-to: type=gha,mode=max,scope=runtime
+
+      - name: Extract app metadata
+        id: app-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.APP_IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ github.event.release.tag_name }}
+            type=raw,value=latest,enable=${{ !github.event.release.prerelease }}
+          labels: |
+            org.opencontainers.image.title=neuro-book
+            org.opencontainers.image.description=NeuroBook prebuilt app image with source and Nitro runtime vendor
+
+      - name: Build and push app image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.app-meta.outputs.tags }}
+          labels: ${{ steps.app-meta.outputs.labels }}
+          cache-from: |
+            type=gha,scope=runtime
+            type=gha,scope=app
+          cache-to: type=gha,mode=max,scope=app
+
+  windows-portable:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build Product payload
+        env:
+          GITHUB_REF_NAME: ${{ github.event.release.tag_name }}
+        run: |
+          bun run nuxt:build
+          bun run product:stage
+
+      - name: Build Windows portable zip
+        env:
+          GITHUB_REF_NAME: ${{ github.event.release.tag_name }}
+        run: bun run package:windows-portable
+
+      - name: Upload Windows portable release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/neuro-book-windows-x64.zip
+            dist/SHA256SUMS

@@ -1,0 +1,33 @@
+#!/usr/bin/env sh
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PRODUCT_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../../../../.." && pwd)
+PRODUCT_PROFILE_SCRIPT="$PRODUCT_ROOT/.output/server/scripts/build/profile.ts"
+PRODUCT_ROOT_PACKAGE="$PRODUCT_ROOT/package.json"
+PRODUCT_OUTPUT_PACKAGE="$PRODUCT_ROOT/.output/server/package.json"
+PRODUCT_NODE_MODULES="$PRODUCT_ROOT/node_modules"
+PORTABLE_BUN="$PRODUCT_ROOT/../runtime/bun/bun.exe"
+
+package_has_name() {
+    [ -f "$1" ] && grep -q "\"name\"[[:space:]]*:[[:space:]]*\"$2\"" "$1"
+}
+
+is_product_runtime_root() {
+    [ -f "$PRODUCT_ROOT/.output/server/index.mjs" ] || return 1
+    if package_has_name "$PRODUCT_ROOT_PACKAGE" "neuro-book-product"; then
+        return 0
+    fi
+    if [ ! -d "$PRODUCT_NODE_MODULES" ] && package_has_name "$PRODUCT_OUTPUT_PACKAGE" "neuro-book-output"; then
+        return 0
+    fi
+    return 1
+}
+
+if [ -f "$PRODUCT_PROFILE_SCRIPT" ] && is_product_runtime_root; then
+    cd "$PRODUCT_ROOT" || exit 1
+    if [ -f "$PORTABLE_BUN" ]; then
+        exec "$PORTABLE_BUN" "$PRODUCT_PROFILE_SCRIPT" "$@"
+    fi
+    exec "${BUN:-bun}" "$PRODUCT_PROFILE_SCRIPT" "$@"
+fi
+
+exec "${BUN:-bun}" "$SCRIPT_DIR/../scripts/profile.ts" "$@"

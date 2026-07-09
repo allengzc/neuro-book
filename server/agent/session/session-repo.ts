@@ -1,0 +1,680 @@
+import {appendFile, mkdir, readFile, readdir, writeFile} from "node:fs/promises";
+import {existsSync} from "node:fs";
+import {dirname, join, resolve} from "node:path";
+import {randomUUID} from "node:crypto";
+import type {AgentMessage, JsonValue, Message} from "nbook/server/agent/messages/types";
+import {createUserMessage, messageText, sumAssistantUsage} from "nbook/server/agent/messages/message-utils";
+import type {
+    CompactionSessionEntry,
+    NeuroSessionContext,
+    SessionEntry,
+    SessionEntryId,
+    SessionFileRecord,
+    SessionId,
+    SessionMetadata,
+    SessionProjectionScope,
+    SessionSnapshot,
+    SessionTreeNode,
+    SessionEntryDraft,
+} from "nbook/server/agent/session/types";
+import type {AgentSessionListQueryDto, AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
+import {reduceRelationLedger} from "nbook/server/agent/session/relation-ledger";
+
+type CreateSessionInput = {
+    profileKey: string;
+    initial: JsonValue;
+    workspaceRoot: string;
+    workspaceKey?: string;
+    projectPath?: string;
+    parentSessionId?: SessionId;
+    systemRole?: SessionMetadata["systemRole"];
+    title?: string;
+};
+
+type AppendEntryInput = SessionEntryDraft & {
+    id?: SessionEntryId;
+    parentId?: SessionEntryId | null;
+    timestamp?: number;
+};
+type AppendBatchEntryInput = Exclude<AppendEntryInput, {type: "leaf"}>;
+
+/**
+ * JSONL session 仓库。所有状态变化都通过 append entry 表达。
+ */
+export class JsonlSessionRepository {
+    readonly rootWorkspace: string;
+
+    constructor(rootWorkspace = resolve(process.cwd(), "workspace")) {
+        this.rootWorkspace = rootWorkspace;
+    }
+
+    /** Pi 请求 trace 的存储根目录。`.nbook/agent/*` 的布局知识统一收敛在本仓库类。 */
+    get tracesRoot(): string {
+        return join(this.rootWorkspace, ".nbook", "agent", "traces");
+    }
+
+    /**
+     * 创建一个空 session，只写 header 和初始 leaf。
+     */
+    async createSession(input: CreateSessionInput): Promise<SessionSnapshot> {
+        const sessionId = await this.nextSessionId();
+        const now = Date.now();
+        const metadata: SessionMetadata = {
+            sessionId,
+            profileKey: input.profileKey,
+            initial: input.initial,
+            workspaceRoot: input.workspaceRoot,
+            workspaceKey: input.workspaceKey ?? "global",
+            projectPath: input.projectPath,
+            parentSessionId: input.parentSessionId,
+            systemRole: input.systemRole,
+            createdAt: now,
+            title: input.title,
+        };
+        const sessionPath = this.sessionPath(sessionId);
+        await mkdir(dirname(sessionPath), {recursive: true});
+        await writeFile(sessionPath, `${JSON.stringify({kind: "header", metadata} satisfies SessionFileRecord)}\n`, "utf8");
+        await this.appendEntry(sessionId, {
+            type: "leaf",
+            leafId: null,
+        }, metadata.workspaceKey);
+        return this.readSession(sessionId, metadata.workspaceKey);
+    }
+
+    /**
+     * 读取 session。workspaceKey 仅为旧调用点保留，不参与路径定位。
+     */
+    async readSession(sessionId: SessionId, workspaceKey?: string): Promise<SessionSnapshot> {
+        const sessionPath = this.sessionPath(sessionId);
+        const text = await readFile(sessionPath, "utf8");
+        const records = text.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as SessionFileRecord);
+        const header = records.find((record): record is Extract<SessionFileRecord, {kind: "header"}> => record.kind === "header");
+        if (!header) {
+            throw new Error(`session ${sessionId} 缺少 header`);
+        }
+
+        const entries = records.flatMap((record) => {
+            if (record.kind === "entry") {
+                return [record.entry];
+            }
+            if (record.kind === "batch") {
+                return record.entries;
+            }
+            return [];
+        });
+        return {
+            metadata: header.metadata,
+            entries,
+            leafId: this.resolveLeaf(entries),
+        };
+    }
+
+    /**
+     * 列出指定 workspace 下的 session 摘要。默认隐藏 archived session。
+     */
+    async listSessions(input: AgentSessionListQueryDto = {}): Promise<AgentSessionSummaryDto[]> {
+        const sessionsRoot = join(this.rootWorkspace, ".nbook", "agent", "sessions");
+        const files = await readdir(sessionsRoot, {withFileTypes: true}).catch(() => []);
+        const summaries: AgentSessionSummaryDto[] = [];
+
+        for (const file of files) {
+            if (!file.isFile() || !file.name.endsWith(".jsonl")) {
+                continue;
+            }
+            const sessionId = Number(file.name.slice(0, -".jsonl".length));
+            if (!Number.isInteger(sessionId) || sessionId <= 0) {
+                continue;
+            }
+            const snapshot = await this.readSession(sessionId);
+            const summary = this.summary(snapshot);
+            if (!this.matchesSessionListFilter(summary, input)) {
+                continue;
+            }
+            summaries.push(summary);
+        }
+
+        const sorted = summaries.sort((left, right) => right.updatedAt - left.updatedAt);
+        const offset = input.offset ?? 0;
+        const limited = input.limit ? sorted.slice(offset, offset + input.limit) : sorted.slice(offset);
+        return limited;
+    }
+
+    /**
+     * 判断 session 摘要是否符合列表查询筛选条件。
+     */
+    private matchesSessionListFilter(summary: AgentSessionSummaryDto, input: AgentSessionListQueryDto): boolean {
+        if (!input.includeSystem && summary.systemRole) {
+            return false;
+        }
+        if (!input.includeArchived && summary.archived) {
+            return false;
+        }
+        if (input.profileKey && summary.profileKey !== input.profileKey) {
+            return false;
+        }
+        if (input.profileGroup === "leader" && !this.isLeaderProfile(summary.profileKey)) {
+            return false;
+        }
+        if (input.workspaceKey && summary.workspaceKey !== input.workspaceKey) {
+            return false;
+        }
+        if (input.projectPath && summary.projectPath !== input.projectPath) {
+            return false;
+        }
+        if (input.relation === "top" && summary.parentSessionId) {
+            return false;
+        }
+        if (input.relation === "child" && !summary.parentSessionId) {
+            return false;
+        }
+        if (!this.matchesSearch(summary, input.search)) {
+            return false;
+        }
+        if (!input.status || input.status === "all") {
+            return true;
+        }
+        if (input.status === "running" || input.status === "waiting") {
+            return false;
+        }
+        if (input.status === "active") {
+            return !summary.archived;
+        }
+        return summary.status === input.status;
+    }
+
+    /**
+     * 按 session 摘要字段做服务端搜索。搜索不读取完整 snapshot 之外的数据。
+     */
+    private matchesSearch(summary: AgentSessionSummaryDto, search?: string): boolean {
+        const keyword = search?.trim().toLowerCase();
+        if (!keyword) {
+            return true;
+        }
+        return String(summary.sessionId).includes(keyword)
+            || summary.profileKey.toLowerCase().includes(keyword)
+            || Boolean(summary.title?.toLowerCase().includes(keyword))
+            || Boolean(summary.summary?.toLowerCase().includes(keyword))
+            || Boolean(summary.lastMessagePreview?.toLowerCase().includes(keyword));
+    }
+
+    /**
+     * Leader profile 采用 profileKey 命名约定筛选。
+     */
+    private isLeaderProfile(profileKey: string): boolean {
+        return profileKey === "leader.default"
+            || profileKey === "leader.assets"
+            || profileKey === "rp.leader"
+            || profileKey === "simulator.leader"
+            || profileKey.startsWith("leader.");
+    }
+
+    /**
+     * 追加 entry，并在非 leaf entry 后自动移动 leaf。
+     */
+    async appendEntry(sessionId: SessionId, input: AppendEntryInput, workspaceKey?: string): Promise<SessionEntry> {
+        const snapshot = await this.readSession(sessionId);
+        const currentLeafId = this.resolveLeaf(snapshot.entries);
+        const parentId = input.parentId === undefined ? currentLeafId : input.parentId;
+        const entry = {
+            ...input,
+            id: input.id ?? this.createEntryId(),
+            parentId,
+            timestamp: input.timestamp ?? Date.now(),
+        } as SessionEntry;
+        const sessionPath = this.sessionPath(sessionId);
+
+        await mkdir(dirname(sessionPath), {recursive: true});
+        await this.appendLine(sessionPath, {kind: "entry", entry});
+        if (entry.type !== "leaf") {
+            await this.appendLine(sessionPath, {
+                kind: "entry",
+                entry: {
+                    id: this.createEntryId(),
+                    parentId: entry.id,
+                    timestamp: Date.now(),
+                    type: "leaf",
+                    leafId: entry.id,
+                    origin: "auto",
+                },
+            });
+        }
+        return entry;
+    }
+
+    /**
+     * 追加投影型 entry，但不移动 active leaf。用于后台元数据，不改变用户当前分支。
+     */
+    async appendProjectionEntry(sessionId: SessionId, input: AppendEntryInput, projectionScope?: SessionProjectionScope, workspaceKey?: string): Promise<SessionEntry> {
+        const snapshot = await this.readSession(sessionId);
+        const currentLeafId = this.resolveLeaf(snapshot.entries);
+        const entry = {
+            ...input,
+            origin: input.type === "custom" || input.type === "session_update" ? "projection" : undefined,
+            projectionScope: input.type === "custom" || input.type === "session_update" ? projectionScope : undefined,
+            id: input.id ?? this.createEntryId(),
+            parentId: input.parentId === undefined ? currentLeafId : input.parentId,
+            timestamp: input.timestamp ?? Date.now(),
+        } as SessionEntry;
+        const sessionPath = this.sessionPath(sessionId);
+
+        await mkdir(dirname(sessionPath), {recursive: true});
+        await this.appendLine(sessionPath, {kind: "entry", entry});
+        return entry;
+    }
+
+    /**
+     * 一次性追加多条 entry，并只在 batch 最后移动 leaf。
+     * 用于普通 agent turn commit，避免 assistant/toolResult 之间出现可见半提交状态。
+     */
+    async appendEntries(sessionId: SessionId, inputs: AppendBatchEntryInput[], workspaceKey?: string): Promise<SessionEntry[]> {
+        if (inputs.length === 0) {
+            return [];
+        }
+        const snapshot = await this.readSession(sessionId);
+        const entries: SessionEntry[] = [];
+        let currentParentId = this.resolveLeaf(snapshot.entries);
+
+        for (const input of inputs) {
+            const parentId = input.parentId === undefined ? currentParentId : input.parentId;
+            const entry = {
+                ...input,
+                id: input.id ?? this.createEntryId(),
+                parentId,
+                timestamp: input.timestamp ?? Date.now(),
+            } as SessionEntry;
+            entries.push(entry);
+            if (entry.type !== "leaf") {
+                currentParentId = entry.id;
+            }
+        }
+
+        const lastNonLeaf = [...entries].reverse().find((entry) => entry.type !== "leaf");
+        if (lastNonLeaf) {
+            entries.push({
+                id: this.createEntryId(),
+                parentId: lastNonLeaf.id,
+                timestamp: Date.now(),
+                type: "leaf",
+                leafId: lastNonLeaf.id,
+                origin: "auto",
+            });
+        }
+
+        const sessionPath = this.sessionPath(sessionId);
+        await mkdir(dirname(sessionPath), {recursive: true});
+        await this.appendLine(sessionPath, {kind: "batch", entries});
+        return entries.filter((entry) => entry.type !== "leaf");
+    }
+
+    /**
+     * 追加普通 message entry。
+     */
+    async appendMessage(sessionId: SessionId, message: Message, workspaceKey?: string, origin?: "prompt" | "harness" | "manual" | "ingest"): Promise<SessionEntry> {
+        return this.appendEntry(sessionId, {
+            type: "message",
+            message,
+            origin,
+        }, workspaceKey);
+    }
+
+    /**
+     * 追加用户输入 message。
+     */
+    async appendUserMessage(sessionId: SessionId, text: string, workspaceKey?: string): Promise<SessionEntry> {
+        return this.appendMessage(sessionId, createUserMessage({text}), workspaceKey, "manual");
+    }
+
+    /**
+     * 移动 active leaf，不删除任何历史。
+     */
+    async moveLeaf(sessionId: SessionId, leafId: SessionEntryId | null, workspaceKey?: string): Promise<SessionEntry> {
+        return this.appendEntry(sessionId, {
+            type: "leaf",
+            leafId,
+            origin: "move",
+        }, workspaceKey);
+    }
+
+    /**
+     * 返回最近一次显式 active path 重定位的 entry id。
+     *
+     * 普通 append 会自动移动 leaf，但不会改变这个 revision；前端只在显式
+     * tree/edit/rollback 这类 active path 替换时用它触发 snapshot 重建。
+     */
+    activePathRevision(snapshot: SessionSnapshot): SessionEntryId | null {
+        const movedLeaf = [...snapshot.entries].reverse().find((entry) => entry.type === "leaf" && entry.origin === "move");
+        return movedLeaf?.id ?? null;
+    }
+
+    /**
+     * 从当前 leaf 回溯到 root。
+     */
+    activePath(snapshot: SessionSnapshot): SessionEntry[] {
+        if (!snapshot.leafId) {
+            return [];
+        }
+        const byId = new Map(snapshot.entries.map((entry) => [entry.id, entry]));
+        const path: SessionEntry[] = [];
+        let cursor: SessionEntryId | null = snapshot.leafId;
+
+        while (cursor) {
+            const entry = byId.get(cursor);
+            if (!entry) {
+                break;
+            }
+            if (entry.type !== "leaf") {
+                path.push(entry);
+            }
+            cursor = entry.parentId;
+        }
+
+        return path.reverse();
+    }
+
+    /**
+     * 将 active path reduce 成 harness context。
+     */
+    reduce(snapshot: SessionSnapshot): NeuroSessionContext {
+        const path = this.activePath(snapshot);
+        const pathIds = new Set(path.map((entry) => entry.id));
+        const messages: AgentMessage[] = [];
+        const customState: Record<string, JsonValue> = {};
+        let profileKey = snapshot.metadata.profileKey;
+        let model: NeuroSessionContext["model"] = null;
+        let thinkingLevel: NeuroSessionContext["thinkingLevel"] = null;
+        let title = snapshot.metadata.title;
+        let summary = snapshot.metadata.summary;
+        let compaction: CompactionSessionEntry | null = null;
+        let archived = snapshot.entries.some((entry) => entry.type === "session_archived");
+        let agentMode: NeuroSessionContext["agentMode"] = "normal";
+
+        const reduceEntries = snapshot.entries.filter((entry) => {
+            if (pathIds.has(entry.id)) {
+                return true;
+            }
+            return (entry.type === "custom" || entry.type === "session_update")
+                && entry.origin === "projection"
+                && this.projectionApplies(entry.projectionScope, pathIds);
+        });
+
+        for (const entry of reduceEntries) {
+            if (entry.type === "message") {
+                messages.push(entry.message);
+                continue;
+            }
+            if (entry.type === "custom_message" && entry.visibleToModel) {
+                messages.push(entry.message);
+                continue;
+            }
+            if (entry.type === "custom") {
+                customState[entry.key] = entry.value;
+                if (entry.origin !== "projection" && entry.key === "ui.agentMode") {
+                    agentMode = entry.value === "discuss" || entry.value === "plan" ? entry.value : "normal";
+                }
+                continue;
+            }
+            if (entry.type === "session_update") {
+                title = entry.updates.title ?? title;
+                summary = entry.updates.summary ?? summary;
+                continue;
+            }
+            if (entry.type === "model_change") {
+                model = entry.model;
+                continue;
+            }
+            if (entry.type === "thinking_level_change") {
+                thinkingLevel = entry.thinkingLevel;
+                continue;
+            }
+            if (entry.type === "profile_change") {
+                profileKey = entry.profileKey;
+                continue;
+            }
+            if (entry.type === "variable_patch") {
+                customState[`variablePatch:${entry.namespace}.${entry.path}`] = {
+                    operations: entry.operations,
+                    source: entry.source,
+                    invocationId: entry.invocationId ?? null,
+                    toolCallId: entry.toolCallId ?? null,
+                };
+                continue;
+            }
+            if (entry.type === "session_archived") {
+                archived = true;
+                continue;
+            }
+            if (entry.type === "compaction") {
+                compaction = entry;
+            }
+        }
+
+        const compactedMessages = compaction ? this.applyCompaction(path, compaction, messages) : messages;
+
+        return {
+            systemPrompt: "",
+            messages: compactedMessages,
+            model,
+            thinkingLevel,
+            profileKey,
+            workspaceRoot: snapshot.metadata.workspaceRoot,
+            projectPath: snapshot.metadata.projectPath,
+            customState,
+            linkedAgents: reduceRelationLedger(snapshot.entries),
+            title,
+            summary,
+            archived,
+            agentMode,
+        };
+    }
+
+    /**
+     * 从 session active path 生成前端列表摘要。
+     */
+    summary(snapshot: SessionSnapshot): AgentSessionSummaryDto {
+        const context = this.reduce(snapshot);
+        const path = this.activePath(snapshot);
+        const lastMessage = [...path].reverse().find((entry) => {
+            if (entry.type !== "message") return false;
+            return messageText(entry.message, { stripThinking: true }).trim().length > 0;
+        });
+        const updatedAt = path.at(-1)?.timestamp ?? snapshot.metadata.createdAt;
+        const interrupted = [...path].reverse().find((entry) => entry.type === "invocation_lifecycle");
+
+        return {
+            sessionId: snapshot.metadata.sessionId,
+            profileKey: context.profileKey,
+            workspaceKey: snapshot.metadata.workspaceKey,
+            workspaceRoot: context.workspaceRoot,
+            projectPath: snapshot.metadata.projectPath,
+            parentSessionId: snapshot.metadata.parentSessionId,
+            systemRole: snapshot.metadata.systemRole,
+            title: context.title,
+            summary: context.summary,
+            status: context.archived
+                ? "archived"
+                : interrupted?.type === "invocation_lifecycle" && interrupted.status === "start" ? "interrupted" : "idle",
+            updatedAt,
+            archived: context.archived,
+            lastMessagePreview: lastMessage?.type === "message" ? messageText(lastMessage.message, { stripThinking: true }).trim().slice(0, 160) : undefined,
+            usage: this.usage(snapshot),
+        };
+    }
+
+    /**
+     * 汇总 active path 中所有原始 assistant 调用的 provider usage。
+     *
+     * 注意不要从 reduce().messages 统计：compaction 会把早期历史替换成 summary message，
+     * 但 session 总消耗必须保留压缩前已经发生的模型调用成本。
+     */
+    usage(snapshot: SessionSnapshot): AgentSessionSummaryDto["usage"] {
+        const assistantMessages = this.activePath(snapshot)
+            .filter((entry): entry is Extract<SessionEntry, {type: "message"}> => entry.type === "message" && entry.message.role === "assistant")
+            .map((entry) => entry.message);
+        return sumAssistantUsage(assistantMessages);
+    }
+
+    /**
+     * 返回树节点摘要，供 /tree 展示或测试断言。
+     */
+    tree(snapshot: SessionSnapshot): SessionTreeNode[] {
+        const activeIds = new Set(this.activePath(snapshot).map((entry) => entry.id));
+        const childCountByParentId = new Map<SessionEntryId | null, number>();
+        const labelsByTargetId = new Map<SessionEntryId, string>();
+        for (const entry of snapshot.entries) {
+            if (entry.type === "leaf" || ("origin" in entry && entry.origin === "projection")) {
+                continue;
+            }
+            childCountByParentId.set(entry.parentId, (childCountByParentId.get(entry.parentId) ?? 0) + 1);
+            if (entry.type === "label") {
+                labelsByTargetId.set(entry.targetEntryId, entry.label);
+            }
+        }
+        return snapshot.entries
+            .filter((entry) => entry.type !== "leaf" && (!("origin" in entry) || entry.origin !== "projection"))
+            .map((entry) => ({
+                id: entry.id,
+                parentId: entry.parentId,
+                type: entry.type,
+                timestamp: entry.timestamp,
+                active: activeIds.has(entry.id),
+                terminal: !childCountByParentId.has(entry.id),
+                childCount: childCountByParentId.get(entry.id) ?? 0,
+                role: entry.type === "message" ? entry.message.role : entry.type === "custom_message" ? entry.message.role : undefined,
+                messageId: entry.type === "message" || entry.type === "custom_message" ? entry.id : undefined,
+                preview: this.treeNodePreview(entry),
+                toolName: entry.type === "message" && entry.message.role === "toolResult"
+                    ? entry.message.toolName
+                    : undefined,
+                label: labelsByTargetId.get(entry.id),
+            }));
+    }
+
+    /**
+     * 生成 tree 面板用的短预览。只用于 UI 摘要，不参与 reduce。
+     */
+    private treeNodePreview(entry: SessionEntry): string | undefined {
+        if (entry.type === "message") {
+            return messageText(entry.message, { stripThinking: true }).replace(/\s+/g, " ").trim().slice(0, 180) || undefined;
+        }
+        if (entry.type === "custom_message") {
+            return entry.message.role;
+        }
+        if (entry.type === "compaction") {
+            return entry.summary.replace(/\s+/g, " ").trim().slice(0, 180) || undefined;
+        }
+        if (entry.type === "branch_summary") {
+            return entry.summary.replace(/\s+/g, " ").trim().slice(0, 180) || undefined;
+        }
+        if (entry.type === "session_update") {
+            return entry.updates.title || entry.updates.summary;
+        }
+        if (entry.type === "label") {
+            return entry.label;
+        }
+        if (entry.type === "invocation_lifecycle") {
+            return `${entry.invocationId} ${entry.status}`;
+        }
+        if (entry.type === "custom") {
+            return entry.key;
+        }
+        return undefined;
+    }
+
+    /**
+     * 创建新 session，并从指定 entry 附带 parent session 信息。
+     */
+    async forkSession(sessionId: SessionId, entryId?: SessionEntryId): Promise<SessionSnapshot> {
+        const snapshot = await this.readSession(sessionId);
+        const fork = await this.createSession({
+            profileKey: snapshot.metadata.profileKey,
+            initial: snapshot.metadata.initial,
+            workspaceRoot: snapshot.metadata.workspaceRoot,
+            workspaceKey: snapshot.metadata.workspaceKey,
+            projectPath: snapshot.metadata.projectPath,
+            parentSessionId: sessionId,
+            title: snapshot.metadata.title,
+        });
+        if (entryId) {
+            await this.appendEntry(fork.metadata.sessionId, {
+                type: "custom",
+                key: "fork.fromEntryId",
+                value: entryId,
+            }, fork.metadata.workspaceKey);
+        }
+        return this.readSession(fork.metadata.sessionId, fork.metadata.workspaceKey);
+    }
+
+    private applyCompaction(path: SessionEntry[], compaction: CompactionSessionEntry, messages: AgentMessage[]): AgentMessage[] {
+        const summaryMessage: AgentMessage = {
+            role: "user",
+            content: [{
+                type: "text",
+                text: compaction.summary,
+            }],
+            timestamp: compaction.timestamp,
+        };
+        if (!compaction.firstKeptEntryId) {
+            return [summaryMessage];
+        }
+
+        const keptEntryIds = new Set(path.slice(path.findIndex((entry) => entry.id === compaction.firstKeptEntryId)).map((entry) => entry.id));
+        const keptMessages: AgentMessage[] = [];
+        for (const entry of path) {
+            if (!keptEntryIds.has(entry.id)) {
+                continue;
+            }
+            if (entry.type === "message") {
+                keptMessages.push(entry.message);
+            }
+            if (entry.type === "custom_message" && entry.visibleToModel) {
+                keptMessages.push(entry.message);
+            }
+        }
+        return [summaryMessage, ...keptMessages.length ? keptMessages : messages.slice(-4)];
+    }
+
+    private projectionApplies(scope: SessionProjectionScope | undefined, activePathIds: Set<SessionEntryId>): boolean {
+        if (!scope) {
+            return true;
+        }
+        return scope.scope === "activeLeaf" && (scope.leafId === null ? activePathIds.size === 0 : activePathIds.has(scope.leafId));
+    }
+
+    private async nextSessionId(): Promise<SessionId> {
+        const seqPath = join(this.rootWorkspace, ".nbook", "agent", "session-seq.json");
+        await mkdir(dirname(seqPath), {recursive: true});
+        let next = 1;
+        try {
+            const current = JSON.parse(await readFile(seqPath, "utf8")) as {next?: unknown};
+            if (typeof current.next === "number" && Number.isInteger(current.next) && current.next > 0) {
+                next = current.next;
+            }
+        } catch {
+            next = 1;
+        }
+        await writeFile(seqPath, JSON.stringify({next: next + 1}, null, 2), "utf8");
+        return next;
+    }
+
+    private resolveLeaf(entries: SessionEntry[]): SessionEntryId | null {
+        let leafId: SessionEntryId | null = null;
+        for (const entry of entries) {
+            if (entry.type === "leaf") {
+                leafId = entry.leafId;
+            }
+        }
+        return leafId;
+    }
+
+    private sessionPath(sessionId: SessionId): string {
+        return join(this.rootWorkspace, ".nbook", "agent", "sessions", `${sessionId}.jsonl`);
+    }
+
+    private createEntryId(): SessionEntryId {
+        return randomUUID();
+    }
+
+    private async appendLine(path: string, record: SessionFileRecord): Promise<void> {
+        await appendFile(path, `${JSON.stringify(record)}\n`, "utf8");
+    }
+}

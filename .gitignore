@@ -1,0 +1,52 @@
+/tmp
+/out-tsc
+
+/node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+/.pnp
+.pnp.js
+
+.vscode/*
+.env
+config.yaml
+!assets/workspace/.nbook/templates/project-directory-templates/simulation/config.yaml
+dist/
+product/
+/server/generated/prisma
+.DS_Store
+.runtime
+.deploy/
+
+# Nuxt
+.nuxt
+.output
+.nitro
+.cache
+.nuxt-analyze
+
+# IDE
+.idea
+.claude/settings.local.json
+.agent/generated/
+.agent/diagnostics/
+.agent/agent-smoke/
+.agent/agent-*/
+.playwright-cli/
+.agent/manual-retrieval-e2e-build-check/
+.agent/workspace
+/workspace/
+/coverage/
+/.agent/
+docs/.vitepress/dist
+docs/.vitepress/cache
+assets/workspace/.nbook/agent/profiles/.compiled/
+assets/workspace/.nbook/agent/variables/.compiled/
+assets/workspace/.nbook/agent/profiles/.system-profile-metadata.json
+# llmlint 评测 harness（消费侧代码）：本地运行，不进 git
+assets/workspace/.nbook/agent/skills/llmlint/evals/
+# AIGC 检测 reference 语料（104 本版权书，I11 合规边界）：正文绝不入 git；catalog.json 元数据可进
+datasets/aigc-detection/books/
+datasets/aigc-detection/converted/
+server/agent/variables/generated-profile-variable-types.d.ts

@@ -1,0 +1,43 @@
+// App SQLite schema. This database lives at Workspace Root .nbook and stores
+// only application-level data such as users and global locks.
+generator client {
+  provider = "prisma-client"
+  output   = "../server/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum UserRole {
+  admin
+  user
+}
+
+enum UserStatus {
+  active
+  disabled
+}
+
+model User {
+  id             Int        @id @default(autoincrement())
+  username       String     @unique
+  displayName    String     @default("")
+  passwordHash   String
+  role           UserRole   @default(user)
+  status         UserStatus @default(active)
+  sessionVersion Int        @default(1)
+  lastLoginAt    DateTime?
+  lastSeenAt     DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @default(now()) @updatedAt
+
+  @@index([role, status])
+  @@index([lastSeenAt])
+  @@index([updatedAt])
+}
+
+model DatabaseLock {
+  key       Int      @id
+  updatedAt DateTime @default(now()) @updatedAt
+}

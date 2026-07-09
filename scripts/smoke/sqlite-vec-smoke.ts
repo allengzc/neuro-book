@@ -1,0 +1,26 @@
+import {Database} from "bun:sqlite";
+import {load} from "sqlite-vec";
+
+/**
+ * 验证当前运行环境能加载 sqlite-vec，并能完成最小向量召回。
+ */
+function main(): void {
+    const db = new Database(":memory:");
+    try {
+        load(db);
+        db.run("CREATE VIRTUAL TABLE subject_rag_vec_smoke USING vec0(embedding float[2])");
+        db.run("INSERT INTO subject_rag_vec_smoke(rowid, embedding) VALUES (?, ?)", [
+            1,
+            new Float32Array([1, 0]),
+        ]);
+        const rows = db.query("SELECT rowid FROM subject_rag_vec_smoke WHERE embedding MATCH ? ORDER BY distance LIMIT 1").all(new Float32Array([1, 0])) as Array<{rowid: number}>;
+        if (rows[0]?.rowid !== 1) {
+            throw new Error(`sqlite-vec smoke 查询结果异常：${JSON.stringify(rows)}`);
+        }
+        console.log("sqlite-vec smoke ok");
+    } finally {
+        db.close();
+    }
+}
+
+main();

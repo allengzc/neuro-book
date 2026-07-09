@@ -1,0 +1,16 @@
+services:
+    app:
+        build:
+            context: .
+            dockerfile: Dockerfile
+        environment:
+            HOST: 0.0.0.0
+            PORT: ${NUXT_PORT:-3000}
+            DATABASE_KIND: ${DATABASE_KIND:-sqlite}
+            DATABASE_URL: ${DATABASE_URL:-file:./workspace/.nbook/neuro-book.sqlite}
+            NUXT_SESSION_PASSWORD: ${NUXT_SESSION_PASSWORD:?NUXT_SESSION_PASSWORD must be set}
+        ports:
+            - "${NUXT_PORT:-3000}:3000"
+        volumes:
+            - ./workspace:/app/workspace
+        restart: unless-stopped

@@ -1,0 +1,794 @@
+import {Worker} from "node:worker_threads";
+import {randomUUID} from "node:crypto";
+import {createRequire} from "node:module";
+import {copyFile, mkdir, rm} from "node:fs/promises";
+import {dirname, join, resolve} from "node:path";
+import {pathToFileURL} from "node:url";
+import {existsSync, readFileSync} from "node:fs";
+import {availableParallelism} from "node:os";
+import {performance} from "node:perf_hooks";
+import {
+    hashFile,
+    listProfileArtifactSourceFiles,
+    PROFILE_ARTIFACT_COMPILER_VERSION,
+    profileFullReleaseChangedSinceCompile,
+    ProfileReleasePublisher,
+    readProfileArtifactManifest,
+    type ProfileArtifactManifest,
+    type ProfileArtifactManifestEntry,
+    type ProfileArtifactManifestItem,
+    type ProfileArtifactSourceFile,
+} from "nbook/server/agent/profiles/profile-artifact-compiler";
+export {profileSourceFileSetChangedSinceCompile} from "nbook/server/agent/profiles/profile-artifact-compiler";
+import type {ProfileCompilePublishOptions, ProfileCompileWorkerResult} from "nbook/server/agent/profiles/profile-compile-worker-types";
+import {appLogger} from "nbook/server/app-logs/logger";
+import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import type {
+    AgentProfileCompileAllRequestDto,
+    AgentProfileCompileRequestDto,
+    AgentProfileCompileResultDto,
+    AgentProfileIssueDto,
+} from "nbook/shared/dto/agent-profile.dto";
+
+type CompileTask = {
+    id: number;
+    input: AgentProfileCompileRequestDto | AgentProfileCompileAllRequestDto;
+    mode: "single" | "all";
+    resolve: (result: AgentProfileCompileResultDto) => void;
+    publish?: ProfileCompilePublishOptions;
+    stale: boolean;
+};
+
+type WorkerResponse = {
+    id: number;
+    result: ProfileCompileWorkerResult;
+};
+
+type WorkerSlotTask = CompileTask | ProfileCompileEntryTask;
+
+type ProfileCompileEntryTask = {
+    id: number;
+    mode: "entry";
+    input: AgentProfileCompileRequestDto;
+    resolve: (result: ProfileCompileWorkerResult) => void;
+};
+
+type CompileWorkerPaths = {
+    entry: string;
+    runtime: string;
+    tsconfig: string;
+    tsxApiUrl: string;
+    tsxLoaderUrl: string;
+};
+
+type CompileWorkerSlot = {
+    id: number;
+    worker: Worker;
+    task: WorkerSlotTask | null;
+};
+
+type CleanupStagedDir = (dir: string) => Promise<void>;
+
+let service: ProfileCompileWorkerService | undefined;
+const WORKER_VERSION = "profile-compile-worker-v2";
+const MAX_DEFAULT_COMPILE_WORKERS = 4;
+const USER_PROFILE_ROOT_LABEL = "workspace/.nbook/agent/profiles";
+
+/**
+ * 获取 profile 编译 worker 单例。
+ */
+export function useProfileCompileWorker(): ProfileCompileWorkerService {
+    const userProfileRoot = defaultUserProfileRoot();
+    if (!service || service.version !== WORKER_VERSION || service.userProfileRoot !== userProfileRoot) {
+        service?.dispose();
+        service = new ProfileCompileWorkerService(WORKER_VERSION, undefined, undefined, userProfileRoot);
+    }
+    return service;
+}
+
+/**
+ * 后台编译 worker 池。真实 TSX loader 跑在 worker 内，避免阻塞 Nitro 主线程；
+ * 同一 profile 与全量编译保持互斥，防止旧任务后发布覆盖新任务。
+ */
+export class ProfileCompileWorkerService {
+    private readonly workers: CompileWorkerSlot[] = [];
+    private readonly running = new Map<number, WorkerSlotTask>();
+    private readonly queue: CompileTask[] = [];
+    private activeAllTask: CompileTask | null = null;
+    private nextId = 1;
+    private nextWorkerId = 1;
+    private readonly maxWorkers: number;
+
+    constructor(
+        readonly version = WORKER_VERSION,
+        maxWorkers = defaultCompileWorkerCount(),
+        private readonly cleanupStagedDir: CleanupStagedDir = defaultCleanupStagedDir,
+        readonly userProfileRoot = defaultUserProfileRoot(),
+    ) {
+        this.maxWorkers = Math.max(1, maxWorkers);
+    }
+
+    /**
+     * 提交单文件编译任务。同一 fileName 的等待任务会被标记 stale，并只保留最新源码。
+     */
+    compile(input: AgentProfileCompileRequestDto, publish?: ProfileCompilePublishOptions): Promise<AgentProfileCompileResultDto> {
+        return this.enqueue("single", input, publish);
+    }
+
+    /**
+     * 提交全量编译任务。等待中的单文件任务都会标记 stale；
+     * 真正编译时按 profile 文件 fan-out 到 worker 池，最后 fan-in 一次发布 manifest。
+     */
+    compileAll(input: AgentProfileCompileAllRequestDto = {preview: false}, publish?: ProfileCompilePublishOptions): Promise<AgentProfileCompileResultDto> {
+        return this.enqueue("all", input, publish);
+    }
+
+    private enqueue(mode: CompileTask["mode"], input: CompileTask["input"], publish?: ProfileCompilePublishOptions): Promise<AgentProfileCompileResultDto> {
+        const task: CompileTask = {
+            id: this.nextId++,
+            input,
+            mode,
+            resolve: () => {},
+            publish,
+            stale: false,
+        };
+        const promise = new Promise<AgentProfileCompileResultDto>((resolvePromise) => {
+            task.resolve = resolvePromise;
+        });
+        if (mode === "all") {
+            this.markAllPendingStale();
+        } else {
+            this.markPendingStale((input as AgentProfileCompileRequestDto).fileName);
+        }
+        this.queue.push(task);
+        this.pump();
+        return promise;
+    }
+
+    private markPendingStale(fileName: string): void {
+        for (const task of this.queue) {
+            if (task.mode === "single" && "fileName" in task.input && task.input.fileName === fileName) {
+                task.stale = true;
+            }
+        }
+    }
+
+    private markAllPendingStale(): void {
+        for (const task of this.queue) {
+            task.stale = true;
+        }
+    }
+
+    private pump(): void {
+        if (this.activeAllTask) {
+            return;
+        }
+        while (this.running.size < this.maxWorkers) {
+            const taskIndex = this.nextStartableTaskIndex();
+            if (taskIndex < 0) {
+                return;
+            }
+            const [task] = this.queue.splice(taskIndex, 1);
+            if (!task) {
+                return;
+            }
+            if (task.stale) {
+                task.resolve({
+                    ok: false,
+                    stale: true,
+                    detail: null,
+                    preview: null,
+                    issues: [],
+                });
+                continue;
+            }
+            if (task.mode === "all") {
+                this.activeAllTask = task;
+                void this.runCompileAllFanout(task).then((result) => {
+                    if (this.activeAllTask === task) {
+                        this.activeAllTask = null;
+                    }
+                    task.resolve(result);
+                    this.pump();
+                }, (error) => {
+                    if (this.activeAllTask === task) {
+                        this.activeAllTask = null;
+                    }
+                    task.resolve(workerFailedResult(task.input, error instanceof Error ? error : new Error(String(error))));
+                    this.pump();
+                });
+                return;
+            }
+            const slot = this.ensureIdleWorker();
+            slot.task = task;
+            this.running.set(task.id, task);
+            slot.worker.postMessage({
+                id: task.id,
+                mode: task.mode,
+                input: withWorkerRoot(task.input, this.userProfileRoot),
+            });
+        }
+    }
+
+    private nextStartableTaskIndex(): number {
+        if (this.activeAllTask) {
+            return -1;
+        }
+        for (let index = 0; index < this.queue.length; index += 1) {
+            const task = this.queue[index];
+            if (!task || task.stale || this.canStart(task)) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    private canStart(task: CompileTask): boolean {
+        if (this.activeAllTask) {
+            return false;
+        }
+        const runningTasks = [...this.running.values()].filter(isCompileTask);
+        if (task.mode === "all") {
+            return runningTasks.length === 0;
+        }
+        if (runningTasks.some((running) => running.mode === "all")) {
+            return false;
+        }
+        const fileName = "fileName" in task.input ? task.input.fileName : null;
+        return !runningTasks.some((running) => "fileName" in running.input && running.input.fileName === fileName);
+    }
+
+    private ensureIdleWorker(): CompileWorkerSlot {
+        const idle = this.workers.find((slot) => !slot.task);
+        if (idle) {
+            return idle;
+        }
+        const slot: CompileWorkerSlot = {
+            id: this.nextWorkerId++,
+            worker: createCompileWorker(),
+            task: null,
+        };
+        slot.worker.on("message", (message: WorkerResponse) => this.handleMessage(slot, message));
+        slot.worker.on("error", (error) => this.handleCrash(slot, error instanceof Error ? error : new Error(String(error))));
+        slot.worker.on("exit", (code) => {
+            if (code !== 0) {
+                this.handleCrash(slot, new Error(`profile compile worker exited: ${code}`));
+            }
+            this.removeWorker(slot);
+        });
+        this.workers.push(slot);
+        return slot;
+    }
+
+    private handleMessage(slot: CompileWorkerSlot, message: WorkerResponse): void {
+        const task = slot.task;
+        if (!task || task.id !== message.id) {
+            return;
+        }
+        if (task.mode === "entry") {
+            slot.task = null;
+            this.running.delete(task.id);
+            task.resolve(message.result);
+            this.pump();
+            return;
+        }
+        void publishWorkerResult(task, message.result, this.cleanupStagedDir).then((result) => {
+            slot.task = null;
+            this.running.delete(task.id);
+            task.resolve(result);
+            this.pump();
+        }, (error) => {
+            slot.task = null;
+            this.running.delete(task.id);
+            task.resolve(workerFailedResult(task.input, error instanceof Error ? error : new Error(String(error))));
+            this.pump();
+        });
+    }
+
+    private handleCrash(slot: CompileWorkerSlot, error: Error): void {
+        const task = slot.task;
+        slot.task = null;
+        this.running.delete(task?.id ?? -1);
+        this.removeWorker(slot);
+        if (task) {
+            task.resolve(workerFailedResult(task.input, error));
+        }
+        this.pump();
+    }
+
+    private removeWorker(slot: CompileWorkerSlot): void {
+        const index = this.workers.indexOf(slot);
+        if (index >= 0) {
+            this.workers.splice(index, 1);
+        }
+    }
+
+    /**
+     * HMR 或服务版本变更时关闭旧 worker，避免继续使用旧 loader 状态。
+     */
+    dispose(): void {
+        const error = new Error("profile compile worker disposed");
+        for (const slot of this.workers.splice(0)) {
+            void slot.worker.terminate();
+            if (slot.task) {
+                slot.task.resolve(workerFailedResult(slot.task.input, error));
+            }
+        }
+        this.running.clear();
+        if (this.activeAllTask) {
+            this.activeAllTask.resolve(workerFailedResult(this.activeAllTask.input, error));
+            this.activeAllTask = null;
+        }
+        for (const task of this.queue.splice(0)) {
+            task.resolve(workerFailedResult(task.input, error));
+        }
+    }
+
+    private async runCompileAllFanout(task: CompileTask): Promise<AgentProfileCompileResultDto> {
+        const startedAt = performance.now();
+        const buildCompiledDir = resolve(process.cwd(), ".agent", "workspace", "profile-artifact-fan-in", randomUUID());
+        const stagedDirs: string[] = [buildCompiledDir];
+        try {
+            const [files, existingManifest] = await Promise.all([
+                listProfileArtifactSourceFiles(this.userProfileRoot),
+                readProfileArtifactManifest(this.userProfileRoot),
+            ]);
+            await mkdir(buildCompiledDir, {recursive: true});
+            const workerResults = await this.compileEntriesInWorkerPool(files);
+            const entries: ProfileArtifactManifestEntry[] = [];
+            const issues: AgentProfileIssueDto[] = [];
+            for (const result of workerResults) {
+                if (result.stagedRelease) {
+                    stagedDirs.push(result.stagedRelease.buildCompiledDir);
+                }
+                if (!result.stagedRelease || result.stagedRelease.manifest.entries.length !== 1) {
+                    return compileAllInfrastructureFailure(result, startedAt);
+                }
+                const entry = result.stagedRelease.manifest.entries[0]!;
+                entries.push(entry);
+                issues.push(...result.issues);
+                if (entry.status !== "compile_failed") {
+                    await copyCompiledEntryArtifacts(result.stagedRelease.buildCompiledDir, buildCompiledDir, entry);
+                }
+            }
+            if (await profileFullReleaseChangedSinceCompile(this.userProfileRoot, files, entries)) {
+                return {
+                    ok: false,
+                    stale: true,
+                    detail: null,
+                    preview: null,
+                    issues: [],
+                    elapsedMs: elapsedSince(startedAt),
+                    compiledCount: entries.filter(isLoadedManifestEntry).length,
+                    profiles: profileItemsFromEntries(entries),
+                };
+            }
+            const nextEntries = entries.sort((left, right) => left.fileName.localeCompare(right.fileName));
+            const manifest: ProfileArtifactManifest = {
+                compilerVersion: PROFILE_ARTIFACT_COMPILER_VERSION,
+                generatedAt: JSON.stringify(existingManifest.entries) === JSON.stringify(nextEntries) ? existingManifest.generatedAt : new Date().toISOString(),
+                profilesRoot: USER_PROFILE_ROOT_LABEL,
+                entries: nextEntries,
+                profiles: nextEntries.filter(isLoadedManifestEntry),
+            };
+            await new ProfileReleasePublisher({
+                profileRoot: this.userProfileRoot,
+                mode: task.publish?.mode ?? "disk_only",
+                registry: task.publish?.registry,
+            }).publishStaged(buildCompiledDir, manifest);
+            return {
+                ok: issues.every((issue) => issue.severity !== "error") && manifest.entries.length === files.length && manifest.entries.every(isLoadedManifestEntry),
+                stale: false,
+                detail: null,
+                preview: null,
+                issues,
+                elapsedMs: elapsedSince(startedAt),
+                compiledCount: manifest.profiles.length,
+                profiles: profileItemsFromEntries(manifest.entries),
+            };
+        } catch (error) {
+            return {
+                ok: false,
+                stale: false,
+                detail: null,
+                preview: null,
+                issues: [issueFromError(error, "*", "compile_all_failed")],
+                elapsedMs: elapsedSince(startedAt),
+                compiledCount: 0,
+                profiles: [],
+            };
+        } finally {
+            await cleanupStagedDirs(stagedDirs, "compile_all_cleanup_failed", this.cleanupStagedDir);
+        }
+    }
+
+    private async compileEntriesInWorkerPool(files: ProfileArtifactSourceFile[]): Promise<ProfileCompileWorkerResult[]> {
+        const results: ProfileCompileWorkerResult[] = new Array<ProfileCompileWorkerResult>(files.length);
+        let nextIndex = 0;
+        const workers = Array.from({length: Math.min(this.maxWorkers, files.length)}, async () => {
+            while (true) {
+                const index = nextIndex;
+                nextIndex += 1;
+                if (index >= files.length) {
+                    return;
+                }
+                const file = files[index]!;
+                results[index] = await this.compileEntryInWorker(file.fileName);
+            }
+        });
+        await Promise.all(workers);
+        return results;
+    }
+
+    private compileEntryInWorker(fileName: string): Promise<ProfileCompileWorkerResult> {
+        const task: ProfileCompileEntryTask = {
+            id: this.nextId++,
+            mode: "entry",
+            input: {
+                fileName,
+                dryRun: false,
+                preview: false,
+            },
+            resolve: () => {},
+        };
+        const promise = new Promise<ProfileCompileWorkerResult>((resolvePromise) => {
+            task.resolve = resolvePromise;
+        });
+        const slot = this.ensureIdleWorker();
+        slot.task = task;
+        this.running.set(task.id, task);
+            slot.worker.postMessage({
+                id: task.id,
+                mode: task.mode,
+                input: withWorkerRoot(task.input, this.userProfileRoot),
+            });
+        return promise;
+    }
+}
+
+/**
+ * 在主线程发布 worker 生成的 staging release，并清理临时目录。
+ */
+async function publishWorkerResult(task: CompileTask, result: ProfileCompileWorkerResult, cleanupStagedDir: CleanupStagedDir = defaultCleanupStagedDir): Promise<AgentProfileCompileResultDto> {
+    const staged = result.stagedRelease;
+    if (!staged) {
+        return stripWorkerResult(result);
+    }
+    try {
+        if (await workerResultSourceChanged(task, result)) {
+            return {
+                ...stripWorkerResult(result),
+                ok: false,
+                stale: true,
+                issues: [],
+            };
+        }
+        const publisher = new ProfileReleasePublisher({
+            profileRoot: staged.profileRoot,
+            mode: task.publish?.mode ?? "disk_only",
+            registry: task.publish?.registry,
+        });
+        if (task.mode === "single") {
+            const entry = staged.manifest.entries[0];
+            if (!entry || staged.manifest.entries.length !== 1) {
+                throw new Error("single profile compile worker 未返回单文件 staging entry。");
+            }
+            await publisher.publishStagedEntry(staged.buildCompiledDir, entry, staged.manifest.profilesRoot);
+        } else {
+            await publisher.publishStaged(staged.buildCompiledDir, staged.manifest);
+        }
+        return stripWorkerResult(result);
+    } catch (error) {
+        return {
+            ok: false,
+            stale: false,
+            detail: null,
+            preview: null,
+            issues: [{
+                severity: "error",
+                message: error instanceof Error ? error.message : String(error),
+                code: "compile_publish_failed",
+                fileName: "fileName" in task.input ? task.input.fileName : "*",
+                stack: process.env.NODE_ENV === "production" ? undefined : error instanceof Error ? error.stack : undefined,
+            }],
+            elapsedMs: result.elapsedMs,
+            compiledCount: result.compiledCount,
+            profiles: result.profiles,
+        };
+    } finally {
+        await cleanupStagedDirs([staged.buildCompiledDir], "compile_cleanup_failed", cleanupStagedDir);
+    }
+}
+
+async function cleanupStagedDirs(dirs: string[], code: string, cleanupStagedDir: CleanupStagedDir): Promise<void> {
+    await Promise.all([...new Set(dirs)].map(async (dir) => {
+        try {
+            await cleanupStagedDir(dir);
+        } catch (error) {
+            void appLogger.warn("agent.profileCompile.cleanupFailed", {
+                code,
+                dir,
+                error: error instanceof Error ? error.message : String(error),
+            });
+        }
+    }));
+}
+
+async function defaultCleanupStagedDir(dir: string): Promise<void> {
+    await rm(dir, {recursive: true, force: true});
+}
+
+async function copyCompiledEntryArtifacts(fromCompiledDir: string, toCompiledDir: string, entry: ProfileArtifactManifestItem): Promise<void> {
+    await copyStagedArtifact(fromCompiledDir, toCompiledDir, entry.artifactFileName);
+    if (entry.typeFileName) {
+        await copyStagedArtifact(fromCompiledDir, toCompiledDir, entry.typeFileName);
+    }
+}
+
+async function copyStagedArtifact(fromCompiledDir: string, toCompiledDir: string, artifactFileName: string): Promise<void> {
+    const sourcePath = join(fromCompiledDir, ...artifactFileName.split("/"));
+    const targetPath = join(toCompiledDir, ...artifactFileName.split("/"));
+    if (!existsSync(sourcePath)) {
+        return;
+    }
+    await mkdir(dirname(targetPath), {recursive: true});
+    await copyFile(sourcePath, targetPath);
+}
+
+async function workerResultSourceChanged(task: CompileTask, result: ProfileCompileWorkerResult): Promise<boolean> {
+    if (!result.stagedRelease) {
+        return false;
+    }
+    const input = task.input;
+    if (task.mode === "single" && "fileName" in input) {
+        const entry = result.stagedRelease.manifest.entries.find((item) => item.fileName === input.fileName);
+        return !entry || await entrySourceChanged(result.stagedRelease.profileRoot, entry);
+    }
+    return entriesChangedSinceCompile(result.stagedRelease.profileRoot, result.stagedRelease.manifest.entries);
+}
+
+async function entriesChangedSinceCompile(profileRoot: string, entries: ProfileArtifactManifestEntry[]): Promise<boolean> {
+    for (const entry of entries) {
+        if (await entrySourceChanged(profileRoot, entry)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+async function entrySourceChanged(profileRoot: string, entry: ProfileArtifactManifestEntry): Promise<boolean> {
+    const current = await hashFile(join(profileRoot, ...entry.fileName.split("/"))).catch(() => null);
+    return !current || current.sha256 !== entry.sourceSha256 || current.bytes !== entry.sourceBytes;
+}
+
+function compileAllInfrastructureFailure(result: ProfileCompileWorkerResult, startedAt: number): AgentProfileCompileResultDto {
+    return {
+        ok: false,
+        stale: result.stale,
+        detail: null,
+        preview: null,
+        issues: result.issues.length > 0 ? result.issues : [issueFromError(new Error("profile compile worker 未返回单文件 staging release。"), "*", "compile_worker_failed")],
+        elapsedMs: elapsedSince(startedAt),
+        compiledCount: 0,
+        profiles: [],
+    };
+}
+
+function profileItemsFromEntries(entries: ProfileArtifactManifestEntry[]): NonNullable<AgentProfileCompileResultDto["profiles"]> {
+    return entries.map((entry) => ({
+        profileKey: entry.profileKey,
+        fileName: entry.fileName,
+        loadStatus: entry.status === "compile_failed" ? "compile_failed" : "loaded",
+    }));
+}
+
+function isLoadedManifestEntry(entry: ProfileArtifactManifestEntry): entry is ProfileArtifactManifestItem {
+    return entry.status !== "compile_failed";
+}
+
+function isCompileTask(task: WorkerSlotTask): task is CompileTask {
+    return task.mode === "single" || task.mode === "all";
+}
+
+function issueFromError(error: unknown, fileName: string, code: string): AgentProfileIssueDto {
+    return {
+        severity: "error",
+        message: error instanceof Error ? error.message : String(error),
+        code,
+        fileName,
+        stack: process.env.NODE_ENV === "production" ? undefined : error instanceof Error ? error.stack : undefined,
+    };
+}
+
+function elapsedSince(startedAt: number): number {
+    return Math.round((performance.now() - startedAt) * 100) / 100;
+}
+
+/**
+ * 去掉 worker 内部字段，避免 staging 目录路径进入 HTTP 响应。
+ */
+function stripWorkerResult(result: ProfileCompileWorkerResult): AgentProfileCompileResultDto {
+    const {stagedRelease: _stagedRelease, ...publicResult} = result;
+    return publicResult;
+}
+
+function workerFailedResult(input: AgentProfileCompileRequestDto | AgentProfileCompileAllRequestDto, error: Error): AgentProfileCompileResultDto {
+    const fileName = "fileName" in input ? input.fileName : "*";
+    return {
+        ok: false,
+        stale: false,
+        detail: null,
+        preview: null,
+        issues: [{
+            severity: "error",
+            message: error.message,
+            code: "compile_worker_failed",
+            fileName,
+            stack: process.env.NODE_ENV === "production" ? undefined : error.stack,
+        }],
+    };
+}
+
+/**
+ * 默认 worker 数给主线程和 esbuild 内部并行留余量，避免全量重编吃满机器。
+ */
+function defaultCompileWorkerCount(): number {
+    return Math.max(1, Math.min(MAX_DEFAULT_COMPILE_WORKERS, availableParallelism() - 2));
+}
+
+function defaultUserProfileRoot(): string {
+    return resolve(resolveUserNbookRoot(), "agent", "profiles");
+}
+
+function withWorkerRoot<T extends AgentProfileCompileRequestDto | AgentProfileCompileAllRequestDto>(input: T, userProfileRoot: string): T & {userProfileRoot: string} {
+    return {
+        ...input,
+        userProfileRoot,
+    };
+}
+
+function createCompileWorker(): Worker {
+    const workerPaths = resolveCompileWorkerPaths();
+    if (process.versions.bun) {
+        return new Worker(pathToFileURL(workerPaths.entry), {
+            execArgv: ["--import", workerPaths.tsxLoaderUrl],
+        });
+    }
+    return new Worker(renderNodeWorkerSource(workerPaths), {
+        eval: true,
+    });
+}
+
+/**
+ * 解析 profile 编译 worker 的源码入口。Product Root 也必须带这些运行源码，
+ * 但服务启动仍使用 `.output/server/index.mjs`，不是源码 dev server。
+ */
+function resolveCompileWorkerPaths(root = process.cwd()): CompileWorkerPaths {
+    return resolveProfileCompileWorkerPathsForRoot(root);
+}
+
+/**
+ * 按指定 Product/source root 解析 worker 入口和 TSX loader 依赖。
+ */
+export function resolveProfileCompileWorkerPathsForRoot(root: string): CompileWorkerPaths {
+    const outputRoot = resolve(root, ".output", "server");
+    const outputEntry = resolve(outputRoot, "server", "agent", "profiles", "profile-compile-worker-entry.ts");
+    const outputRuntime = resolve(outputRoot, "server", "agent", "profiles", "profile-compile-worker-runtime.ts");
+    if (isProductRuntimeRoot(root) && existsSync(outputEntry) && existsSync(outputRuntime)) {
+        const tsxUrls = resolveTsxPackageUrls(resolve(outputRoot, "index.mjs"), true);
+        return {
+            entry: outputEntry,
+            runtime: outputRuntime,
+            tsconfig: resolvePreferredTsconfig(outputRoot),
+            ...tsxUrls,
+        };
+    }
+
+    const entry = resolve(root, "server", "agent", "profiles", "profile-compile-worker-entry.ts");
+    const runtime = resolve(root, "server", "agent", "profiles", "profile-compile-worker-runtime.ts");
+    if (!existsSync(entry) || !existsSync(runtime)) {
+        throw new Error("Product runtime 缺少 profile compile worker 运行源码，请确认 server/ 已打入 product 根。");
+    }
+    return {
+        entry,
+        runtime,
+        tsconfig: resolvePreferredTsconfig(root),
+        ...resolveTsxPackageUrls(existsSync(resolve(root, "package.json")) ? resolve(root, "package.json") : entry, false),
+    };
+}
+
+/**
+ * Product Root 通过 package manifest 标记；GHCR / 通用 `.output` runner
+ * 使用 `.output/server/package.json`，并且不允许回退到根 node_modules。
+ */
+function isProductRuntimeRoot(root: string): boolean {
+    return existsSync(resolve(root, ".output", "server", "index.mjs"))
+        && Boolean(productPackageManifestPath(root));
+}
+
+function productPackageManifestPath(root: string): string | null {
+    const rootPackage = resolve(root, "package.json");
+    if (packageManifestName(rootPackage) === "neuro-book-product") {
+        return rootPackage;
+    }
+    const outputPackage = resolve(root, ".output", "server", "package.json");
+    if (packageManifestName(outputPackage) === "neuro-book-output" && !existsSync(resolve(root, "node_modules"))) {
+        return outputPackage;
+    }
+    return null;
+}
+
+function packageManifestName(path: string): string | null {
+    try {
+        const manifest = JSON.parse(readFileSync(path, "utf8")) as {name?: unknown};
+        return typeof manifest.name === "string" ? manifest.name : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * 从指定上下文解析 TSX worker 依赖，避免 worker 使用 cwd 裸包名解析。
+ */
+function resolveTsxPackageUrls(requireRoot: string, productRuntime: boolean): {tsxApiUrl: string; tsxLoaderUrl: string} {
+    return {
+        tsxApiUrl: resolvePackageUrl(requireRoot, "tsx/esm/api", productRuntime),
+        tsxLoaderUrl: resolvePackageUrl(requireRoot, "tsx", productRuntime),
+    };
+}
+
+/**
+ * 将 package specifier 解析为可动态 import 的绝对 file URL。
+ */
+function resolvePackageUrl(requireRoot: string, specifier: string, productRuntime: boolean): string {
+    try {
+        const requireFromRoot = createRequire(pathToFileURL(requireRoot));
+        return pathToFileURL(requireFromRoot.resolve(specifier)).href;
+    } catch (error) {
+        if (productRuntime) {
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(`Product runtime 缺少 tsx vendor：无法从 .output/server/node_modules 解析 ${specifier}。请确认 product:stage 已复制 tsx。原始错误：${message}`);
+        }
+        throw error;
+    }
+}
+
+/**
+ * 优先使用 Nuxt server tsconfig，缺失时回退根 tsconfig。
+ */
+function resolvePreferredTsconfig(root: string): string {
+    const serverTsconfig = resolve(root, ".nuxt", "tsconfig.server.json");
+    if (existsSync(serverTsconfig)) {
+        return serverTsconfig;
+    }
+    return resolve(root, "tsconfig.json");
+}
+
+function renderNodeWorkerSource(paths: CompileWorkerPaths): string {
+    return `
+    import {parentPort} from "node:worker_threads";
+    import {pathToFileURL} from "node:url";
+
+    if (!parentPort) {
+        throw new Error("profile compile worker parentPort missing");
+    }
+
+    const parentURL = pathToFileURL(${JSON.stringify(paths.entry)}).href;
+    const runtimeURL = pathToFileURL(${JSON.stringify(paths.runtime)}).href;
+    const tsconfig = ${JSON.stringify(paths.tsconfig)};
+    const {tsImport} = await import(${JSON.stringify(paths.tsxApiUrl)});
+    const {runProfileCompile, runProfileCompileAll, runProfileCompileEntry} = await tsImport(runtimeURL, {parentURL, tsconfig});
+
+    parentPort.on("message", async (message) => {
+        const result = message.mode === "all"
+            ? await runProfileCompileAll(message.input)
+            : message.mode === "entry"
+                ? await runProfileCompileEntry(message.input)
+            : await runProfileCompile(message.input);
+        parentPort.postMessage({
+            id: message.id,
+            result,
+        });
+    });
+`;
+}

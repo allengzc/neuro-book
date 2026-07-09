@@ -1,0 +1,43 @@
+// schema.prisma is the App SQLite schema fallback for tools that do not read
+// prisma.config.ts. Project Workspace data uses prisma/project.schema.prisma.
+generator client {
+  provider = "prisma-client"
+  output   = "../server/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum UserRole {
+  admin
+  user
+}
+
+enum UserStatus {
+  active
+  disabled
+}
+
+model User {
+  id             Int        @id @default(autoincrement())
+  username       String     @unique
+  displayName    String     @default("")
+  passwordHash   String
+  role           UserRole   @default(user)
+  status         UserStatus @default(active)
+  sessionVersion Int        @default(1)
+  lastLoginAt    DateTime?
+  lastSeenAt     DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @default(now()) @updatedAt
+
+  @@index([role, status])
+  @@index([lastSeenAt])
+  @@index([updatedAt])
+}
+
+model DatabaseLock {
+  key       Int      @id
+  updatedAt DateTime @default(now()) @updatedAt
+}

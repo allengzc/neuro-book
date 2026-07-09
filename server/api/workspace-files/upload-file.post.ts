@@ -1,0 +1,66 @@
+import {createError, getRequestHeader, readMultipartFormData, type MultiPartData} from "h3";
+import {resolveWorkspaceRootInput} from "nbook/server/workspace-files/novel-workspace";
+import {invalidateProjectWorkspaceIndexAfterMutation} from "nbook/server/workspace-files/project-workspace-index";
+import {uploadWorkspaceFile, WorkspaceUploadError} from "nbook/server/workspace-files/workspace-upload";
+
+/**
+ * 上传单个文件到当前挂载根的 upload/ 目录。已有文件跳过。
+ */
+export default defineEventHandler(async (event) => {
+    assertContentLengthLimit(event, 50 * 1024 * 1024, 1024 * 1024);
+    const parts = await readRequiredMultipart(event);
+    const file = firstFilePart(parts);
+    const workspaceKind = readTextPart(parts, "workspaceKind") === "user-assets" ? "user-assets" : undefined;
+    const root = await resolveWorkspaceRootInput({
+        projectPath: readTextPart(parts, "projectPath"),
+        workspaceKind,
+    });
+
+    try {
+        const result = await uploadWorkspaceFile(root, {
+            fileName: file.filename ?? "upload.bin",
+            data: file.data,
+        });
+        invalidateProjectWorkspaceIndexAfterMutation({root, workspaceKind});
+        return result;
+    } catch (error) {
+        throw toUploadError(error);
+    }
+});
+
+async function readRequiredMultipart(event: Parameters<typeof readMultipartFormData>[0]): Promise<MultiPartData[]> {
+    const parts = await readMultipartFormData(event);
+    if (!parts?.length) {
+        throw createError({statusCode: 400, message: "multipart 表单不能为空"});
+    }
+    return parts;
+}
+
+function firstFilePart(parts: MultiPartData[]): MultiPartData {
+    const file = parts.find((part) => part.name === "file" && part.filename);
+    if (!file) {
+        throw createError({statusCode: 400, message: "缺少上传文件"});
+    }
+    return file;
+}
+
+function readTextPart(parts: MultiPartData[], name: string): string | undefined {
+    const part = parts.find((item) => item.name === name && !item.filename);
+    const value = part?.data.toString("utf-8").trim();
+    return value || undefined;
+}
+
+function toUploadError(error: unknown): Error {
+    if (error instanceof WorkspaceUploadError) {
+        return createError({statusCode: error.statusCode, message: error.message});
+    }
+    return error instanceof Error ? error : new Error(String(error));
+}
+
+function assertContentLengthLimit(event: Parameters<typeof getRequestHeader>[0], limitBytes: number, multipartOverheadBytes: number): void {
+    const rawContentLength = getRequestHeader(event, "content-length");
+    const contentLength = rawContentLength ? Number.parseInt(rawContentLength, 10) : null;
+    if (contentLength !== null && Number.isFinite(contentLength) && contentLength > limitBytes + multipartOverheadBytes) {
+        throw createError({statusCode: 413, message: "单文件上传超过大小限制: 50MB"});
+    }
+}
