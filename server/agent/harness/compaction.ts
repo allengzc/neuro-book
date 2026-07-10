@@ -1,11 +1,12 @@
 import {tracedCompleteSimple} from "nbook/server/agent/observability/traced-provider";
 import type {PiTraceBinding} from "nbook/server/agent/observability/traced-provider";
 import {estimateContextTokens, estimateTokens} from "@earendil-works/pi-agent-core";
-import type {AgentMessage, AssistantMessage, JsonValue, Message, Model, ThinkingLevel, ToolResultMessage} from "nbook/server/agent/messages/types";
+import type {AgentMessage, AgentTool, AssistantMessage, JsonValue, Message, Model, ThinkingLevel, ToolResultMessage} from "nbook/server/agent/messages/types";
 import type {ProfileCompactionPlan} from "nbook/server/agent/profiles/types";
 import type {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import type {CompactionSessionEntry, CustomMessageSessionEntry, MessageSessionEntry, SessionEntry, SessionSnapshot} from "nbook/server/agent/session/types";
 import {createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
+import {estimateModelRequestTokens} from "nbook/server/agent/harness/model-context-estimate";
 
 export const COMPACTION_PROMPT = `You are performing a CONTEXT CHECKPOINT COMPACTION. Create a handoff summary for another LLM that will resume the task.
 
@@ -63,6 +64,8 @@ export async function compactIfNeeded(input: {
     repo: JsonlSessionRepository;
     snapshot: SessionSnapshot;
     messages: AgentMessage[];
+    systemPrompt: string;
+    tools: AgentTool[];
     model: Model<any>;
     apiKey?: string;
     timeoutMs?: number | null;
@@ -80,7 +83,11 @@ export async function compactIfNeeded(input: {
         return false;
     }
 
-    const usage = estimateContextTokens(input.messages);
+    const usage = estimateModelRequestTokens({
+        systemPrompt: input.systemPrompt,
+        messages: input.messages,
+        tools: input.tools,
+    });
     if (!shouldCompactWithOptions(usage.tokens, input.model.contextWindow, options)) {
         return false;
     }

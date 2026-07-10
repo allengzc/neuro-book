@@ -1537,7 +1537,7 @@ const zhCN = {
             followProfileCurrent: "跟随 Profile（当前 {level}）",
             requestedEffective: "{requested}（实际 {effective}）",
             contextUnknown: "Context 估算 - / -",
-            contextEstimate: "Context 估算 {used} / {limit} tokens{percent}",
+            contextEstimate: "下次请求估算 {used} / {limit} tokens{percent}",
             cachedRateSuffix: "，按缓存 USD/CNY 汇率换算",
             currentRateSuffix: "，按当前 USD/CNY 汇率换算",
             totalUsageEmpty: "Session 总消耗：输入 -- / 输出 -- / 缓存读 -- / 缓存写 -- / 命中率 --",

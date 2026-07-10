@@ -222,7 +222,7 @@ export type AgentEventCursorDto = {
 };
 
 export type AgentSessionContextUsageDto = {
-    /** 当前 active context 的 token 估算值。 */
+    /** 当前 active session 下一次模型请求的 token 估算值，包含 system prompt / tools / provider 可见消息。 */
     usedTokens: number;
     /** 当前模型 context window；为空表示模型未声明窗口。 */
     limitTokens: number | null;

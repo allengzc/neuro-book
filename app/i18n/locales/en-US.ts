@@ -1539,7 +1539,7 @@ const enUS = {
             followProfileCurrent: "Follow Profile (current {level})",
             requestedEffective: "{requested} (effective {effective})",
             contextUnknown: "Context estimate - / -",
-            contextEstimate: "Context estimate {used} / {limit} tokens{percent}",
+            contextEstimate: "Next request estimate {used} / {limit} tokens{percent}",
             cachedRateSuffix: ", converted with cached USD/CNY rate",
             currentRateSuffix: ", converted with current USD/CNY rate",
             totalUsageEmpty: "Session total: input -- / output -- / cache read -- / cache write -- / hit rate --",

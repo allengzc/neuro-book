@@ -151,6 +151,8 @@ describe("compaction", () => {
             repo,
             snapshot,
             messages: repo.reduce(snapshot).messages,
+            systemPrompt: "",
+            tools: [],
             model: faux.getModel(),
             writeCompactionEntry,
         });
@@ -194,6 +196,8 @@ describe("compaction", () => {
             repo,
             snapshot,
             messages: repo.reduce(snapshot).messages,
+            systemPrompt: "",
+            tools: [],
             model: {
                 ...faux.getModel(),
                 headers: {
@@ -257,6 +261,8 @@ describe("compaction", () => {
             repo,
             snapshot: firstSnapshot,
             messages: repo.reduce(firstSnapshot).messages,
+            systemPrompt: "",
+            tools: [],
             model: faux.getModel(),
             compaction: {
                 triggerTokens: 1,
@@ -276,6 +282,8 @@ describe("compaction", () => {
             repo,
             snapshot: secondSnapshot,
             messages: repo.reduce(secondSnapshot).messages,
+            systemPrompt: "",
+            tools: [],
             model: faux.getModel(),
             compaction: {
                 triggerTokens: 1,

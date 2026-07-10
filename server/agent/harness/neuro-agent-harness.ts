@@ -2,10 +2,9 @@ import {createHash, randomUUID} from "node:crypto";
 import {readFile} from "node:fs/promises";
 import {isAbsolute, join, normalize, relative, resolve} from "node:path";
 import type {AgentEvent, AgentToolResult} from "@earendil-works/pi-agent-core";
-import {estimateContextTokens} from "@earendil-works/pi-agent-core";
 import {validateToolArguments} from "@earendil-works/pi-ai";
 import {Value} from "typebox/value";
-import type {AgentMessage, AgentToolCall, AgentUserMessageInput, AssistantMessage, JsonValue, Message, Model, ThinkingLevel, ToolResultMessage} from "nbook/server/agent/messages/types";
+import type {AgentMessage, AgentTool, AgentToolCall, AgentUserMessageInput, AssistantMessage, JsonValue, Message, Model, ThinkingLevel, ToolResultMessage} from "nbook/server/agent/messages/types";
 import {createTextToolResult, createToolResultFromResult, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import {AgentProfileCatalog, type AgentProfileRuntimeResolution} from "nbook/server/agent/profiles/catalog";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
@@ -54,6 +53,7 @@ import {advanceAgentCursor, readUnseenForAgent} from "nbook/server/workspace-his
 import {assertValidProfileStateWrite, compilePrepareRunWritePlan} from "nbook/server/agent/harness/prepare-run";
 import {toRunKernelErrorInfo, withRunKernelPhase} from "nbook/server/agent/harness/run-kernel-error";
 import {consumeNextTurnModelMessages, createRunFrame} from "nbook/server/agent/harness/run-frame-state";
+import {estimateModelRequestTokens} from "nbook/server/agent/harness/model-context-estimate";
 import {isEmptyObjectSchema, reportResultSchemaForProfile, reportSidecarResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
 import {resolveRuntimeProfileSettings} from "nbook/server/agent/profiles/profile-settings";
 import {createLayeredProfileHomeFacade, ensureGlobalProfileHome, ensureProfileHome, resolveProjectRootForProfileHome} from "nbook/server/agent/profiles/profile-home";
@@ -1631,7 +1631,7 @@ export class NeuroAgentHarness {
             effectiveThinkingLevel,
             agentMode: projection.context.agentMode,
             usage: this.repo.usage(projection.snapshot),
-            contextUsage: await this.sessionContextUsage(projection.snapshot, projection.context),
+            contextUsage: await this.sessionContextUsage(projection.snapshot, projection.context, projection.profile),
         };
     }
 
@@ -1692,7 +1692,7 @@ export class NeuroAgentHarness {
             agentMode: context.agentMode,
             lastSeq: eventCursor.after,
             usage: this.repo.usage(snapshot),
-            contextUsage: await this.sessionContextUsage(snapshot, context),
+            contextUsage: await this.sessionContextUsage(snapshot, context, projection.profile, systemPrompt),
         };
     }
 
@@ -3509,7 +3509,9 @@ export class NeuroAgentHarness {
         });
         if (!frame.disableAutomaticCompaction && !frame.compaction) {
             this.assertContextWithinWindow({
+                systemPrompt: frame.systemPrompt,
                 messages: providerMessages,
+                tools,
                 model: frame.model,
                 profileKey: frame.profileKey,
             });
@@ -3743,13 +3745,13 @@ export class NeuroAgentHarness {
         if (nextTurnHooks.reportResultReminder !== undefined) {
             frame.reportResultReminderEnabled = nextTurnHooks.reportResultReminder;
         }
+        frame.nextTurnRuntimeMessages = nextTurnHooks.runtimeMessages;
         const compacted = await withRunKernelPhase("compaction", () => this.compactBeforeNextTurn(frame));
         if (compacted) {
             await withRunKernelPhase("ingest", () => this.reinjectHistorySetAfterCompaction(frame));
             const compactedSnapshot = await this.repo.readSession(frame.sessionId, frame.workspaceKey);
             frame.messages = this.repo.reduce(compactedSnapshot).messages;
         }
-        frame.nextTurnRuntimeMessages = nextTurnHooks.runtimeMessages;
     }
 
     private async compactBeforeNextTurn(frame: RunFrame): Promise<boolean> {
@@ -3757,13 +3759,21 @@ export class NeuroAgentHarness {
             return false;
         }
         if (!frame.compaction) {
-            this.assertContextWithinWindow(frame);
+            this.assertContextWithinWindow({
+                systemPrompt: frame.systemPrompt,
+                messages: [...frame.messages, ...frame.nextTurnRuntimeMessages],
+                tools: this.tools.allowed(frame.toolKeys),
+                model: frame.model,
+                profileKey: frame.profileKey,
+            });
             return false;
         }
         const compacted = await compactIfNeeded({
             repo: this.repo,
             snapshot: await this.repo.readSession(frame.sessionId, frame.workspaceKey),
-            messages: frame.messages,
+            messages: [...frame.messages, ...frame.nextTurnRuntimeMessages],
+            systemPrompt: frame.systemPrompt,
+            tools: this.tools.allowed(frame.toolKeys),
             model: frame.model,
             apiKey: frame.apiKey,
             thinkingLevel: frame.thinkingLevel,
@@ -3835,8 +3845,18 @@ export class NeuroAgentHarness {
     /**
      * 没有 compaction 配置时主动阻止超窗口请求，避免静默依赖 provider overflow。
      */
-    private assertContextWithinWindow(frame: Pick<RunFrame, "messages" | "model" | "profileKey">): void {
-        const usage = estimateContextTokens(frame.messages);
+    private assertContextWithinWindow(frame: {
+        messages: readonly AgentMessage[];
+        systemPrompt: string;
+        tools: readonly Pick<AgentTool, "name" | "description" | "parameters">[];
+        model: Model<any>;
+        profileKey: string;
+    }): void {
+        const usage = estimateModelRequestTokens({
+            systemPrompt: frame.systemPrompt,
+            messages: frame.messages,
+            tools: frame.tools,
+        });
         if (usage.tokens <= frame.model.contextWindow) {
             return;
         }
@@ -5562,8 +5582,19 @@ export class NeuroAgentHarness {
     /**
      * 生成当前 active context 的 token 估算信息。
      */
-    private async sessionContextUsage(snapshot: SessionSnapshot, context: NeuroSessionContext): Promise<AgentSessionContextUsageDto> {
-        const usedTokens = estimateContextTokens(context.messages).tokens;
+    private async sessionContextUsage(
+        snapshot: SessionSnapshot,
+        context: NeuroSessionContext,
+        profile: AgentProfile | null = null,
+        resolvedSystemPrompt?: string,
+    ): Promise<AgentSessionContextUsageDto> {
+        const systemPrompt = resolvedSystemPrompt ?? await this.snapshotSystemPrompt(snapshot, context, profile) ?? context.systemPrompt;
+        const tools = profile ? this.tools.allowed([...profile.rootToolKeys]) : [];
+        const usedTokens = estimateModelRequestTokens({
+            systemPrompt,
+            messages: context.messages,
+            tools,
+        }).tokens;
         let limitTokens: number | null = null;
         try {
             const config = await loadEffectiveConfig(snapshot.metadata);
@@ -6240,8 +6271,12 @@ export class NeuroAgentHarness {
         }
     }
 
-    private assertSidecarInjectedContextWithinWindow(passName: string, frame: Pick<RunFrame, "messages" | "model">): void {
-        const usage = estimateContextTokens(frame.messages);
+    private assertSidecarInjectedContextWithinWindow(passName: string, frame: Pick<SidecarRunContext, "messages" | "systemPrompt" | "toolKeys" | "model">): void {
+        const usage = estimateModelRequestTokens({
+            systemPrompt: frame.systemPrompt,
+            messages: frame.messages,
+            tools: this.tools.allowed(frame.toolKeys),
+        });
         if (usage.tokens <= frame.model.contextWindow) {
             return;
         }
