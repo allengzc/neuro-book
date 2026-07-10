@@ -137,8 +137,14 @@ export async function readPlainWorkspaceTreeSnapshot(options: WorkspaceScanOptio
  * 读取统一的 workspace tree index snapshot。dirty 或 watcher error 会在读取时重建。
  */
 export async function readWorkspaceTreeSnapshot(options: WorkspaceTreeIndexOptions = {}): Promise<WorkspaceTreeSnapshotDto<WorkspaceFileNode>> {
+    if (!isFullTreeSnapshotOptions(options)) {
+        return readFilteredWorkspaceTreeSnapshot(options);
+    }
     const entry = await ensureIndexEntry(options);
-    if (entry.index && !entry.dirty && !entry.lastWatchError) {
+    if (entry.index && !entry.lastWatchError) {
+        if (entry.dirty) {
+            void flushWorkspaceTreeIndexChanges(entry);
+        }
         return projectIndexToSnapshot(entry.index);
     }
     const index = await rebuildWorkspaceTreeIndex(entry);
@@ -203,12 +209,43 @@ export async function closeWorkspaceTreeIndex(rootInput: string | undefined): Pr
  * 判断当前 tree query 是否请求完整 Project Workspace snapshot。
  */
 export function assertFullTreeSnapshotQuery(input: {targets: string[]; type: string | null; depth: number | null}): void {
-    if (input.targets.length > 0 || input.type || input.depth !== null) {
-        throw createError({
-            statusCode: 400,
-            message: "tree snapshot 暂不支持 target/type/depth 过滤查询，请请求完整 Project Workspace tree",
-        });
+    void input;
+}
+
+function isFullTreeSnapshotOptions(options: WorkspaceTreeIndexOptions): boolean {
+    return !options.targets?.length && !options.type && (options.depth === undefined || options.depth === null);
+}
+
+async function readFilteredWorkspaceTreeSnapshot(options: WorkspaceTreeIndexOptions): Promise<WorkspaceTreeSnapshotDto<WorkspaceFileNode>> {
+    const root = resolveWorkspaceRoot(options.root);
+    const workspaceKind = resolveWorkspaceTreeIndexKind(options);
+    const rootInput = normalizeRootInput(options.root);
+    if (workspaceKind === "project-workspace" && /^workspace\/[^/]+$/u.test(rootInput)) {
+        assertProjectOpen(rootInput);
+        markProjectActivity(rootInput);
     }
+    const nodes = await scanWorkspaceTree({
+        ...options,
+        root,
+    });
+    const issues = workspaceKind === "user-assets"
+        ? []
+        : await createProjectWorkspaceIssues({
+            root,
+            scanOptions: normalizeScanOptions(options, root),
+        }, nodes);
+    const summaryByPath = workspaceKind === "user-assets"
+        ? new Map<string, WorkspaceIssueSummaryDto>()
+        : buildIssueSummaryByPath(issues, nodes);
+    return {
+        nodes: nodes.map((node) => ({
+            ...node,
+            issueSummary: summaryByPath.get(normalizeIssuePath(node.path)) ?? emptySummary(),
+        })),
+        issues,
+        revision: 0,
+        validatedAt: new Date().toISOString(),
+    };
 }
 
 async function ensureIndexEntry(options: WorkspaceTreeIndexOptions): Promise<ProjectWorkspaceIndexEntry> {
@@ -299,7 +336,10 @@ async function rebuildWorkspaceTreeIndex(entry: ProjectWorkspaceIndexEntry): Pro
     }
 }
 
-async function createProjectWorkspaceIssues(entry: ProjectWorkspaceIndexEntry, nodes: WorkspaceFileNode[]): Promise<WorkspaceFileIssue[]> {
+async function createProjectWorkspaceIssues(
+    entry: Pick<ProjectWorkspaceIndexEntry, "root" | "scanOptions">,
+    nodes: WorkspaceFileNode[],
+): Promise<WorkspaceFileIssue[]> {
     const existingPathSet = new Set(nodes.flatMap((node) => normalizedExistingPaths(node)));
     const issues = createWorkspaceContentIssues({
         root: entry.root,

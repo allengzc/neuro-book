@@ -71,10 +71,21 @@ import {
 import {assertProjectOpen, markProjectActivity} from "nbook/server/workspace-files/project-session";
 
 const GLOBAL_CONFIG_PATH = path.resolve(process.cwd(), "workspace", ".nbook", "config.json");
+const CONFIG_EDITOR_SNAPSHOT_CACHE_TTL_MS = 2_000;
 
 type ConfigAgentProfileSettingsOptions = {
     agentProfileSettingsScope?: "global" | "project";
 };
+
+type ConfigEditorSnapshotCacheEntry = {
+    expiresAt: number;
+    globalMtimeMs: number;
+    projectMtimeMs: number | null;
+    snapshot: ConfigEditorSnapshotDto;
+};
+
+const configEditorSnapshotCache = new Map<string, ConfigEditorSnapshotCacheEntry>();
+const configEditorSnapshotInflight = new Map<string, Promise<ConfigEditorSnapshotDto>>();
 
 /**
  * 读取业务运行使用的最新配置快照。
@@ -94,10 +105,45 @@ export async function readConfigSnapshot(query: ConfigWorkspaceQueryDto): Promis
  */
 export async function readConfigEditorSnapshot(query: ConfigWorkspaceQueryDto): Promise<ConfigEditorSnapshotDto> {
     const target = await resolveConfigTarget(query);
+    const cacheKey = configEditorSnapshotCacheKey(target);
+    const fileSignature = await readConfigFileSignature(target);
+    const now = Date.now();
+    const cached = configEditorSnapshotCache.get(cacheKey);
+    if (
+        cached
+        && cached.expiresAt > now
+        && cached.globalMtimeMs === fileSignature.globalMtimeMs
+        && cached.projectMtimeMs === fileSignature.projectMtimeMs
+    ) {
+        return cached.snapshot;
+    }
+
+    const inflight = configEditorSnapshotInflight.get(cacheKey);
+    if (inflight) {
+        return inflight;
+    }
+
+    const promise = buildConfigEditorSnapshot(query, target, fileSignature);
+    configEditorSnapshotInflight.set(cacheKey, promise);
+    try {
+        return await promise;
+    } finally {
+        configEditorSnapshotInflight.delete(cacheKey);
+    }
+}
+
+/**
+ * 构造设置页编辑快照，并按配置文件 mtime 写入短缓存。
+ */
+async function buildConfigEditorSnapshot(
+    query: ConfigWorkspaceQueryDto,
+    target: ConfigTarget,
+    fileSignature: {globalMtimeMs: number; projectMtimeMs: number | null},
+): Promise<ConfigEditorSnapshotDto> {
     const {global, project} = await readConfigFiles(query, target);
     const effective = resolveEffectiveConfig(global, project);
 
-    return {
+    const snapshot: ConfigEditorSnapshotDto = {
         version: CONFIG_VERSION,
         workspaceKind: target.workspaceKind,
         global: redactGlobalConfig(global),
@@ -113,6 +159,12 @@ export async function readConfigEditorSnapshot(query: ConfigWorkspaceQueryDto): 
             project,
         }),
     };
+    configEditorSnapshotCache.set(configEditorSnapshotCacheKey(target), {
+        expiresAt: Date.now() + CONFIG_EDITOR_SNAPSHOT_CACHE_TTL_MS,
+        ...fileSignature,
+        snapshot,
+    });
+    return snapshot;
 }
 
 /**
@@ -441,6 +493,25 @@ async function readConfigFiles(query: ConfigWorkspaceQueryDto, knownTarget?: Con
         target.projectConfigPath ? readProjectConfigFile(target.projectConfigPath) : Promise.resolve(null),
     ]);
     return {global, project};
+}
+
+function configEditorSnapshotCacheKey(target: ConfigTarget): string {
+    return [target.workspaceKind, target.projectConfigPath ?? ""].join(":");
+}
+
+async function readConfigFileSignature(target: ConfigTarget): Promise<{globalMtimeMs: number; projectMtimeMs: number | null}> {
+    const [globalStat, projectStat] = await Promise.all([
+        statMtimeMs(GLOBAL_CONFIG_PATH),
+        target.projectConfigPath ? statMtimeMs(target.projectConfigPath) : Promise.resolve(null),
+    ]);
+    return {
+        globalMtimeMs: globalStat,
+        projectMtimeMs: projectStat,
+    };
+}
+
+async function statMtimeMs(filePath: string): Promise<number> {
+    return (await fs.stat(filePath).catch(() => ({mtimeMs: 0}))).mtimeMs;
 }
 
 async function readGlobalConfigFile(): Promise<StoredGlobalConfig> {

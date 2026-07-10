@@ -15,6 +15,15 @@ type AgentProfileSettingsQueryParams = ConfigWorkspaceQueryDto & {
     scope: "global" | "project";
 };
 
+const editorSnapshotInflight = new Map<string, Promise<ConfigEditorSnapshotDto>>();
+
+function stableQueryKey(query: ConfigWorkspaceQueryDto): string {
+    return JSON.stringify({
+        workspaceKind: query.workspaceKind,
+        projectPath: query.projectPath ?? null,
+    });
+}
+
 /**
  * 统一构造当前 IDE 上下文对应的 Config API 查询与保存入口。
  */
@@ -72,9 +81,20 @@ export function useConfigApi() {
     async function editorSnapshot(
         query: ConfigWorkspaceQueryDto = currentQuery(),
     ): Promise<ConfigEditorSnapshotDto> {
-        return $fetch<ConfigEditorSnapshotDto>("/api/config/editor-snapshot", {
+        const key = stableQueryKey(query);
+        const inflight = editorSnapshotInflight.get(key);
+        if (inflight) {
+            return inflight;
+        }
+        const request = $fetch<ConfigEditorSnapshotDto>("/api/config/editor-snapshot", {
             query,
         });
+        editorSnapshotInflight.set(key, request);
+        try {
+            return await request;
+        } finally {
+            editorSnapshotInflight.delete(key);
+        }
     }
 
     /**

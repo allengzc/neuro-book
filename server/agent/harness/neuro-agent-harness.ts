@@ -1676,7 +1676,7 @@ export class NeuroAgentHarness {
             activeLeafId: snapshot.leafId,
             activePathRevision: this.repo.activePathRevision(snapshot),
             ...systemPrompt ? {systemPrompt} : {},
-            messages: context.messages,
+            // HTTP snapshot 的 UI 恢复走 entries 派生消息；provider messages 会和 entries 重复放大长会话响应体。
             tree: this.repo.tree(snapshot),
             entries: this.repo.activePath(snapshot),
             linkedAgents: relations.linkedAgents,

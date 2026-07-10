@@ -551,7 +551,10 @@ export type AgentSessionSnapshotDto = {
     activePathRevision: string | null;
     /** 当前 profile 的 provider 级 system prompt，用于前端只读展示；不作为普通历史消息。 */
     systemPrompt?: string;
-    messages: AgentMessage[];
+    /**
+     * Provider 可见消息，仅调试/兼容旧调用方使用。默认 HTTP snapshot 不再返回，避免和 entries/uiMessages 重复放大响应体。
+     */
+    messages?: AgentMessage[];
     tree: SessionTreeNode[];
     entries: SessionEntry[];
     linkedAgents: AgentLinkedSessionDto[];

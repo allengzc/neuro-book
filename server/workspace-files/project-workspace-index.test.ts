@@ -1,8 +1,14 @@
+import fs from "node:fs/promises";
+import path from "node:path";
+import {randomUUID} from "node:crypto";
 import {describe, expect, it} from "vitest";
 import {ProjectNotOpenError} from "nbook/server/workspace-files/project-session";
 import {
+    closeWorkspaceTreeIndex,
+    invalidateProjectWorkspaceIndexAfterMutation,
     isIgnoredWorkspaceWatchPath,
     onProjectWorkspaceFileChange,
+    readPlainWorkspaceTreeSnapshot,
     readProjectWorkspaceTreeSnapshot,
 } from "nbook/server/workspace-files/project-workspace-index";
 
@@ -43,3 +49,43 @@ describe("onProjectWorkspaceFileChange", () => {
         expect(calls).toBe(0);
     });
 });
+
+describe("workspace tree snapshot cache", () => {
+    it("已有旧 index 时 dirty 读取立即返回旧快照，并在后台刷新", async () => {
+        const root = path.join(".agent", "workspace", `workspace-tree-cache-${randomUUID()}`);
+        await fs.mkdir(root, {recursive: true});
+        await fs.writeFile(path.join(root, "first.md"), "# First\n", "utf-8");
+        try {
+            const first = await readPlainWorkspaceTreeSnapshot({root});
+            await fs.writeFile(path.join(root, "second.md"), "# Second\n", "utf-8");
+            invalidateProjectWorkspaceIndexAfterMutation({root, workspaceKind: "user-assets"});
+
+            const stale = await readPlainWorkspaceTreeSnapshot({root});
+            await waitFor(async () => {
+                const refreshed = await readPlainWorkspaceTreeSnapshot({root});
+                expect(refreshed.nodes.some((node) => node.path === "second.md")).toBe(true);
+            });
+
+            expect(first.nodes.some((node) => node.path === "first.md")).toBe(true);
+            expect(stale.nodes.some((node) => node.path === "second.md")).toBe(false);
+        } finally {
+            await closeWorkspaceTreeIndex(root);
+            await fs.rm(root, {recursive: true, force: true});
+        }
+    });
+});
+
+async function waitFor(assertion: () => Promise<void>, timeoutMs = 2_000): Promise<void> {
+    const startedAt = Date.now();
+    let lastError: unknown;
+    while (Date.now() - startedAt < timeoutMs) {
+        try {
+            await assertion();
+            return;
+        } catch (error) {
+            lastError = error;
+            await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+    }
+    throw lastError;
+}

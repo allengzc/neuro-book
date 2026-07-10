@@ -9418,6 +9418,28 @@ describe("NeuroAgentHarness", () => {
         expect(contextText).not.toContain("too late during drain");
     });
 
+    it("session snapshot 默认不返回 provider messages，避免长会话响应体重复放大", async () => {
+        faux.setResponses([fauxAssistantMessage(fauxText("snapshot reply"))]);
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "snapshot prompt"},
+        });
+
+        const snapshot = await harness.getSessionSnapshot(created.sessionId);
+
+        expect(snapshot.messages).toBeUndefined();
+        expect(snapshot.entries.some((entry) => entry.type === "message")).toBe(true);
+        const contextText = visibleMessageText(harness.repo.reduce(await harness.repo.readSession(created.sessionId)).messages);
+        expect(contextText).toContain("snapshot prompt");
+        expect(contextText).toContain("snapshot reply");
+    });
+
     it("session command 和 tree API 支持 mode、archive、retry、tree+invoke", async () => {
         faux.setResponses([
             fauxAssistantMessage(fauxText("first")),
@@ -9491,8 +9513,8 @@ describe("NeuroAgentHarness", () => {
         });
         expect(moved.status).toBe("invoked");
 
-        const afterRetry = await harness.getSessionSnapshot(created.sessionId);
-        const activeText = afterRetry.messages.map((message) => messageText(message as never));
+        const afterRetryContext = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+        const activeText = afterRetryContext.messages.map((message) => messageText(message as never));
         expect(activeText).toContain("run");
         expect(activeText.at(-1)).toContain("retry after user");
     });
@@ -9535,7 +9557,7 @@ describe("NeuroAgentHarness", () => {
         });
 
         expect(cleared.snapshot.activeLeafId).toBeNull();
-        expect(cleared.snapshot.messages).toEqual([]);
+        expect(harness.repo.reduce(await harness.repo.readSession(created.sessionId)).messages).toEqual([]);
         expect((await harness.repo.readSession(created.sessionId)).entries.length).toBeGreaterThan(beforeClear.entries.length);
         expect(cleared.snapshot.tree.some((node) => node.type === "message" && !node.active)).toBe(true);
 
@@ -9544,8 +9566,8 @@ describe("NeuroAgentHarness", () => {
             mode: "prompt",
             message: {text: "second user"},
         });
-        const afterPrompt = await harness.getSessionSnapshot(created.sessionId);
-        const llmMessages = afterPrompt.messages.filter((message) => message.role === "user" || message.role === "assistant" || message.role === "toolResult");
+        const afterPromptContext = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+        const llmMessages = afterPromptContext.messages.filter((message) => message.role === "user" || message.role === "assistant" || message.role === "toolResult");
         expect(llmMessages.map((message) => messageText(message))).toEqual(expect.arrayContaining(["second user", "after clear"]));
         expect(messageText(llmMessages.at(-1) as never)).toBe("after clear");
     });
