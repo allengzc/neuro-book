@@ -1,8 +1,10 @@
 import { defineConfig } from 'vitepress'
 
+const pagesBase = process.env.PAGES_BASE_PATH ?? '/neuro-book/'
+
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
-  base: process.env.PAGES_BASE_PATH ?? '/',
+  base: pagesBase,
   title: "NeuroBook",
   description: "NeuroBook：面向长篇小说创作的本地 AI 工作台，以作者为主导，集成文件化 workspace、Markdown Studio、剧情结构管理和多 Agent 写作流程，并探索 AI RP 与 SillyTavern 角色卡迁移。",
   srcExclude: [
@@ -14,10 +16,32 @@ export default defineConfig({
     'research/**',
     'tasks/**'
   ],
+  vite: {
+    plugins: [
+      {
+        name: 'official-static-index',
+        configureServer(server) {
+          server.middlewares.use((request, response, next) => {
+            const pathname = request.url?.split('?', 1)[0]
+            const officialRoute = `${pagesBase}official`
+            if (pathname !== officialRoute && pathname !== `${officialRoute}/`) {
+              next()
+              return
+            }
+
+            response.statusCode = 302
+            response.setHeader('Location', `${officialRoute}/index.html`)
+            response.end()
+          })
+        },
+      },
+    ],
+  },
   themeConfig: {
     // https://vitepress.dev/reference/default-theme-config
     nav: [
-      { text: '首页', link: '/' },
+      { text: '官网预览', link: '/official/' },
+      { text: '文档首页', link: '/' },
       { text: '快速开始', link: '/quick-start' },
       { text: '教程', link: '/tutorials/' },
       { text: '部署', link: '/deployment' },
