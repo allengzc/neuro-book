@@ -74,6 +74,11 @@ const schemaTypeOptions = [
     {value: "array", label: "array"},
     {value: "object", label: "object"},
 ];
+const fileChangeNoticeModeOptions = [
+    {value: "off", label: "off"},
+    {value: "minimal", label: "minimal"},
+    {value: "full", label: "full"},
+];
 type ProfileSchemaName = "InitialSchema" | "PayloadSchema" | "OutputSchema";
 
 const editingSchemaName = ref<ProfileSchemaName>("InitialSchema");
@@ -238,6 +243,13 @@ function parseDefaultValue(value: string): AgentProfileSchemaFieldDto["defaultVa
     }
 }
 
+/** FileChangeNotice 字符阈值强制保持在运行时 DSL 的 0-8192 契约内。 */
+function updateFileChangeDiffMaxChars(value: string): void {
+    const parsed = Number(value || 0);
+    const normalized = Number.isFinite(parsed) ? Math.min(8192, Math.max(0, Math.round(parsed))) : 0;
+    emit("update-prop", "diffMaxChars", normalized);
+}
+
 /**
  * 判断普通对象。
  */
@@ -292,6 +304,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
                             <FormSelect v-if="key === 'role'" :model-value="String(value ?? 'user')" :options="props.roleOptions" @focus="emit('update-active-target', key)" @update:model-value="emit('update-prop', key, $event)" />
                             <FormSelect v-else-if="key === 'status'" :model-value="String(value ?? 'drafting')" :options="props.toolStatusOptions" @focus="emit('update-active-target', key)" @update:model-value="emit('update-prop', key, $event)" />
                             <FormSelect v-else-if="key === 'source'" :model-value="String(value ?? 'context')" :options="props.sourceOptions" @focus="emit('update-active-target', key)" @update:model-value="emit('update-prop', key, $event)" />
+                            <FormSelect v-else-if="props.selectedNode.type === 'FileChangeNotice' && key === 'mode' && !props.isExpressionValue(value)" :model-value="String(value ?? 'minimal')" :options="fileChangeNoticeModeOptions" @focus="emit('update-active-target', key)" @update:model-value="emit('update-prop', key, $event)" />
                             <FormTextarea
                                 v-else-if="props.isExpressionValue(value)"
                                 :model-value="props.propInputValue(value)"
@@ -301,6 +314,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
                                 @update:model-value="emit('update-expression-prop', key, $event)"
                             />
                             <FormCheckbox v-else-if="typeof value === 'boolean'" :model-value="value" @focus="emit('update-active-target', key)" @update:model-value="emit('update-prop', key, $event)" />
+                            <FormInput v-else-if="props.selectedNode.type === 'FileChangeNotice' && key === 'diffMaxChars' && typeof value === 'number'" :model-value="String(value)" type="number" min="0" max="8192" step="1" @focus="emit('update-active-target', key)" @update:model-value="updateFileChangeDiffMaxChars" />
                             <FormInput v-else-if="typeof value === 'number'" :model-value="String(value)" type="number" @focus="emit('update-active-target', key)" @update:model-value="emit('update-prop', key, Number($event || 0))" />
                             <FormInput v-else :model-value="props.propInputValue(value)" @focus="emit('update-active-target', key)" @update:model-value="emit('update-prop', key, $event)" />
                         </div>

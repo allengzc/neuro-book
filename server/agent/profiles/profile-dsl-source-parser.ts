@@ -16,6 +16,7 @@ const PROFILE_DSL_COMPONENTS = new Set<ProfileTemplateNodeType>([
     "HistorySet",
     "ModelContext",
     "AppendingSet",
+    "FileChangeNotice",
     "Message",
     "AIMessage",
     "ToolCall",

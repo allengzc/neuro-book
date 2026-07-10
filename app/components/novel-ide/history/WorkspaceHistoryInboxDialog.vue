@@ -1,15 +1,18 @@
 <script setup lang="ts">
 /**
  * Workspace 文件历史收件箱（Task 95 最小 UI）：
- * 左列待审查文件分组（归因/操作摘要），右侧 Monaco diff（基准 = 上次接受位点，按 hash 按需拉全文），
+ * 左列待审查文件分组（归因/操作摘要），右侧 Monaco diff（基准 = 上次接受位点，按 path + revision 按需拉全文），
  * 每组提供「接受」与「还原」（还原走 danger 确认）。时间线 / 删除找回面板留给下一任务。
  */
 import Dialog from "nbook/app/components/common/Dialog.vue";
 import SharedDiffEditor from "nbook/app/components/common/diff/SharedDiffEditor.vue";
 import {useNotification} from "nbook/app/composables/useNotification";
-import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
+import {useWorkspaceHistoryDiffRequests} from "nbook/app/composables/useWorkspaceHistoryDiffRequests";
+import {useWorkspaceHistoryInbox} from "nbook/app/composables/useWorkspaceHistoryInbox";
+import {resolveApiErrorMessage, resolveApiErrorStatus} from "nbook/app/utils/api-error";
+import type {WorkspaceHistoryDiffRequestIdentity} from "nbook/app/utils/workspace-history-diff-request";
 import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
-import type {WorkspaceHistoryInboxDto, WorkspaceHistoryInboxGroupDto, WorkspaceHistorySnapshotDto} from "nbook/shared/dto/workspace-history.dto";
+import type {WorkspaceHistoryInboxGroupDto} from "nbook/shared/dto/workspace-history.dto";
 
 const props = defineProps<{
     modelValue: boolean;
@@ -25,77 +28,40 @@ const emit = defineEmits<{
 const notification = useNotification();
 const {confirm} = useDialog();
 const {t} = useI18n();
+const projectPathRef = toRef(props, "projectPath");
+const dialogOpenRef = toRef(props, "modelValue");
+const {revision, groups, loading, error: inboxError, load: loadInbox} = useWorkspaceHistoryInbox(projectPathRef, dialogOpenRef);
+const diffRequests = useWorkspaceHistoryDiffRequests();
 
-const groups = ref<WorkspaceHistoryInboxGroupDto[]>([]);
 const selectedPath = ref<string | null>(null);
-const loading = ref(false);
 /** 面板局部加载错误（可恢复，随刷新清除） */
-const error = ref<string | null>(null);
-const diffLoading = ref(false);
-/** 选中组两侧全文；null = 未选中或快照不可用 */
-const diffSides = ref<{original: string; modified: string} | null>(null);
-const diffUnavailable = ref(false);
+const actionError = ref<string | null>(null);
 /** 正在执行 accept/revert 的组路径（行级操作锁） */
 const busyPath = ref<string | null>(null);
 
 const selectedGroup = computed(() => groups.value.find((group) => group.path === selectedPath.value) ?? null);
+const error = computed(() => actionError.value ?? inboxError.value);
+const selectedDiffState = computed(() => selectedGroup.value
+    ? diffRequests.state(diffIdentity(selectedGroup.value))
+    : {loading: false, error: null, result: null});
+const selectedDiff = computed(() => selectedDiffState.value.result);
 
 /** 拉收件箱分组列表并保持/重置选中项。 */
 async function load(): Promise<void> {
-    if (!props.projectPath) {
-        groups.value = [];
-        return;
-    }
-    loading.value = true;
-    error.value = null;
-    try {
-        const dto = await $fetch<WorkspaceHistoryInboxDto>("/api/workspace-history/inbox", {query: {projectPath: props.projectPath}});
-        groups.value = dto.groups;
-        const keep = dto.groups.find((group) => group.path === selectedPath.value) ?? dto.groups[0] ?? null;
-        await select(keep);
-    } catch (cause) {
-        groups.value = [];
-        await select(null);
-        error.value = resolveApiErrorMessage(cause, t("ide.historyInbox.loadFailed"));
-    } finally {
-        loading.value = false;
-    }
+    actionError.value = null;
+    diffRequests.invalidate();
+    await loadInbox();
+    const keep = groups.value.find((group) => group.path === selectedPath.value) ?? groups.value[0] ?? null;
+    await select(keep);
 }
 
-/** 选中一组并按 hash 拉两侧全文。hash 为 null 的一侧 =「文件不存在」，按空文本 diff。 */
+/** 选中一组并通过服务端路径授权接口读取两侧全文。 */
 async function select(group: WorkspaceHistoryInboxGroupDto | null): Promise<void> {
     selectedPath.value = group?.path ?? null;
-    diffSides.value = null;
-    diffUnavailable.value = false;
     if (!group || !props.projectPath) {
         return;
     }
-    diffLoading.value = true;
-    try {
-        const [original, modified] = await Promise.all([
-            fetchSnapshotText(group.baseHash),
-            fetchSnapshotText(group.endHash),
-        ]);
-        if (original === null || modified === null) {
-            diffUnavailable.value = true;
-            return;
-        }
-        diffSides.value = {original, modified};
-    } catch (cause) {
-        diffUnavailable.value = true;
-        error.value = resolveApiErrorMessage(cause, t("ide.historyInbox.loadFailed"));
-    } finally {
-        diffLoading.value = false;
-    }
-}
-
-/** 按内容 hash 取快照全文；hash null =「文件不存在」返回空文本；text null = body 不可用。 */
-async function fetchSnapshotText(hash: string | null): Promise<string | null> {
-    if (hash === null) {
-        return "";
-    }
-    const dto = await $fetch<WorkspaceHistorySnapshotDto>("/api/workspace-history/snapshot", {query: {projectPath: props.projectPath, hash}});
-    return dto.text;
+    await diffRequests.load(diffIdentity(group), t("ide.historyInbox.loadFailed"));
 }
 
 /** 接受：把该文件的审查位点推进到最新（不改文件内容）。 */
@@ -105,10 +71,13 @@ async function acceptGroup(group: WorkspaceHistoryInboxGroupDto): Promise<void> 
     }
     busyPath.value = group.path;
     try {
-        await $fetch("/api/workspace-history/accept", {method: "POST", body: {projectPath: props.projectPath, path: group.path}});
+        await $fetch("/api/workspace-history/accept", {method: "POST", body: {projectPath: props.projectPath, path: group.path, revision: group.revision}});
         notification.success(t("ide.historyInbox.acceptSuccess", {path: group.path}));
         await load();
     } catch (cause) {
+        if (await refreshAfterStale(cause)) {
+            return;
+        }
         notification.error(resolveApiErrorMessage(cause, t("ide.historyInbox.actionFailed")));
     } finally {
         busyPath.value = null;
@@ -126,14 +95,37 @@ async function revertGroup(group: WorkspaceHistoryInboxGroupDto): Promise<void> 
     }
     busyPath.value = group.path;
     try {
-        await $fetch("/api/workspace-history/revert", {method: "POST", body: {projectPath: props.projectPath, path: group.path}});
+        await $fetch("/api/workspace-history/revert", {method: "POST", body: {projectPath: props.projectPath, path: group.path, revision: group.revision}});
         notification.success(t("ide.historyInbox.revertSuccess", {path: group.path}));
         await load();
     } catch (cause) {
+        if (await refreshAfterStale(cause)) {
+            return;
+        }
         notification.error(resolveApiErrorMessage(cause, t("ide.historyInbox.actionFailed")));
     } finally {
         busyPath.value = null;
     }
+}
+
+/** 构造完整审查模式下的版本化 diff 身份。 */
+function diffIdentity(group: WorkspaceHistoryInboxGroupDto): WorkspaceHistoryDiffRequestIdentity {
+    return {
+        projectPath: props.projectPath ?? "",
+        path: group.path,
+        revision: group.revision,
+        mode: "full",
+    };
+}
+
+/** 412 表示文件已出现新版本：保留原动作未执行，提示并刷新。 */
+async function refreshAfterStale(cause: unknown): Promise<boolean> {
+    if (resolveApiErrorStatus(cause) !== 412) {
+        return false;
+    }
+    notification.warning(t("ide.historyInbox.stale"));
+    await load();
+    return true;
 }
 
 /** 组内归因摘要，如「Agent #12、用户」。 */
@@ -161,6 +153,18 @@ function actorSummary(group: WorkspaceHistoryInboxGroupDto): string {
 watch(() => props.modelValue, (open) => {
     if (open) {
         void load();
+    }
+});
+
+watch(() => props.projectPath, () => {
+    diffRequests.invalidate();
+    selectedPath.value = null;
+});
+
+watch(revision, () => {
+    diffRequests.invalidate();
+    if (props.modelValue && selectedGroup.value) {
+        void diffRequests.load(diffIdentity(selectedGroup.value), t("ide.historyInbox.loadFailed"));
     }
 });
 </script>
@@ -197,9 +201,11 @@ watch(() => props.modelValue, (open) => {
             </aside>
             <section class="flex min-w-0 flex-1 flex-col">
                 <p v-if="!selectedGroup" class="m-4 text-sm text-[var(--text-muted)]">{{ t("ide.historyInbox.noSelection") }}</p>
-                <p v-else-if="diffLoading" class="m-4 text-sm text-[var(--text-muted)]">{{ t("ide.historyInbox.loading") }}</p>
-                <p v-else-if="diffUnavailable" class="m-4 text-sm text-[var(--text-muted)]">{{ t("ide.historyInbox.diffUnavailable") }}</p>
-                <SharedDiffEditor v-else-if="diffSides" class="min-h-0 flex-1" :model-key="`history-inbox:${selectedGroup.path}`" :original-content="diffSides.original" :modified-content="diffSides.modified" :original-label="t('ide.historyInbox.baseLabel')" :modified-label="t('ide.historyInbox.currentLabel')" :theme="props.theme" />
+                <p v-else-if="selectedDiffState.loading" class="m-4 text-sm text-[var(--text-muted)]">{{ t("ide.historyInbox.loading") }}</p>
+                <p v-else-if="selectedDiffState.error" class="m-4 text-sm text-[var(--status-danger)]">{{ selectedDiffState.error }}</p>
+                <p v-else-if="selectedDiff?.status === 'blocked'" class="m-4 rounded border border-[var(--status-warning)] px-3 py-2 text-sm text-[var(--status-warning)]">{{ t("ide.historyInbox.diffBlocked") }}</p>
+                <p v-else-if="selectedDiff && selectedDiff.status !== 'available'" class="m-4 text-sm text-[var(--text-muted)]">{{ t("ide.historyInbox.diffUnavailable") }}</p>
+                <SharedDiffEditor v-else-if="selectedDiff?.status === 'available'" class="min-h-0 flex-1" :model-key="`history-inbox:${selectedGroup.path}:${selectedGroup.revision}`" :original-content="selectedDiff.original" :modified-content="selectedDiff.modified" :original-label="t('ide.historyInbox.baseLabel')" :modified-label="t('ide.historyInbox.currentLabel')" :theme="props.theme" />
             </section>
         </div>
     </Dialog>

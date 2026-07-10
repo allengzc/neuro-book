@@ -1955,7 +1955,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
             expect(llmlintPackage).toMatchObject({
                 name: "llmlint",
                 version: "2.0.0",
-                license: "PolyForm-Noncommercial-1.0.0",
+                license: "AGPL-3.0-only",
             });
             await expect(fs.readFile(paths[2]!, "utf-8")).resolves.toContain("builtin/default");
             await expect(fs.readFile(paths[3]!, "utf-8")).resolves.toContain("vocabulary.r18");

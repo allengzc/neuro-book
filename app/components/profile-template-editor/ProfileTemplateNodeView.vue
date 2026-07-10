@@ -102,6 +102,7 @@ const nodeIconMap: Record<ProfileTemplateNodeType, string> = {
     HistorySet: "i-lucide-archive",
     ModelContext: "i-lucide-panel-top",
     AppendingSet: "i-lucide-panel-bottom",
+    FileChangeNotice: "i-lucide-file-diff",
     Compaction: "i-lucide-archive-restore",
     CompactionPrompt: "i-lucide-file-text",
     CompactionSummaryPrefix: "i-lucide-text-quote",
@@ -268,6 +269,9 @@ function nodeSummary(node: ProfileTemplateNodeDto): string {
     if (node.type === "MentionedSkillsReminder") {
         return "Reminder for explicit $skill mentions.";
     }
+    if (node.type === "FileChangeNotice") {
+        return `Workspace file changes · mode: ${String(node.props.mode ?? "minimal")} · diff chars: ${String(node.props.diffMaxChars ?? 512)}`;
+    }
     return "";
 }
 
@@ -354,7 +358,7 @@ function prepareDrag(): void {
                     :depth="props.depth + 1"
                     :index="childIndex"
                     :parent-id="props.node.id"
-                    :can-have-children="!['Text', 'ToolCall', 'ToolResult', 'AgentCatalog', 'SkillCatalog', 'ActivatedSkills', 'SqlSchemaSummary', 'Import', 'LinkedAgentsSummary', 'LinkedAgentsReminder', 'RuntimeLocationReminder', 'WorkspaceFocusReminder', 'ModeAvailabilityReminder', 'TaskReminder', 'MentionedSkillsReminder'].includes(child.type)"
+                    :can-have-children="!['Text', 'ToolCall', 'ToolResult', 'AgentCatalog', 'SkillCatalog', 'ActivatedSkills', 'SqlSchemaSummary', 'Import', 'LinkedAgentsSummary', 'LinkedAgentsReminder', 'RuntimeLocationReminder', 'WorkspaceFocusReminder', 'ModeAvailabilityReminder', 'TaskReminder', 'MentionedSkillsReminder', 'FileChangeNotice'].includes(child.type)"
                     :disabled-drop-node-ids="props.disabledDropNodeIds"
                     @select="emit('select', $event)"
                     @prepare-drag="emit('prepareDrag', $event)"
@@ -545,6 +549,7 @@ function prepareDrag(): void {
 .node-ModeReminder::before,
 .node-ModeSlot::before,
 .node-MentionedSkillsReminder::before,
+.node-FileChangeNotice::before,
 .node-AgentCatalog::before,
 .node-ActivatedSkills::before,
 .node-SkillCatalog::before,
@@ -629,6 +634,10 @@ function prepareDrag(): void {
 
 .node-MentionedSkillsReminder {
     --profile-node-accent: #b1843e;
+}
+
+.node-FileChangeNotice {
+    --profile-node-accent: #4f8c8f;
 }
 
 .node-ActivatedSkills {

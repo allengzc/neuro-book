@@ -62,6 +62,7 @@ const bookshelfOpen = ref(false);
 const settingsDialogOpen = ref(false);
 const traceViewerOpen = ref(false);
 const historyInboxOpen = ref(false);
+const historyInboxRefreshKey = ref(0);
 const worldEngineWorkbenchOpen = ref(false);
 const worldEngineWorkbenchHasUnsavedDrafts = ref(false);
 const worldEngineWorkbenchSaving = ref(false);
@@ -165,6 +166,8 @@ const studio = useMarkdownStudioController({
     markdown: selectedFileContent,
     viewMode,
 });
+// store 在切文件 / 磁盘同步 / 保存前先结算编辑器防抖输入，防止防抖窗口内的输入被误判为「无修改」
+novelIdeStore.registerActiveEditorFlush(() => studio.flushActiveEditor());
 
 const {choose, prompt} = useDialog();
 const notification = useNotification();
@@ -618,6 +621,9 @@ async function openWorkspaceReference(target: string): Promise<void> {
         return;
     }
     await novelIdeStore.openWorkspacePath(resolvedPath, "permanent");
+    if (isAgentMode.value) {
+        agentStudioPanelVisible.value = true;
+    }
 }
 
 /**
@@ -1462,6 +1468,7 @@ const handleSidebarToggle = (tab: NovelIdeTab | "sessions"): void => {
 const handleAgentWorkspaceUpdated = async (payload: AgentWorkspaceSyncPayload): Promise<void> => {
     const result = await applyAgentWorkspaceSync(payload);
     await loadWorkspaceTree();
+    historyInboxRefreshKey.value += 1;
     if (result === "applied") {
         studio.scrollToTop();
     }
@@ -1500,6 +1507,7 @@ const handleWorkspaceFileEvent = (event: WorkspaceFileStreamEventDto): void => {
         return;
     }
     pendingWorkspaceFileEvents.push(...event.events);
+    historyInboxRefreshKey.value += 1;
     void flushWorkspaceFileEvents();
 };
 
@@ -2316,11 +2324,13 @@ onBeforeUnmount(() => {
                     :active="agentSurfaceActive"
                     :layout="isAgentMode ? 'workbench' : 'drawer'"
                     :novel-id="displayNovelIdForAgent"
+                    :history-inbox-refresh-key="historyInboxRefreshKey"
                     :selected-file-path="selectedFilePath"
                     :open-reference="openWorkspaceReference"
                     @close="closeAgentSurface"
                     @sync-workspace="void handleAgentWorkspaceUpdated($event)"
                     @open-reference="void openWorkspaceReference($event)"
+                    @open-history-inbox="historyInboxOpen = true"
                 />
             </section>
         </div>

@@ -29,6 +29,7 @@ export const componentLibrary: ComponentLibraryItem[] = [
     {type: "ModeAvailabilityReminder", label: "ModeAvailabilityReminder", description: "normal 模式下的 switch_mode 可用性提醒。适合放在 AppendingSet。", iconClass: "i-lucide-clipboard-plus", group: "privileged"},
     {type: "TaskReminder", label: "TaskReminder", description: "任务清单提醒。默认读取 agent.tasks 并提示更新 task_set_status。", iconClass: "i-lucide-list-checks", group: "privileged"},
     {type: "ModeReminder", label: "ModeReminder", description: "Agent 模式生命周期提醒。可放入 ModeSlot 插槽覆盖各阶段默认文案。", iconClass: "i-lucide-clipboard-check", group: "privileged"},
+    {type: "FileChangeNotice", label: "FileChangeNotice", description: "按当前 session 未见文件变更生成提醒。只能直接放在 AppendingSet；mode 支持 off/minimal/full，diffMaxChars 控制小型 diff 内联字符上限。", iconClass: "i-lucide-file-diff", group: "privileged"},
     {type: "ModeSlot", label: "ModeSlot", description: "模式文案插槽。kind 取 plan_enter/plan_reentry/plan_steady/discuss_enter/discuss_steady/exit_from_plan/exit_plain，只能放在 ModeReminder 内。", iconClass: "i-lucide-file-text", group: "privileged"},
     {type: "MentionedSkillsReminder", label: "MentionedSkillsReminder", description: "用户输入显式 $skill 时的激活提醒。", iconClass: "i-lucide-at-sign", group: "privileged"},
     {type: "ActivatedSkills", label: "ActivatedSkills", description: "激活技能内容。把本轮启用的 skill 文本注入 prompt，通常由运行时维护。", iconClass: "i-lucide-sparkles", group: "privileged"},

@@ -510,7 +510,7 @@ type ProfileIngestResult = {
   - 它仍然适合放 SkillCatalog、长期规则、工作区初始背景等需要首轮持久化的上下文。
   - 新 session 首轮把 `HistorySet` 渲染结果写成普通 session message entries。旧 session 下次运行时不会因为 profile 源码变化自动重写这段历史，也不会写 profile 来源审计 entry。
   - compact 后 context reducer 用 compaction summary + recent messages 取代被压缩的旧历史；profile 不应该再把原始 `HistorySet` 当作“补丁”重新塞回上下文。
-- `AppendingSet` 保留名称，语义继续对齐现有 TSX Profile 文档：当前用户输入、运行时提醒、watch/reminder 触发文本、显式激活 skill 摘要等需要靠近本轮请求的上下文放在这里。v3 可以重新设计它写入 session 的 entry 形态，但不能把它变成“不写上下文”。
+- `AppendingSet` 保留名称，语义继续对齐现有 TSX Profile 文档：运行时提醒、watch/reminder 触发文本、显式激活 skill 摘要等需要靠近本轮请求的上下文放在这里。当前用户输入由 Harness 作为独立 `CurrentUserInput` 持久化，不属于 AppendingSet，profile 不应复制 `ctx.invocation.message`。v3 可以重新设计 AppendingSet 写入 session 的 entry 形态，但不能把它变成“不写上下文”。
 - `Reminder` 可以放在 `AppendingSet` 或 `ModelContext` 中；`Watch` 可以放在 `AppendingSet` 或 `ModelContext` 中。它们不是普通 string 片段，而是带 profile state 更新、注入频率、变量 fingerprint 和历史写入语义的动态节点；不允许放入 `HistorySet`。`ModelContext` 内的 `Reminder` 归属仍是 ModelContext，但输出按 appending 语义展示并写 session。`SkillCatalog`、`ActivatedSkills` 等返回 string 的通用节点仍由 profile 作者决定包进哪个 `Message` / set 中。
 - Pi 没有等价的 `AppendingSet` DSL，但有相同层次的机制：`transformContext` 可在 provider 调用前转换本轮上下文，`prepareNextTurn` 可在 save point 后刷新下一轮 context/model/state，`nextTurn` 会把消息插入下一轮用户消息之前。Neuro Book 的 `AppendingSet` 应映射到这类 turn-preparation/context-tail 语义，同时保留“必要运行期消息可持久化”的产品语义。
 - Profile preview 当前展示 `systemPrompt`、`historyInitMessages`、`modelContextAppendingMessages`、`appendingMessages`、`modelContextMessages` 和 `stateWrites`，而不是 LangChain message list。
@@ -819,6 +819,16 @@ type AgentTreeRequest = {
 - `/compact` 同样走通用 session command dispatcher。它负责发起 compact active invocation，实际压缩进度和结果通过 SSE 同步；它不是普通 user prompt，也不进入 followUp queue。
 - approval resume 仍通过 `continue + AgentResolution` 恢复当前 pending tool call，不写成普通 user message。
 
+## 2026-07-10 Task 102 Prompt / Turn Context 演进
+
+- Harness 与 Profile Preview 已改为共用 `server/agent/profiles/prompt-order.ts`，provider 消息顺序固定为 `History → ModelContext → AppendingSet → CurrentUserInput`；回归测试不再允许 ModelContext 落到当前用户输入之后。
+- 当前用户输入继续由 Harness 作为独立 durable prompt 持有。`writer` 与 `inline.editor` 已移除对 `ctx.invocation.message` 的 AppendingSet 复制，仅在 message 缺失时渲染条件式安全提示。
+- 文件变更感知不再是 Harness 业务分支。Profile 通过 `<FileChangeNotice mode={...} />` 声明 `turnContexts`，通用物化器按 `appendingIndex` 插入消息，成功 ingest 后再结算 history cursor。
+- 未声明 `FileChangeNotice` 的 profile 不再回退 minimal；Leader 显式 full、Writer 显式 minimal、Inline Editor 不声明。
+- 黑盒回归已锁定「有 Project + 产生 unseen + profile 未声明节点 = 0 notice」；Task 102 聚焦 48/48、Agent tools 147/147、全仓 typecheck 退出 0。
+
+详见 [Task 102](../102-agent-change-inbox-and-prompt-order/README.md) 与 [`reference/agent/context.md`](../../../reference/agent/context.md)。
+
 ## Remaining Questions
 
 - 前端仍需要一次真实浏览器交互验收：多窗口订阅、followUp queue、approval resume、Plan Mode、model command、compact、edit/retry/rollback/fallback 的端到端体验需要在开发服务器里手动确认。
@@ -832,7 +842,7 @@ type AgentTreeRequest = {
 - `scripts/smoke-agent.ts`：真实 provider 手动 smoke。
 - `scripts/smoke-agent-http.ts`：HTTP smoke，调用正式 `/api/agent/sessions/**` 入口。
 - `assets/workspace/.nbook/agent/scripts/workspace.ts`：active Agent workspace 内容节点 CLI，从 v2 归档目录解耦，并通过 Agent bin 暴露为 `workspace`。
-- `scripts/profile.ts`：开发 convenience CLI；Agent runtime 稳定入口是 system/user assets 中的 `profile status/check/compile/preview`。
+- `scripts/build/profile.ts`：开发 convenience CLI；Agent runtime 稳定入口是 system/user assets 中的 `profile status/check/compile/preview`。
 - `scripts/prepare-profile-types.ts`：输出动态 profile 类型索引到 `server/agent/profiles/dynamic-profile-types.generated.ts`。
 - `shared/dto/agent-session.dto.ts`：正式 session/invocation/event HTTP DTO。
 - `server/api/agent/sessions/**`：正式 session / invocation / command / abort / tree / events HTTP 路由。
@@ -872,7 +882,7 @@ type AgentTreeRequest = {
 - 设计依据来自本地 Pi 源码和调研文档 `docs/research/pi-agent-harness.md`。Bash PATH 修复参考 Pi `createBashTool(..., { commandPrefix, spawnHook })` 的 runtime 注入模型：在 bash runtime 统一前置 Agent bin，而不是让 profile/prompt 猜路径。
 - Agent CLI / bash PATH 追加验证：`bun test server/agent/tools/file-tools.test.ts server/workspace-files/workspace-files.test.ts server/agent/profiles/leader-assets-profile.test.ts` 通过，覆盖 `workspace --help`、`workspace node parse/validate`、user-assets bin 优先级、user-assets bin 覆盖实际执行、Git Bash 内 PATH 前置、系统 assets 同步补齐 `agent/bin` 与 `agent/scripts`、已有用户覆盖不被 sync 覆盖、`RIPGREP_CONFIG_PATH` 注入与 user-assets rg config 优先级、`rg --files` 输出 `/` 路径，以及 active profile 不再使用 PowerShell 示例、`--path-separator=/`、`MSYS_NO_PATHCONV=1` 或 `(^|[\\/])index` 管道。
 - Agent CLI 交付约束：`assets/workspace/.nbook/agent/bin/workspace` 已进入 Git 索引并标记为 `100755`；`.gitattributes` 固定无扩展 shell wrapper 与 `.ts` 为 LF，避免 Windows `core.autocrlf` 把 shebang wrapper 转成 CRLF。
-- Profile `.compiled` 追加验证：系统 `leader.default`、`leader.assets`、`retrieval`、`writer` 均通过 `bun scripts/profile.ts status --all --system` 检查为 `loaded`；`scripts/prepare-system-profile-metadata.ts` 会生成系统 `.compiled` artifact 与 `.system-profile-metadata.json`。
+- Profile `.compiled` 追加验证：系统 profiles 均通过 `bun scripts/build/profile.ts status --all --system` 检查为 `loaded`；系统资产准备脚本会生成 `.compiled` artifact 与 `.system-profile-metadata.json`。
 - 删除/不可运行 profile 兼容验证：`bunx vitest run server/agent/harness/neuro-agent-harness.test.ts -t "profile 的历史 session|不可运行 profile|pending approval 没有可靠 waiting lifecycle" --testTimeout 20000` 通过，覆盖缺失 profile 的 list/snapshot/live state/relations、全局 pending approval 降级展示、prompt/continue/steer/followup/resolution 拒绝、`new`/`compact`/`tree + invoke` 拒绝且不移动 leaf，以及不可运行 profile 的 `unloadable` 标记。`bun run typecheck` 仍失败在既有无关红灯（tiptap agent-suggestion、ProfileTemplateNodeView、compaction.ts、silly-tavern-card-cli.test.ts）；整份 harness 单跑新增兼容用例通过，但全量 `neuro-agent-harness.test.ts` 当前仍有 compaction/summarizer 持久化断言和少量后台任务串扰失败，本轮未扩大修复范围。
 
 ## TODO / Follow-ups

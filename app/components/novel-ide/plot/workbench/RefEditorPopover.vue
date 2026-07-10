@@ -11,6 +11,8 @@ const props = defineProps<{
     refItem: WorkbenchManualRef;
     refRelationOptions: SelectOption[];
     refTargetOptions: SelectOption[];
+    // 按 query 即时搜索候选(内容节点走 workspace 搜索器,覆盖静态列表截断之外的节点);为空表示宿主未提供,退回静态列表本地过滤。
+    refTargetSearch?: (query: string) => SelectOption[];
     anchorElement: HTMLElement | null;
 }>();
 
@@ -46,14 +48,20 @@ const targetSections = computed<AgentTriggerMenuSection[]>(() => {
     const threadItems = [];
     const sceneItems = [];
     const lorebookItems = [];
-    
+
     const query = searchQuery.value.trim().toLowerCase();
-    
-    for (const opt of props.refTargetOptions) {
+    // 优先走宿主的按需搜索(带 query 才能覆盖静态列表 maxResults 截断之外的内容节点);无搜索器时退回静态列表。
+    // 宿主搜索器结果直接使用——其内部已支持路径/frontmatter id/拼音/子序列等高级匹配,
+    // 本地再按 label/description 字面过滤会把这些有效结果二次丢弃;仅静态 fallback 才做本地字面过滤。
+    const usingHostSearch = Boolean(props.refTargetSearch);
+    const sourceOptions = props.refTargetSearch ? props.refTargetSearch(searchQuery.value) : props.refTargetOptions;
+
+    for (const opt of sourceOptions) {
         const value = String(opt.value);
-        const matchesQuery = !query || opt.label.toLowerCase().includes(query) || (opt.description && opt.description.toLowerCase().includes(query));
-        
-        if (!matchesQuery) continue;
+        if (!usingHostSearch) {
+            const matchesQuery = !query || opt.label.toLowerCase().includes(query) || (opt.description && opt.description.toLowerCase().includes(query));
+            if (!matchesQuery) continue;
+        }
         
         const item = {
             id: value,

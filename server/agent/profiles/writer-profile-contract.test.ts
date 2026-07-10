@@ -3,6 +3,7 @@ import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {describe, expect, it} from "vitest";
 import writerProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/writer.profile";
+import inlineEditorProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/inline.editor.profile";
 import {DEFAULT_WRITING_REFERENCE_PRESET} from "nbook/server/agent/profiles/writer-writing-reference";
 import {DEFAULT_WRITING_STYLE_PRESET} from "nbook/server/agent/profiles/writer-writing-style";
 import {messageText} from "nbook/server/agent/messages/message-utils";
@@ -47,6 +48,27 @@ describe("writer profile contract", () => {
         expect(toolKeys).not.toContain("save_story_decision");
         expect(toolKeys).not.toContain("write_world_slice");
         expect(toolKeys).not.toContain("delete_world_slice");
+    });
+
+    it("builtin profile 不把 CurrentUserInput 复制进 AppendingSet", async () => {
+        const prepared = await inlineEditorProfile.prepare!({
+            session: testSession({
+                profileKey: "inline.editor",
+                workspaceRoot: resolve("workspace"),
+                projectPath: "workspace/current-user-input-test",
+            }),
+            initial: {},
+            invocation: {
+                message: "只应由 Harness 作为 CurrentUserInput 注入",
+                caller: {kind: "user"},
+            },
+            vars: createTestVariableAccessor(),
+            catalog: {profiles: [], issues: []},
+            skills: [],
+        });
+
+        expect((prepared.appendingMessages ?? []).map(messageText)).not.toContain("只应由 Harness 作为 CurrentUserInput 注入");
+        expect(prepared.turnContexts ?? []).toEqual([]);
     });
 
     it("提示词声明 autonomous 自主模式，并渲染 input.chapterId 自取 brief 提示", async () => {
@@ -94,6 +116,14 @@ describe("writer profile contract", () => {
             expect(writerInputContext).toContain("get_chapter_writer_brief");
             expect(writerInputContext).toContain(`${projectSlug}/lorebook/character/hero/`);
             expect(writerInputContext).toContain(`${projectSlug}/manuscript/000-prologue/index.md`);
+            // CurrentUserInput 由 Harness 独立追加；Profile 不得再把 invocation.message 复制进 AppendingSet。
+            expect((prepared.appendingMessages ?? []).map(messageText)).not.toContain("请根据本章 brief 写正文。");
+            expect(prepared.turnContexts).toEqual([{
+                kind: "file-change-notice",
+                mode: "minimal",
+                diffMaxChars: 512,
+                appendingIndex: 0,
+            }]);
         } finally {
             await rm(projectRoot, {recursive: true, force: true});
         }
@@ -114,6 +144,7 @@ function defaultWriterSettings() {
         polishingWorkflow: "使用 stop-slop 做自查。",
         adultStylePrompt: "",
         fileChangeAwareness: "minimal" as const,
+        fileChangeDiffMaxChars: 512,
     };
 }
 

@@ -21,8 +21,8 @@ export type CreateRunFrameInput = {
     profileKey: RunFrame["profileKey"];
     profile: RunFrame["profile"];
     agentMode: RunFrame["agentMode"];
-    /** 缺省 "off"：sidecar 等未显式声明的 runLoop 路径不注入文件变更提醒。 */
-    fileChangeAwareness?: RunFrame["fileChangeAwareness"];
+    profileTurnContexts?: RunFrame["profileTurnContexts"];
+    pendingProfileTurnContextSettlements?: RunFrame["pendingProfileTurnContextSettlements"];
     thinkingLevel: RunFrame["thinkingLevel"];
     runtimeState: RunFrame["runtimeState"];
     reportResultReminderEnabled: RunFrame["reportResultReminderEnabled"];
@@ -64,7 +64,8 @@ export function createRunFrame(input: CreateRunFrameInput): RunFrame {
         profileKey: input.profileKey,
         profile: input.profile,
         agentMode: input.agentMode,
-        fileChangeAwareness: input.fileChangeAwareness ?? "off",
+        profileTurnContexts: input.profileTurnContexts ?? [],
+        pendingProfileTurnContextSettlements: input.pendingProfileTurnContextSettlements ?? [],
         thinkingLevel: input.thinkingLevel,
         runtimeState: input.runtimeState,
         caller: input.caller,

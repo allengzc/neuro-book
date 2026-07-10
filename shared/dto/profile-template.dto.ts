@@ -9,6 +9,7 @@ export const ProfileTemplateNodeTypeSchema = z.enum([
     "HistorySet",
     "ModelContext",
     "AppendingSet",
+    "FileChangeNotice",
     "Compaction",
     "CompactionPrompt",
     "CompactionSummaryPrefix",

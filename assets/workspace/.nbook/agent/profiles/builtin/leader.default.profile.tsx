@@ -7,6 +7,7 @@ import {LeaderDefaultInitialSchema, LeaderDefaultOutputSchema} from "nbook/serve
 import {
     AgentCatalog,
     AppendingSet,
+    FileChangeNotice,
     HistorySet,
     Import,
     LinkedAgentsReminder,
@@ -59,6 +60,7 @@ export const SettingsSchema = Type.Object({
         Type.Literal("minimal"),
         Type.Literal("full"),
     ]),
+    fileChangeDiffMaxChars: Type.Integer({minimum: 0, maximum: 8192}),
 }, {additionalProperties: false});
 
 export type Initial = Static<typeof InitialSchema>;
@@ -76,6 +78,7 @@ export const LeaderDefaultSettingsForm = defineLowCodeForm({
         leaderPersonaPreset: DEFAULT_LEADER_PERSONA_PRESET,
         customTopSystemPrompt: "",
         fileChangeAwareness: "full",
+        fileChangeDiffMaxChars: 512,
     },
     fields: [
         {
@@ -137,6 +140,15 @@ export const LeaderDefaultSettingsForm = defineLowCodeForm({
                 {value: "minimal", label: "精简", description: "只列变更文件路径和条数。"},
                 {value: "off", label: "关闭", description: "不注入文件变更提醒。"},
             ],
+        },
+        {
+            path: "fileChangeDiffMaxChars",
+            component: "number",
+            label: "单文件 diff 字符上限",
+            description: "单个文件默认 512 字符，约等于 256 tokens；变更行门槛按每 32 字符一行自动推算。设为 0 时只给文件引用和变更位置，不直接注入 diff。",
+            min: 0,
+            max: 8192,
+            step: 64,
         },
     ],
 });
@@ -314,6 +326,7 @@ export default defineAgentProfile({
                 <AppendingSet>
                     <RuntimeLocationReminder />
                     <WorkspaceFocusReminder />
+                    <FileChangeNotice mode={ctx.settings.fileChangeAwareness} diffMaxChars={ctx.settings.fileChangeDiffMaxChars} />
                     <ModeAvailabilityReminder />
                     <LinkedAgentsReminder />
                     <TaskReminder stateKey="agent.tasks" repeatEveryTurns={8} />

@@ -7693,7 +7693,7 @@ describe("NeuroAgentHarness", () => {
         });
         await collect;
 
-        expect(result.finalMessage).toBe("MODEL_REMINDER|PROMPT|MODEL_ONLY");
+        expect(result.finalMessage).toBe("MODEL_ONLY|MODEL_REMINDER|PROMPT");
         expect(entryTexts).toContain("MODEL_REMINDER");
     });
 

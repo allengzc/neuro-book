@@ -137,7 +137,7 @@
 
 ## llmlint 独立开发仓（sibling source + vendored snapshot）
 
-- llmlint 真正开发仓位于 sibling 路径 `C:\Users\notnotype\Documents\CodeRepository\GithubProjects\llmlint`，remote 是 **github.com/notnotype/llmlint**（PolyForm-Noncommercial-1.0.0）。仓库根是开发工作区，真正可安装的 skill package 固定在 `skill/`。
+- llmlint 真正开发仓位于 sibling 路径 `C:\Users\notnotype\Documents\CodeRepository\GithubProjects\llmlint`，remote 是 **github.com/notnotype/llmlint**（AGPL-3.0-only）。仓库根是开发工作区，真正可安装的 skill package 固定在 `skill/`。
 - NeuroBook 内置副本 `assets/workspace/.nbook/agent/skills/llmlint/` 只是 `../llmlint/skill` 的 vendored runtime snapshot，不再有嵌套 `.git`，不要在该目录内执行 llmlint 仓的 git 操作。
 - 改 llmlint 源码、规则、README 或 evals 时，先进入 sibling llmlint 仓修改；改完从 llmlint 根运行 `bun run sync:neuro-book`，或从 NeuroBook 根运行 `bun scripts/cli/sync-llmlint-skill.ts`，再执行 `bun scripts/cli/sync-user-assets.ts` 更新真实 user runtime 副本。
 - NeuroBook 同步脚本只镜像 `skill/`，并排除 `.git/`、`node_modules/`、`.bun/`、`.agent/`、`evals/`、`tests/`、coverage/report 临时产物；`workspace/.nbook/agent/skills/llmlint/` 也必须保持为 runtime-only 副本。

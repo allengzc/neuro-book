@@ -151,6 +151,6 @@ function runEditorCommand(editor: Editor, range: Range, command: MarkdownCommand
         return;
     }
     if (command === "comment") {
-        chain.insertContent(`<inline-comment body="评论">comment</inline-comment>`, {contentType: "markdown"}).run();
+        chain.insertContent(`<comment body="评论">comment</comment>`, {contentType: "markdown"}).run();
     }
 }

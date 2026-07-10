@@ -35,7 +35,7 @@
 
 - **已实施**：schema（StoryPromise / StoryPromiseBeat / StoryDecision + Scene/Thread 新字段）、服务层（派生/回退/decide 校验）、facade/HTTP、Agent 工具（按 Task 97 形态）、brief 两个消费段全部落地；详见 §Implementation Walkthrough。
 - 实施前缺口（历史记录）：伏笔仅有 `StorySceneRef.relation` 自由字符串（`foreshadows`/`pays_off`）、Thread 当伏笔线的命名习惯、ChapterBrief 信息控制手填——无身份、无配对、无 deadline、无检查、不进 brief。
-- Task 87 遗留（仍未收口，随暂缓的 workbench UI 批次）：workbench 6 tab 中 5 个空壳、refs 目标候选硬编码 demo 数据（`PlotWorkbenchDialog.vue:162-164`）。
+- Task 87 遗留（已由 [Task 99](../99-plot-planning-ui/README.md) 收口）：workbench 6 tab 空壳已重组为 3 个真 tab（线程规划/承诺账本/决策记录），refs 目标候选硬编码 demo 数据已改接真实内容节点数据。
 
 ## Decisions / Discussion
 
@@ -316,7 +316,7 @@ DTO 层新增 `StoryPromiseDtoSchema` / `StoryPromiseBeatDtoSchema` / `StoryDeci
 ## TODO / Follow-ups
 
 - **真实项目实测 / F1 真实会话冒烟**（验收降级遗留）：端到端链路目前只有单测分段覆盖，见 §Verification 声明；与 [Task 97](../97-plot-tool-surface-redesign/README.md) 的 F1 冒烟一并在用户真实会话/浏览器验收时执行。
-- **消费点专门讨论**（数据层落地后；brief 段已拉回本次，见 D25/D26）：章序投影 + 十条 lint、`get_promise_ledger` / `get_planning_report`、workbench UI、「是否升级为 `needs_decision` 硬阻断」。设计意向见 D27-D28。
+- **消费点专门讨论**（数据层落地后；brief 段已拉回本次，见 D25/D26）：章序投影 + 十条 lint、`get_promise_ledger` / `get_planning_report`、workbench UI、「是否升级为 `needs_decision` 硬阻断」。设计意向见 D27-D28。**workbench UI 的直读部分已由 [Task 99](../99-plot-planning-ui/README.md) 先行落地**（承诺账本/决策记录两 tab + 节奏字段编辑 + Scene 侧 beats 芯片）；lint/ledger/报告与告警展示仍待此批次。
 - **writer 执行核对 critic**（三轮用户点名）：「默认 writer 完美执行 brief」是有意简化，误差回收交给写后 critic——审查正文是否真的兑现了本章计划 beats（oh-story「细纲说要回收、正文真回收了吗」断线检查的 agent 化），可与下条 `<comment>` 提取合流为同一机制（正文锚点既是候选 beat 来源也是核对证据）。
 - **草稿系统化**（已从本任务移出，见 D22）：如 Decision 实际使用后仍暴露自由草稿的持久化需求，再启「workspace markdown 草稿目录 + candidate→confirmed 采纳流」；届时需确认 Agent 文件工具路径映射白名单（当前仅 `lorebook/`、`manuscript/`、`workspace/`）。
 - **`<comment>` → beat 候选提取**（后置增强，与 critic 条合流）：正文里 `<comment>promise://f-necklace 第二次呼应</comment>` 由索引器提取为候选 beat，director 确认后落库。

@@ -878,7 +878,7 @@ describe("assets builtin v3 profiles", () => {
             expect(historyContext).toContain("<suggested_context>");
             expect(historyContext).toContain(`${projectSlug}/lorebook/character/hero/`);
             expect(historyContext).toContain(`${projectSlug}/manuscript/000-prologue/index.md`);
-            expect(appendingContext).toContain("请续写这一章，写到账册缺页被发现为止。");
+            expect(appendingContext).not.toContain("请续写这一章，写到账册缺页被发现为止。");
             expect(writerInputContext).not.toContain("<chapter_plots>");
             expect(writerInputContext).not.toContain("<lorebook_entries>");
             expect(writerInputContext).not.toContain("主角正文设定");
@@ -925,6 +925,7 @@ describe("assets builtin v3 profiles", () => {
                     polishingWorkflow: "自定义润色流程：先按 stop-slop 检查，再逐句修正。",
                     adultStylePrompt: "自定义成人风格：强调温柔互动和关系变化。",
                     fileChangeAwareness: "minimal",
+                    fileChangeDiffMaxChars: 512,
                 },
                 vars: createTestVariableAccessor(),
                 catalog: {profiles: [], issues: []},
@@ -1010,6 +1011,7 @@ describe("assets builtin v3 profiles", () => {
                 leaderPersonaPreset: "personas/caihui-lite.md",
                 customTopSystemPrompt: "最高规则：先确认用户意图。",
                 fileChangeAwareness: "full",
+                fileChangeDiffMaxChars: 512,
             },
             vars: createTestVariableAccessor(),
             catalog: snapshot,
@@ -1067,6 +1069,7 @@ describe("assets builtin v3 profiles", () => {
                     leaderPersonaPreset: "personas/caihui-lite.md",
                     customTopSystemPrompt: "",
                     fileChangeAwareness: "full",
+                    fileChangeDiffMaxChars: 512,
                 },
                 home,
                 vars: createTestVariableAccessor(),
@@ -1176,6 +1179,7 @@ function defaultWriterSettings() {
         polishingWorkflow: "润色时使用 .nbook/agent/skills/stop-slop/SKILL.md 作为自查流程，并优先在原文基础上做最小必要修改。",
         adultStylePrompt: "",
         fileChangeAwareness: "minimal" as const,
+        fileChangeDiffMaxChars: 512,
     };
 }
 

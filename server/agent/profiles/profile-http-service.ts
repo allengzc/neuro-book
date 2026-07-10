@@ -30,6 +30,8 @@ import type {ProfileTemplateNodeDto} from "nbook/shared/dto/profile-template.dto
 import {buildProfilePromptRoot} from "nbook/server/agent/profiles/profile-dsl-source-parser";
 import {resolveSystemNbookRoot, resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
 import {assertManagedProjectDataPlaneOpen} from "nbook/server/workspace-files/project-data-plane-guard";
+import {assembleProfilePromptMessages} from "nbook/server/agent/profiles/prompt-order";
+import {mergeProfileTurnContextMessages, previewProfileTurnContexts} from "nbook/server/agent/profiles/profile-turn-context";
 
 /**
  * 列出 v3 Agent Profile catalog，并适配旧 profile 工作台 DTO。
@@ -166,25 +168,28 @@ export async function previewAgentProfilePrepare(
         });
         const historyMessages = prepared.historyInitMessages ?? [];
         const modelContextAppendingMessages = prepared.modelContextAppendingMessages ?? [];
-        const explicitAppendingMessages = prepared.appendingMessages ?? [];
+        const explicitAppendingMessages = mergeProfileTurnContextMessages(
+            prepared.appendingMessages ?? [],
+            previewProfileTurnContexts(prepared.turnContexts ?? []),
+        );
         const appendingMessages = [
             ...modelContextAppendingMessages,
             ...explicitAppendingMessages,
         ];
         const modelContextMessages = prepared.modelContextMessages ?? [];
         const historyMessagesForReact = sessionContext.messages.length === 0 ? historyMessages : [];
-        const finalMessages = [
-            ...sessionContext.messages,
-            ...historyMessagesForReact,
-            ...appendingMessages,
-            ...modelContextMessages,
-        ];
+        const finalMessages = assembleProfilePromptMessages({
+            history: [...sessionContext.messages, ...historyMessagesForReact],
+            modelContext: modelContextMessages,
+            appending: appendingMessages,
+            currentUserInput: [],
+        });
         const messages = [
             ...prepared.systemPrompt ? [systemPromptPreviewMessage(prepared.systemPrompt)] : [],
             ...historyMessages.map((message) => toPreviewMessage(message, "history")),
+            ...modelContextMessages.map((message) => toPreviewMessage(message, "modelContext")),
             ...modelContextAppendingMessages.map((message) => toPreviewMessage(message, "modelContextAppending")),
             ...explicitAppendingMessages.map((message) => toPreviewMessage(message, "appending")),
-            ...modelContextMessages.map((message) => toPreviewMessage(message, "modelContext")),
             ...profile.compaction ? [compactionPreviewMessage(profile.compaction, session.model)] : [],
             ...finalMessages.map((message) => toPreviewMessage(message, "reactMessages")),
             ...(prepared.stateWrites ?? []).map((write) => ({

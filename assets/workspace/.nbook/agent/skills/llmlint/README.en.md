@@ -2,7 +2,7 @@
 
 > Lint and polish LLM-generated Chinese text — locate AI writing tells deterministically, fix them with judgment.
 
-[![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm--Noncommercial--1.0.0-blue.svg)](./LICENSE)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](./LICENSE)
 [![Runtime: Node.js or Bun](https://img.shields.io/badge/Runtime-Node.js%20or%20Bun-green.svg)](#requirements)
 [![Version](https://img.shields.io/badge/version-2.0.0-green.svg)](./package.json)
 
@@ -163,4 +163,4 @@ Recommended install via the [`skills`](https://skills.sh) CLI — `npx skills ad
 
 ## License
 
-[PolyForm Noncommercial License 1.0.0](./LICENSE) — free for any noncommercial purpose (personal use, research, education, nonprofits, government). Commercial use requires a separate license. Copyright © 2026 notnotype.
+[GNU Affero General Public License v3.0 only](./LICENSE), identified by the SPDX expression `AGPL-3.0-only`. Use, study, modification, distribution, and commercial use are permitted. Modified versions that are distributed or made available to users over a network must provide the corresponding source code under the AGPLv3. Copyright © 2026 notnotype.

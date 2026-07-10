@@ -1,0 +1,91 @@
+# Agent 变更收件箱与提示词顺序收口
+
+> 状态：已实施（2026-07-10，自动化门禁全绿；浏览器交互待用户验收）。本任务承接 Task 95 的文件变更 UI / Agent 感知后续，并修正 Profile prompt 的运行时顺序。
+
+## Relative documents refs
+
+- [Task 02 Pi Agent Harness 迁移](../02-pi-agent-harness-migration/README.md)
+- [Task 04 TSX Profile Workbench](../04-tsx-profile-workbench/README.md)
+- [Task 95 nb-history 集成](../95-nb-history-integration/README.md)
+- [`reference/agent/context.md`](../../../reference/agent/context.md)
+- [`reference/agent/runtime-hooks.md`](../../../reference/agent/runtime-hooks.md)
+
+## User Request / Topic
+
+- 把文件变更收件箱集成到 Agent Composer 输入卡上方，默认收起；完整审查弹窗继续作为深度入口。
+- 对安全且较小的文本变更在 Composer 和 Agent notice 中直接展示 diff；`.env` 等敏感文件无论如何不得向浏览器或 Agent prompt 返回 diff 正文。
+- `<file-change-notice>` 不再由 Harness 硬编码注入，改为向 profile 提供数据，由 profile DSL 决定是否注入及其位置。
+- 固定 provider 消息顺序为：`History → ModelContext → AppendingSet → CurrentUserInput`。
+
+## Goal
+
+完成 Agent 文件变更感知的 UI、安全边界与 profile 所有权收口：Composer 能默认折叠展示待审变更，Profile notice 能在可配置预算内内联小型安全 diff，超限时降级为文件引用与 hunk 位置，敏感正文在服务端即被阻断；Harness 只执行通用上下文与交付结算；真实 provider 与 Profile Preview 均严格遵守 `History → ModelContext → AppendingSet → CurrentUserInput`。通过聚焦单元/集成测试和全仓 typecheck 证明契约，同时不改变 workspace-history 记账、accept/revert 和游标 at-least-once 语义。
+
+## Current State
+
+- Agent Composer 输入卡上方已有默认收起的独立文件变更卡片；它与输入区保持紧凑间距但不共享边框或焦点态，完整 `WorkspaceHistoryInboxDialog` 与 Header 入口继续保留。
+- Composer 与完整 Dialog 共用 `useWorkspaceHistoryInbox`；workspace SSE 和 Agent workspace sync 会触发摘要刷新。
+- 小型安全文本 diff 可在 Composer 内按需展开；列表统一显示相对当前 Project Workspace 的路径，并提供单文件「接受」和服务端「接受全部」。敏感路径、二进制、快照缺失和 inline 超限由服务端返回无正文状态。
+- 公开读取入口已硬切到按 `projectPath + inbox path + mode` 授权的 `/api/workspace-history/diff`；旧 hash-only `snapshot` 路由已删除。
+- `<FileChangeNotice />` 是 Profile DSL 节点，`diffMaxChars` 控制 Agent 小 diff 字符预算，默认 512（约 256 tokens），变更行门槛按每 32 字符一行自动派生。Harness 只物化 `turnContexts` 并在成功 ingest 后结算游标；未声明节点的 profile 即使存在 unseen 也不会注入提醒。
+- provider 与 Profile Preview 共用 prompt assembler，固定顺序为 `History → ModelContext → AppendingSet → CurrentUserInput`。
+- 当前用户输入继续由 Harness 持久化为独立 durable prompt；`writer` / `inline.editor` 已删除对 `ctx.invocation.message` 的 AppendingSet 复制，只在缺少可见 message 时保留条件式安全提示。
+
+## Decisions / Discussion
+
+- D1：消息顺序固定为 `History → ModelContext → AppendingSet → CurrentUserInput`。
+- D2：真实用户输入继续由 Harness 负责持久化与完整性；profile 不复制用户原文，Workbench dry-run 没有真实 invocation 时不伪造用户输入。
+- D3：文件变更提醒由 Profile DSL 显式声明。Leader 使用 full、Writer 使用 minimal、Inline Editor 不声明，因此关闭。
+- D4：游标只在 notice 实际进入模型且 turn ingest 成功后推进；失败保持 at-least-once 重现。
+- D5：公开 diff API 必须按 inbox path 授权。敏感路径、二进制、快照缺失和超限内容不返回正文；旧 hash-only snapshot API 删除，不保留 legacy 别名。
+- D6：Composer 默认折叠面板与完整 Dialog 共用一个 history inbox 数据层和安全 diff 契约，不复制 accept/revert 业务逻辑。
+- D7：Agent diff 不运行 tokenizer。Profile 配置单文件字符预算，默认 512 字符约 256 tokens；行门槛自动派生为 16 条 added/removed 行。阈值针对每个文件的最终 unified diff；任一超限只注入可点击文件引用、hunk 行号范围和主动 `read` 提示。敏感路径仍由服务端在 `textDiff` 前硬阻断，Profile 无权放宽。
+
+## Verification / Test
+
+- `bun run generate:openapi`：通过。
+- `bun scripts/build/prepare-system-assets.ts --sync-user-assets --force-sync-user-assets`：通过；系统/用户 Profile 源码与当前 manifest artifact 已同步。
+- `bun scripts/build/profile.ts status --all --system`：14 个系统 Profile 全部 `loaded`。
+- `bun test ./server/workspace-history`：22/22 通过。
+- `bun test ./server/agent/tools`：147/147 通过。
+- Task 102 本轮聚焦套件：7 files / 70 tests 通过，覆盖 512 字符/16 行策略、超限引用、真实小 diff 注入、敏感 `.env` 黑盒阻断、Profile DSL/Workbench parser、builtin settings 与 artifact 加载。
+- `bun run typecheck`：退出 0。
+- 卫生检查：公开 snapshot API / DTO 残留为 0；Harness 不再 import workspace-history unseen/cursor 或 notice 正文构造；新增文件均小于 800 行；Composer 新 UI 未使用 Tailwind 调色板色、`dark:`、调试日志或 demo 文本。
+- 未自动启动浏览器；按项目规则交用户做 Composer / diff / Dialog / profile 行为验收。
+
+## Implementation Walkthrough
+
+- 2026-07-10：完成只读诊断。复现 provider 顺序漂移；确认 `file-change-notice` 为 Harness 硬注入；确认 `.env` / `.env.local` / `*.pem` 会进入 history，而 snapshot API 无路径授权。
+- 2026-07-10：用户确认保持 `History → ModelContext → AppendingSet → CurrentUserInput`，并要求新建独立任务记录实施。
+- 2026-07-10：新增 `prompt-order.ts` 作为 Harness / Profile Preview 的唯一消息组装器；ModelContext 在本轮 AppendingSet 前插入，CurrentUserInput 始终保持最后。
+- 2026-07-10：新增 `ProfileTurnContextPlan` 与 `<FileChangeNotice mode={...} />`。节点只能作为 `AppendingSet` 直接子节点并记录声明位置；Leader=full、Writer=minimal、Inline Editor 不声明。成功 ingest 后才推进 `last_seen_entry_id`，失败保持 at-least-once。
+- 2026-07-10：新增安全 diff policy / DTO / API。`.env*`、凭据、私钥/证书和 `.ssh` 路径在调用 `textDiff` 前即阻断；inline 模式限制 24 KiB / 120 变更行，超限只返回统计。
+- 2026-07-10：新增 Composer 折叠摘要和共用 inbox composable；展开文件时按需读取 inline diff，完整审查继续复用 Monaco Dialog 的 accept/revert 流程。
+- 2026-07-10：收尾审查发现 writer / inline editor 仍手工复制 `ctx.invocation.message`，已改成仅在 message 缺失时渲染安全提示，消除 AppendingSet 与 CurrentUserInput 重复。
+- 2026-07-10 UI 调整轮：根据浏览器截图把收件箱从 `--bg-input` 改为卡片语义的 `--bg-panel`，展开详情使用 `--bg-subtle`、diff 代码区使用 `--source-bg`。曾短暂合并进 Composer 外框，用户复核后撤回；最终保持两张独立卡片。
+- 2026-07-10 UI 调整轮：展示路径会防御性移除 `workspace/<slug>/` 或 `<slug>/` 前缀；新增行级「接受」与 `/api/workspace-history/accept-all` 服务端全收件箱接受入口，操作完成后刷新共用 inbox 并通知结果。
+- 2026-07-10 紧凑样式轮：标题、文件行、计数、接受按钮与底部说明压缩到约 20–28px 高；新增卡片显隐、展开区、diff 区、文件行移除和 chevron 旋转动画，时长控制在 150–200ms。
+- 2026-07-10 可读性与动画修复轮：移除 8–9px 字号，标题、路径、操作与 diff 调整到 10–11px；展开主体拆为裁切动画外壳与稳定滚动视口，滚动区和 diff 区接入 `custom-scrollbar`、稳定 scrollbar gutter 与 overscroll containment。卡片、diff、文件行不再嵌套 `max-height` 动画，避免展开、接受和 diff 切换时反复重排及滚动条横跳；继续支持 `prefers-reduced-motion`。
+- 2026-07-10 收起动画与文件打开修复轮：展开主体不再依赖自适应 `grid-template-rows` 插值，而是在离场前锁定真实 `offsetHeight`，再以 220ms 高度过渡收至 0；文件行新增「打开」入口，复用 IDE workspace 引用打开链并永久打开对应标签，已删除文件禁用入口。
+- Composer inline diff 的“小型”契约仍为：前后全文 UTF-8 字节数合计不超过 24 KiB，且 added/removed 变更行合计不超过 120 行；任一超限只返回统计。
+- Agent `FileChangeNotice` 使用独立、Profile 可配置的单文件最终 unified diff 字符预算：builtin Leader/Writer 默认 `diffMaxChars=512`（约 256 tokens），自动派生 16 条变更行上限；任一超限不内联 diff，只给 Project Workspace 文件引用、hunk 新旧行号与 `read` 提示。设置为 0 可完全关闭 Agent diff 内联。敏感路径即使很小也只显示引用和阻断说明。
+
+## Files Changed
+
+- Prompt / Profile：`server/agent/profiles/prompt-order.ts`、`profile-turn-context.ts`、`profile-dsl.ts`、Profile Preview / Workbench parser 与 builtin leader/writer/inline profiles。
+- Harness：`server/agent/harness/neuro-agent-harness.ts`、prepare / run frame 相关类型与 file-change 黑盒测试；旧 `file-change-reminder.ts` 删除。
+- History 安全边界：`server/workspace-history/history-diff.ts`、`agent-change-diff.ts`、`server/api/workspace-history/diff.get.ts`、`server/api/workspace-history/accept-all.post.ts`、`shared/dto/workspace-history.dto.ts`、`shared/agent/file-change-policy.ts`；旧 `snapshot.get.ts` 删除。
+- UI：`AgentWorkspaceChanges.vue`、`useWorkspaceHistoryInbox.ts`、`AgentComposer.vue`、`AgentChatSurface.vue`、`WorkspaceHistoryInboxDialog.vue`、`index.vue` 与中英文 i18n。
+- 文档：Task 02 / 04 / 95 / 102、Agent context / runtime hooks、`PROJECT-STATUS.md`。
+
+## Plan Deviations
+
+- Header 的完整收件箱入口没有删除；Composer 是新增的就近摘要入口，Header / Dialog 仍承担全量 accept/revert 审查。
+- Profile Preview 的 file-change notice 使用运行时占位消息，不读取真实 Project history，也不推进游标。
+- 首次聚焦测试命令漏写 `./`，Bun 额外匹配到 `product/` 旧构建快照并报 3 个 stale-copy 错误；随后使用精确 `./server/...` 路径重跑，源码套件全部通过。该错误未触发业务代码修改。
+
+## TODO / Follow-ups
+
+- [ ] 用户浏览器验收：Composer 默认收起、数量/SSE 刷新、小 diff 展开、大 diff 引导、`.env` 服务端阻断、完整 Dialog accept/revert。
+- [ ] 用户 Profile 行为验收：Leader full、Writer minimal、Inline Editor 0 notice；确认小 diff 内联、超限 diff 引用+hunk 位置、敏感路径 0 正文，并确认 provider 可见顺序为 `History → ModelContext → AppendingSet → CurrentUserInput`。
+- [ ] Task 95 的时间线 / 删除找回、D15b 外部变更列表和 history 设置表单仍是独立后续，不在本任务扩展。

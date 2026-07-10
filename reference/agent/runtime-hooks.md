@@ -29,7 +29,7 @@ Agent runtime 分三层：
 普通 profile 默认组合内置 runtime bundle：
 
 - `builtin.profilePrompt`：启用 profile `systemPrompt` 注入 provider 和 snapshot。
-- `builtin.sessionContext`：启用 `HistorySet` / `AppendingSet` / `ModelContext` appending 写入，以及 `modelContextMessages` 注入 provider。
+- `builtin.sessionContext`：启用 `HistorySet` / `AppendingSet` / `ModelContext` appending 写入，以及 `modelContextMessages` 注入 provider；正式消息顺序固定为 `History → ModelContext → AppendingSet → CurrentUserInput`。
 - `builtin.transcriptPersistence`：持久化普通 assistant / toolResult transcript。
 - `builtin.compact`：允许自动 compaction。
 - `builtin.reportResult`：允许缺失 `report_result` 的 reminder retry。
@@ -48,12 +48,23 @@ Agent runtime 分三层：
 
 不适合 waiting turn，因为 approval / user input resume 需要 durable pending tool call。
 
+## Profile Turn Context
+
+Profile 可通过 `ProfileTurnPlan.turnContexts` 声明依赖运行时外部数据的本轮上下文。第一版实现是 `<FileChangeNotice />`：
+
+1. Profile DSL 在 `AppendingSet` 中记录节点模式、Agent 小 diff 字符预算和 `appendingIndex`。
+2. Harness prepare 阶段调用通用物化器，把运行时消息插回声明位置。
+3. provider turn ingest 成功后执行 settlement；失败、abort 或 provider error 不结算。
+
+文件变更查询、notice 正文和 history cursor 语义都属于 profile turn context 模块，不属于 Harness。Harness 不读取 profile setting 来猜默认模式，也不为未声明节点的 profile 注入 fallback。
+
 ## Design Rules
 
 - hook context 使用 facade，不暴露 raw repo。
 - hook `runtimeState` 按 hook name namespace 隔离；同名 hook 的 object patch 浅合并。
 - tool-side save point writes 排入当前 `RunFrame.pendingWritePlans`，在 turn save point 与 transcript 同 batch flush。
 - provider context、runtime messages、session history 必须分开理解。
+- 当前用户输入是 Harness durable prompt，不是 Profile `AppendingSet` 数据；Profile 不应复制 `ctx.invocation.message`。
 - 新 hook 能力要先对照 [harness-black-box-contract.md](harness-black-box-contract.md) 检查外部行为。
 
 历史设计过程见 [../../docs/tasks/18-agent-runtime-pipeline-hooks/README.md](../../docs/tasks/18-agent-runtime-pipeline-hooks/README.md)。

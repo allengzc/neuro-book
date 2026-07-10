@@ -43,6 +43,9 @@ const props = withDefaults(defineProps<{
 
 const sourceEditorRef = ref<MarkdownStudioEditorHandle | null>(null);
 const previewEditorRef = ref<MarkdownStudioEditorHandle | null>(null);
+// 编辑器初值只取挂载时快照；后续外部内容更新一律走 sync 层显式 update()。
+// 若这里保持响应式绑定，每次输入都会触发隐藏编辑器 watch(initialValue) 的全文对比。
+const initialMarkdown = props.controller.markdown.value;
 const {t} = useI18n();
 const { onPreviewChange, onSourceChange } = useMarkdownStudioSync({
     controller: props.controller,
@@ -84,7 +87,7 @@ function handleSourceBlur(): void {
             <ClientOnly>
                 <TipTapMarkdownEditor
                     ref="previewEditorRef"
-                    :initial-value="controller.markdown.value"
+                    :initial-value="initialMarkdown"
                     :editor-preferences="props.editorPreferences"
                     :visible="controller.isPreviewVisible.value"
                     :readonly="readonly || controller.editorsLocked.value"
@@ -120,7 +123,7 @@ function handleSourceBlur(): void {
         >
             <MarkdownSourceEditor
                 ref="sourceEditorRef"
-                :initial-value="controller.markdown.value"
+                :initial-value="initialMarkdown"
                 :readonly="readonly || controller.editorsLocked.value"
                 :theme="props.theme"
                 :visible="controller.isSourceVisible.value"

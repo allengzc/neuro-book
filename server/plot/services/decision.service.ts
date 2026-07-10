@@ -449,9 +449,19 @@ function collectRefIds(parsed: ParsedDecisionRef[], kind: DecisionRefScheme): nu
 
 /**
  * 归一化 options 输入(note 缺省补 null,条目去掉首尾空白)。
+ * 候选文本必须唯一(trim 后比较):decide 转换按 chosenOption 文本识别被选项,
+ * 重复文本会让否决骨架把同名候选一并排除、否决记录缺失;create/update 共用此唯一入口,所有调用面在此被约束。
  */
 function normalizeOptions(options: Array<{option: string; note?: string | null}>): StoryDecisionOption[] {
-    return options.map((item) => ({option: item.option.trim(), note: item.note ?? null}));
+    const normalized = options.map((item) => ({option: item.option.trim(), note: item.note ?? null}));
+    const seen = new Set<string>();
+    for (const item of normalized) {
+        if (seen.has(item.option)) {
+            throwPlotBadRequest(`options 候选文本重复:「${item.option}」;拍板(chosenOption)按候选文本识别被选项,候选必须唯一`);
+        }
+        seen.add(item.option);
+    }
+    return normalized;
 }
 
 /**

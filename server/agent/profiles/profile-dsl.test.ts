@@ -7,6 +7,7 @@ import {
     AIMessage,
     AgentCatalog,
     AppendingSet,
+    FileChangeNotice,
     HistorySet,
     If,
     Import,
@@ -168,6 +169,35 @@ describe("profile TSX DSL", () => {
         expect((plan.historyInitMessages ?? []).map(messageText)).toEqual(["history"]);
         expect((plan.modelContextMessages ?? []).map((message) => message.role === "user" ? messageText(message) : message.role)).toEqual(["model"]);
         expect((plan.appendingMessages ?? []).map(messageText)).toEqual(["append"]);
+    });
+
+    it("FileChangeNotice 由 Profile 在 AppendingSet 中声明位置", async () => {
+        const profile = defineRuntimeAgentProfile({
+            manifest: {key: "test.file-change", name: "File Change"},
+            initialSchema: Type.Object({}),
+            tools: profileToolsFromKeys([]),
+            context() {
+                return ProfilePrompt({
+                    children: AppendingSet({
+                        children: [
+                            Message({children: "BEFORE"}),
+                            FileChangeNotice({mode: "full", diffMaxChars: 640}),
+                            Message({children: "AFTER"}),
+                        ],
+                    }),
+                });
+            },
+        });
+
+        const plan = await profile.prepare!(context());
+
+        expect((plan.appendingMessages ?? []).map(messageText)).toEqual(["BEFORE", "AFTER"]);
+        expect(plan.turnContexts).toEqual([{
+            kind: "file-change-notice",
+            mode: "full",
+            diffMaxChars: 640,
+            appendingIndex: 1,
+        }]);
     });
 
     it("使用 profile 顶层 compaction 配置", () => {

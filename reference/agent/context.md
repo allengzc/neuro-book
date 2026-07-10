@@ -25,7 +25,8 @@ Harness 随后会先提交 profile 要求的历史写入，再调用模型：
 - `historyInitMessages` 是缺少历史根前缀时写入历史根部的稳定上下文。
 - `modelContextMessages` 是本轮只给模型看的上下文。
 - `appendingMessages` 是贴近当前输入、会写入当前光标的上下文。
-- `modelContextAppendingMessages` 是 `ModelContext` 中 `Reminder` / `Watch` 生成的本轮追加上下文，不写入产品历史。
+- `modelContextAppendingMessages` 是 `ModelContext` 中 `Reminder` / `Watch` 生成的本轮追加上下文；它按 AppendingSet 语义写入当前历史光标，但仍在语义上归属 ModelContext 动态节点。
+- `turnContexts` 是 profile 显式声明、运行时按本轮外部数据物化的上下文计划，例如 `FileChangeNotice`；Harness 只负责通用物化、插入与成功交付结算。
 - `stateWrites` 写 profile runtime state，例如 `Reminder` / `Watch` baseline。
 
 ## ProfilePrompt 拆分规则
@@ -122,6 +123,27 @@ System + HistorySet/history -> ModelContext -> AppendingSet -> CurrentUserInput
 
 `AppendingSet` 不接受非空裸文本；文本必须放在 `<Message>` 内。
 
+当前用户输入不属于 `AppendingSet`。它由 Harness 作为独立 durable prompt 持久化，并在 provider 消息中保持为 `CurrentUserInput` 最后一段。Profile 不应把 `ctx.invocation.message` 再复制成 `<Message>`，否则同一用户要求会重复进入模型。
+
+### FileChangeNotice
+
+`FileChangeNotice` 是由 profile 控制的运行时上下文节点，只能作为 `AppendingSet` 的直接子节点：
+
+```tsx
+<AppendingSet>
+    <RuntimeLocationReminder />
+    <FileChangeNotice mode={ctx.settings.fileChangeAwareness} diffMaxChars={ctx.settings.fileChangeDiffMaxChars} />
+    <ModeAvailabilityReminder />
+</AppendingSet>
+```
+
+- `mode="off"` 不产生计划；`minimal` 只描述路径和条数；`full` 额外描述归因与操作类型。
+- `diffMaxChars` 控制每个文件最终 unified diff 的字符预算，范围 0–8192，缺省 512（约 256 tokens）；变更行门槛按每 32 字符一行自动推导，默认 16 行。字符或变更行任一超限时，只给 Project Workspace 文件引用、hunk 新旧行号和主动 `read` 提示；0 表示不内联 diff。
+- `.env*`、凭据、私钥/证书、`.ssh` 等敏感路径在读取 snapshot 正文前由服务端硬阻断；Profile 不能放宽，notice 不得出现正文或 diff。
+- Profile 未声明该节点时，即使 Project 存在 unseen 文件变更也不会注入提醒。
+- Workbench dry-run 只显示占位消息，不读取真实 history。
+- 真实运行只在 notice 进入模型且 turn ingest 成功后推进游标；失败时下轮仍会重现，保持 at-least-once。
+
 ## Continue 模式
 
 leader UI 主路径会先把本轮用户输入写入 history，再触发 run。
@@ -213,5 +235,7 @@ HistoryWithoutCurrentUserInput
 
 - `server/agent/profiles/profile-dsl.ts`：active Profile DSL 节点、编译和 `Import` 渲染。
 - `server/agent/profiles/profile-dsl/jsx-runtime.ts`：TSX 自动运行时入口。
+- `server/agent/profiles/prompt-order.ts`：统一组装 `History → ModelContext → AppendingSet → CurrentUserInput`。
+- `server/agent/profiles/profile-turn-context.ts`：Profile 动态 turn context 的物化、插入和成功交付结算。
 - `server/agent/profiles/profile-dsl.test.ts`：基础上下文顺序、节点位置和 string fragment 测试。
 - `reference/agent/profile-import.md`：`Import` 节点规范。

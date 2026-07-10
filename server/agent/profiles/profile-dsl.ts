@@ -9,6 +9,8 @@ import {AGENT_MODE_STATE_KEY, AGENT_TASKS_STATE_KEY} from "nbook/server/agent/se
 import type {NeuroSessionContext, SessionEntryDraft} from "nbook/server/agent/session/types";
 import type {ProfileVariablePathInput, VariableNamespace} from "nbook/server/agent/variables/types";
 import type {AgentMode} from "nbook/shared/dto/agent-session.dto";
+import type {FileChangeAwareness} from "nbook/server/agent/profiles/profile-turn-context";
+import {DEFAULT_AGENT_DIFF_MAX_CHARS, MAX_AGENT_DIFF_MAX_CHARS} from "nbook/shared/agent/file-change-policy";
 
 export type ProfileDslChild = ProfileDslNode | string | number | boolean | null | undefined | ProfileDslChild[];
 
@@ -24,6 +26,7 @@ export type ProfileDslNode =
     | ProfileVariableNode
     | ProfileVariableSchemaNode
     | ProfileModeSlotNode
+    | ProfileFileChangeNoticeNode
     | ProfileFragmentNode;
 
 export type ProfilePromptNode = {
@@ -152,6 +155,12 @@ export type ProfileFragmentNode = {
     children: ProfileDslChild[];
 };
 
+export type ProfileFileChangeNoticeNode = {
+    kind: "FileChangeNotice";
+    mode: FileChangeAwareness;
+    diffMaxChars: number;
+};
+
 type RenderZone = "root" | "system" | "history" | "model" | "appending" | "message" | "assistant" | "reminder" | "watch";
 
 export type ReminderState = {
@@ -248,7 +257,7 @@ export function validateProfileTurnPlan(profileKey: string, plan: ProfileTurnPla
     if (!plan || typeof plan !== "object") {
         throw new Error(`profile ${profileKey} prepare/context 必须返回 ProfileTurnPlan。`);
     }
-    const allowedKeys = new Set(["systemPrompt", "historyInitMessages", "appendingMessages", "modelContextAppendingMessages", "modelContextMessages", "stateWrites"]);
+    const allowedKeys = new Set(["systemPrompt", "historyInitMessages", "appendingMessages", "modelContextAppendingMessages", "modelContextMessages", "turnContexts", "stateWrites"]);
     const illegalKey = Object.keys(plan).find((key) => !allowedKeys.has(key));
     if (illegalKey) {
         throw new Error(`profile ${profileKey} ProfileTurnPlan 不允许返回 ${illegalKey}。`);
@@ -261,6 +270,21 @@ export function validateProfileTurnPlan(profileKey: string, plan: ProfileTurnPla
             throw new Error(`profile ${profileKey} stateWrites 只允许写 ${profileStateKey(profileKey)}。`);
         }
         validateProfileRuntimeStateWrite(profileKey, write.value);
+    }
+    if ((plan.turnContexts?.length ?? 0) > 1) {
+        throw new Error(`profile ${profileKey} 第一版只允许声明一个 FileChangeNotice。`);
+    }
+    for (const context of plan.turnContexts ?? []) {
+        if (
+            context.kind !== "file-change-notice"
+            || !Number.isInteger(context.appendingIndex)
+            || context.appendingIndex < 0
+            || !Number.isInteger(context.diffMaxChars)
+            || context.diffMaxChars < 0
+            || context.diffMaxChars > MAX_AGENT_DIFF_MAX_CHARS
+        ) {
+            throw new Error(`profile ${profileKey} turnContexts 非法。`);
+        }
     }
 }
 
@@ -318,6 +342,23 @@ export function AppendingSet(props: {children?: ProfileDslChild | ProfileDslChil
     return {
         kind: "AppendingSet",
         children: normalizeChildren(props.children),
+    };
+}
+
+/**
+ * Profile 控制的文件变更提醒。
+ *
+ * 必须作为 AppendingSet 的直接子节点；off 时不声明运行时上下文。
+ */
+export function FileChangeNotice(props: {mode: FileChangeAwareness; diffMaxChars?: number}): ProfileFileChangeNoticeNode {
+    const diffMaxChars = props.diffMaxChars ?? DEFAULT_AGENT_DIFF_MAX_CHARS;
+    if (!Number.isInteger(diffMaxChars) || diffMaxChars < 0 || diffMaxChars > MAX_AGENT_DIFF_MAX_CHARS) {
+        throw new Error(`FileChangeNotice.diffMaxChars 必须是 0-${MAX_AGENT_DIFF_MAX_CHARS} 的整数。`);
+    }
+    return {
+        kind: "FileChangeNotice",
+        mode: props.mode,
+        diffMaxChars,
     };
 }
 
@@ -855,9 +896,30 @@ async function renderChild(state: CompileState, zone: RenderZone, child: Profile
     }
     if (child.kind === "AppendingSet") {
         assertZone(zone, "root", "AppendingSet 只能放在 ProfilePrompt 顶层。");
-        const messages = await renderChildren(state, "appending", child.children);
+        const messages: AgentMessage[] = [];
+        const baseIndex = state.plan.appendingMessages?.length ?? 0;
+        for (const appendingChild of child.children) {
+            if (appendingChild && !Array.isArray(appendingChild) && typeof appendingChild === "object" && appendingChild.kind === "FileChangeNotice") {
+                if (appendingChild.mode !== "off") {
+                    state.plan.turnContexts = [
+                        ...state.plan.turnContexts ?? [],
+                        {
+                            kind: "file-change-notice",
+                            mode: appendingChild.mode,
+                            diffMaxChars: appendingChild.diffMaxChars,
+                            appendingIndex: baseIndex + messages.length,
+                        },
+                    ];
+                }
+                continue;
+            }
+            messages.push(...await renderChild(state, "appending", appendingChild));
+        }
         state.plan.appendingMessages = [...state.plan.appendingMessages ?? [], ...onlyMessages(messages, "AppendingSet")];
         return [];
+    }
+    if (child.kind === "FileChangeNotice") {
+        throw new Error("FileChangeNotice 必须作为 AppendingSet 的直接子节点。");
     }
     if (child.kind === "Reminder") {
         if (zone !== "appending" && zone !== "model") {

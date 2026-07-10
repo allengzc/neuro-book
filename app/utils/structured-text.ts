@@ -1,5 +1,5 @@
 import {parseReferenceLink} from "nbook/shared/reference-link";
-import {parseMarkdownInlineComment} from "nbook/shared/markdown-workbench";
+import {parseMarkdownCommentInline} from "nbook/shared/markdown-workbench";
 import {parseWorkspaceReferenceLink} from "nbook/shared/workspace-reference";
 
 export interface InlineCommentToken {
@@ -10,11 +10,12 @@ export interface InlineCommentToken {
     end: number;
 }
 
-const INLINE_COMMENT_PATTERN = /<inline-comment(?:\s+[^>]*)?>[\s\S]*?<\/inline-comment>/g;
+// 行内评论标签:与 shared/markdown-workbench 的兼容语义一致——canonical 是 <comment>,兼容读旧 <inline-comment>;开闭标签名必须一致(反向引用)。
+const INLINE_COMMENT_PATTERN = /<(comment|inline-comment)(?:\s+[^>]*)?>[\s\S]*?<\/\1>/g;
 const INLINE_REFERENCE_PATTERN = /\[[^\]]+\]\([^)]+\)/g;
 
 export function parseInlineComment(raw: string): InlineCommentToken | null {
-    const parsed = parseMarkdownInlineComment(raw);
+    const parsed = parseMarkdownCommentInline(raw);
     if (!parsed) {
         return null;
     }

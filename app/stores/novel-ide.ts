@@ -549,10 +549,32 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         return "workspaceKind" in query ? `kind:${query.workspaceKind}` : `project:${query.projectPath}`;
     };
 
+    /** 活动编辑器防抖结算钩子，见 registerActiveEditorFlush */
+    let activeEditorFlush: (() => void) | null = null;
+
+    /**
+     * 注册活动编辑器的防抖结算钩子（由 index.vue 在 studio controller 就绪后注入）。
+     * 编辑器输入走 300ms 防抖上报，store 在读取 activeWorkspaceFile.content 做
+     * dirty 判定 / buffer 持久化 / 保存之前必须先触发一次 flush，否则防抖窗口内
+     * 的输入会被误判为「无修改」——切文件丢字、外部同步覆盖导致的文本回退都源于此。
+     */
+    const registerActiveEditorFlush = (fn: (() => void) | null): void => {
+        activeEditorFlush = fn;
+    };
+
+    /**
+     * 结算活动编辑器的未上报输入（未注册钩子时 no-op）。
+     * 调用后 activeWorkspaceFile.content 即为编辑器最新内容。
+     */
+    const flushActiveEditorPending = (): void => {
+        activeEditorFlush?.();
+    };
+
     /**
      * 当前文件内容写入 tab buffer，用于多标签切换。
      */
     const persistActiveWorkspaceBuffer = (): void => {
+        flushActiveEditorPending();
         if (!activeWorkspaceFile.value) {
             return;
         }
@@ -953,6 +975,8 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      * 保存当前工作区文件。
      */
     const saveCurrentFile = async (options: WorkspaceSaveOptions = {}): Promise<WorkspaceFileNode | null> => {
+        // 先结算防抖输入，保证保存的是编辑器最新内容（flush 会替换 activeWorkspaceFile 对象，必须在取快照前）
+        flushActiveEditorPending();
         const activeFile = activeWorkspaceFile.value;
         if (!activeFile?.node.editable || savingFile.value) {
             return null;
@@ -1376,6 +1400,9 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             };
         }
 
+        // 先结算防抖输入再取 dirty 快照：防抖窗口内的输入若不计入判定，
+        // 活动文件会被误判为「无修改」而走 forceDisk 重载，本地输入被磁盘内容覆盖（文本回退）
+        flushActiveEditorPending();
         const previousActivePath = activeWorkspaceFile.value?.node.path ?? "";
         const previousActiveDirty = Boolean(
             activeWorkspaceFile.value
@@ -1432,6 +1459,23 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         }
 
         if (!previousActivePath || !workspacePathTouchedByEvents(previousActivePath, events)) {
+            return {
+                activeFile: "unchanged",
+                dirtyPaths,
+                deletedPaths,
+            };
+        }
+
+        // 保存回声抑制：磁盘 mtime 与本地最后同步 mtime 一致，说明这次事件是
+        // 自己 save 落盘后的 watcher 回声。此时既不该报冲突（保存后继续打字是
+        // 正常 dirty，不是外部改动），也不该 forceDisk 重载（会白跑一次读取并
+        // 重置光标）。外部工具写入必然产生新 mtime，不会命中该分支。
+        const activeNodeOnDisk = workspaceTree.value.find((node) => normalizeWorkspaceFilePath(node.path) === normalizeWorkspaceFilePath(previousActivePath));
+        if (
+            activeNodeOnDisk
+            && activeWorkspaceFile.value?.node.path === previousActivePath
+            && activeNodeOnDisk.mtimeMs === activeWorkspaceFile.value.lastSyncedMtimeMs
+        ) {
             return {
                 activeFile: "unchanged",
                 dirtyPaths,
@@ -2291,6 +2335,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         mutatingChapterTree,
         loadWorkspaceFile,
         loadWorkspaceTree,
+        registerActiveEditorFlush,
         syncWorkspaceFromDisk,
         persistWorkspaceSession,
         resolveWorkspaceWriteConflict,

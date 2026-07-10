@@ -2667,6 +2667,10 @@ onBeforeUnmount(() => {
     --component-accent: #b1843e;
 }
 
+.library-node-FileChangeNotice {
+    --component-accent: #4f8c8f;
+}
+
 .library-node-ActivatedSkills {
     --component-accent: #8a639e;
 }

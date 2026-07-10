@@ -1,5 +1,35 @@
 # Release Notes
 
+## 0.7.0-canary - 2026-07-10
+
+这次 minor canary 重点改善长篇写作时的编辑性能、Agent 文件变更审查和 Plot 规划体验，同时完成许可证迁移与一批运行时安全收口。
+
+1. Markdown Studio 长文输入更流畅
+富文本与源码编辑器统一使用防抖更新协议，输入过程中不再每次按键都触发多轮全文序列化、扫描和隐藏编辑器同步。切换文件、保存、磁盘同步和外部工具改写前会先结算待提交输入，并抑制自己保存产生的 watcher 回声，降低长章节卡顿和文本被旧磁盘内容覆盖的风险。
+
+2. Markdown 方言能力扩展
+评论统一为 `<comment>`，同时支持行内评论和跨段落评论块；新增 `<ruby>` 注音、`<bilingual>` 双语对照和显式 `<html>` 交互块。未知 HTML 默认只保留源码，不直接执行；显式 HTML 块需要用户点击后才在 sandbox iframe 中渲染。空文档、残缺标签和混合 Markdown 的 round-trip 也增加了回归保护。
+
+3. Agent 文件变更收件箱
+Agent 输入区上方新增默认收起的文件变更卡片，可查看 Project Workspace 相对路径、小型安全 diff，并执行单文件接受或接受全部；完整 Monaco 审查 Dialog 继续保留。`.env`、凭据、私钥、证书和 `.ssh` 等敏感路径在服务端读取正文前就会被阻断，大型或二进制变更只返回统计与文件引用。
+
+4. Profile 提示词顺序与变更感知收口
+Provider 消息顺序固定为 `History → ModelContext → AppendingSet → CurrentUserInput`，真实用户输入不再被 Writer 或 Inline Editor 重复复制。文件变更提醒改由 Profile DSL 的 `<FileChangeNotice />` 显式声明：Leader 使用完整模式、Writer 使用精简模式、Inline Editor 默认关闭；只有提醒成功进入模型后才推进游标，失败会在后续回合重试。
+
+5. Plot 规划工作台更完整
+剧本工作台收敛为线程规划、承诺账本和决策记录三个真实页面。承诺可查看铺垫/升级/兑现时间线并执行兑现、放弃、重开；决策可记录候选方案、风险、拍板理由和失效原因。Scene / Thread 编辑补齐结果类型、节奏职责与 MICE 类型，引用候选改接 Project Workspace 真实内容节点，相关刷新和错误展示也做了修正。
+
+6. Project 生命周期与操作历史继续硬化
+Project 数据面入口进一步统一要求显式打开项目，RAG、Profile Home、配置和相关 worker 路径补齐生命周期守卫。Workspace History 的安全 diff、收件箱查询、接受/回退和 Agent notice 共用同一套服务端策略，减少不同入口各自解释历史数据造成的偏差。
+
+7. 许可证迁移到 AGPLv3
+NeuroBook 与内置 llmlint snapshot 的许可证统一为 `AGPL-3.0-only`，README、manifest 和官网文案同步更新。第三方写作参考、本地文风素材和旧致谢文件不再进入 Git 或 Product source snapshot；用户用 NeuroBook 创作的独立作品不会仅因使用本软件而自动适用 AGPL。
+
+8. llmlint 与交互细节更新
+内置 llmlint snapshot 同步规则注册和修复能力更新；Profile Template、Plot 编辑器、文件历史、API 错误消息与中英文文案也完成了一轮一致性修整。
+
+本轮自动化验证覆盖 Markdown 方言与空文档回归、Workspace History、Agent tools、Profile DSL / prompt 顺序、Plot 服务和全仓类型检查；各任务记录中的聚焦套件均已通过。浏览器交互未自动执行，发布后建议重点手动验收长章节连续输入、Markdown 新方言、Agent 收件箱小 diff / 敏感文件阻断、Profile 提示词行为，以及 Plot 承诺和决策工作台。
+
 ## 0.5.7-canary - 2026-07-06
 
 这次 canary 主要是写作工作台体验、Plot/Writer 架构、Agent 可观测性和主题系统的一轮大更新。

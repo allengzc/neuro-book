@@ -118,7 +118,6 @@ describe("turn failure helpers", () => {
             profileKey: "test",
             profile: {} as RunFrame["profile"],
             agentMode: "normal",
-            fileChangeAwareness: "off",
             thinkingLevel: "off",
             runtimeState: new Map(),
             messages: [finalAssistant],

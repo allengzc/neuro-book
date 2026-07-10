@@ -666,7 +666,7 @@ export default {
 
 - 独立 repo 工作副本放在 `早期 scratch llmlint 工作副本`，仓库名按计划固定为 `llmlint`。
 - 第一版不做 npm、Homebrew、Docker、VS Code/Cursor 扩展；`package.json.private` 保持 `true`，`bin.llmlint` 保留给本地 link 或未来改 npm 使用。
-- 许可证使用 PolyForm Noncommercial 1.0.0。
+- 当时许可证使用 PolyForm Noncommercial 1.0.0；2026-07-10 起由 Task 103 统一迁移为 `AGPL-3.0-only`。
 - 版本源为 `package.json.version`；`SKILL.md metadata.version` 和 `src/version.ts` 必须同步，当前均为 `2.0.0`。
 - `assets/workspace/.nbook/agent/skills/llmlint` 是 neuro-book runtime vendored snapshot；`package.json` 保留发布名称、版本、许可、repository、bin 和运行依赖，但有意不带独立 repo 的 `scripts`、`devDependencies`、测试和发布脚本，避免 bundled skill 内出现无效脚本入口。
 
@@ -702,7 +702,7 @@ export default {
 已修复：
 
 - 在独立 repo 工作副本执行 `git add -A`，当前发布文件全部 staged，未追踪文件为 0。
-- 执行 `bun scripts/cli/sync-user-assets.ts`，结果 `copied=1, skipped=279, updatedProfiles=0, updatedAssets=3`；真实 workspace package 已包含 `name=llmlint`、`version=2.0.0`、`license=PolyForm-Noncommercial-1.0.0` 和 `repository=https://github.com/notnotype/llmlint.git`。
+- 当时执行 `bun scripts/cli/sync-user-assets.ts`，结果 `copied=1, skipped=279, updatedProfiles=0, updatedAssets=3`；真实 workspace package 当时包含 `name=llmlint`、`version=2.0.0`、`license=PolyForm-Noncommercial-1.0.0` 和 `repository=https://github.com/notnotype/llmlint.git`。当前许可证以 Task 103 的 `AGPL-3.0-only` 迁移结果为准。
 
 验证：
 

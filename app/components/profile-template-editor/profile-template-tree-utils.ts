@@ -71,6 +71,9 @@ export function createNode(type: ProfileTemplateNodeType): ProfileTemplateNodeDt
     if (type === "SqlSchemaSummary") {
         base.props = {text: "${sqlSchemaSummaryText}"};
     }
+    if (type === "FileChangeNotice") {
+        base.props = {mode: "minimal", diffMaxChars: 512};
+    }
     if (type === "Import") {
         base.props = {path: "reference/agent/neurobook-project-guide.md"};
     }
@@ -126,6 +129,7 @@ export function canHaveChildren(type: ProfileTemplateNodeType): boolean {
         "ModeAvailabilityReminder",
         "TaskReminder",
         "MentionedSkillsReminder",
+        "FileChangeNotice",
     ].includes(type);
 }
 
@@ -194,7 +198,7 @@ export function canInsertNodeIntoParent(parent: ProfileTemplateNodeDto, node: Pr
         return ["Message", "AIMessage", "ToolResult", "Reminder", "Watch", "If"].includes(node.type);
     }
     if (parent.type === "AppendingSet") {
-        return ["Message", "AIMessage", "ToolResult", "Reminder", "Watch", "If"].includes(node.type);
+        return ["Message", "AIMessage", "ToolResult", "Reminder", "Watch", "If", "FileChangeNotice"].includes(node.type);
     }
     if (parent.type === "Reminder" || parent.type === "Watch") {
         return ["Message", "AIMessage", "If"].includes(node.type);

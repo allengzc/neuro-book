@@ -1,13 +1,12 @@
 /** @jsxImportSource nbook/server/agent/profiles/profile-dsl */
 /** @jsxRuntime automatic */
-import {Type, type Static} from "typebox";
+import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {InlineEditorInitialSchema, InlineEditorOutputSchema, InlineEditorPayloadSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
-import {AppendingSet, Message, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
+import {AppendingSet, If, Message, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
-import {defineLowCodeForm} from "nbook/server/low-code-form";
 
 export const profileManifest = {
     key: "inline.editor",
@@ -18,46 +17,15 @@ export const profileManifest = {
 export const InitialSchema = InlineEditorInitialSchema;
 export const PayloadSchema = InlineEditorPayloadSchema;
 export const OutputSchema = InlineEditorOutputSchema;
-export const SettingsSchema = Type.Object({
-    fileChangeAwareness: Type.Union([
-        Type.Literal("off"),
-        Type.Literal("minimal"),
-        Type.Literal("full"),
-    ]),
-}, {additionalProperties: false});
-
 export type Initial = Static<typeof InitialSchema>;
 export type Payload = Static<typeof PayloadSchema>;
 export type Output = Static<typeof OutputSchema>;
-export type Settings = Static<typeof SettingsSchema>;
-
-export const InlineEditorSettingsForm = defineLowCodeForm({
-    schema: SettingsSchema,
-    // 短程单目标编辑 session，本轮 payload 已锁定目标文件，默认关闭跨轮变更提醒。
-    defaults: {
-        fileChangeAwareness: "off",
-    },
-    fields: [
-        {
-            path: "fileChangeAwareness",
-            component: "radio",
-            label: "文件变更感知",
-            description: "每轮开始前提醒 agent：上次看过之后，项目文件被其他人（用户 / 其他 agent / 外部工具）改过哪些。",
-            options: [
-                {value: "off", label: "关闭", description: "不注入文件变更提醒（短程编辑默认）。"},
-                {value: "minimal", label: "精简", description: "只列变更文件路径和条数。"},
-                {value: "full", label: "完整", description: "含归因（谁改的）与操作类型。"},
-            ],
-        },
-    ],
-});
 
 export default defineAgentProfile({
     manifest: profileManifest,
     initialSchema: InitialSchema,
     payloadSchema: PayloadSchema,
     outputSchema: OutputSchema,
-    settingsForm: InlineEditorSettingsForm,
     tools: toolset(
         builtin.file.read,
         builtin.file.edit,
@@ -96,7 +64,9 @@ export default defineAgentProfile({
                     `}
                 </System>
                 <AppendingSet>
-                    <Message>{ctx.invocation?.message ?? "本轮没有收到用户可见消息；请根据 hidden payload 执行，若 payload 也缺失则 report_result 说明无法编辑。"}</Message>
+                    <If condition={!ctx.invocation?.message}>
+                        <Message>本轮没有收到用户可见消息；请根据 hidden payload 执行，若 payload 也缺失则 report_result 说明无法编辑。</Message>
+                    </If>
                 </AppendingSet>
             </ProfilePrompt>
         );

@@ -56,6 +56,8 @@ const props = defineProps<{
     effectiveRefs: WorkbenchInlineRef[];
     manualRefs: WorkbenchManualRef[];
     refTargetOptions: SelectOption[];
+    // 按 query 即时搜索 refs 目标候选(覆盖大型 workspace 靠后的内容节点);为空表示宿主未提供,弹层退回静态列表本地过滤。
+    refTargetSearch?: (query: string) => SelectOption[];
 }>();
 
 const emit = defineEmits<{
@@ -479,6 +481,7 @@ function updateWorldAnchor(patch: Partial<PlotThreadPanelScene["worldAnchor"]>):
                                 :ref-item="refItem"
                                 :ref-relation-options="refRelationOptions"
                                 :ref-target-options="props.refTargetOptions"
+                                :ref-target-search="props.refTargetSearch"
                                 :anchor-element="refCardRefs[refItem.id] ?? null"
                                 @update="updateManualRef(refItem.id, $event)"
                                 @close="activeRefId = null"

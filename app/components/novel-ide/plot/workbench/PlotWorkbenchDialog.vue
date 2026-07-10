@@ -398,6 +398,7 @@ function toPanelRefs(refs: WorkbenchManualRef[]): PlotThreadPanelRef[] {
                             :effective-refs="effectiveRefs"
                             :manual-refs="manualRefs"
                             :ref-target-options="refTargetOptions"
+                            :ref-target-search="buildRefTargetOptions"
                             @close="inspectorMode = null"
                             @update-thread="(threadId, patch) => emit('updateThread', threadId, patch)"
                             @update-scene="(sceneId, patch) => emit('updateScene', sceneId, patch)"
@@ -408,7 +409,7 @@ function toPanelRefs(refs: WorkbenchManualRef[]): PlotThreadPanelRef[] {
                     </Transition>
                 </template>
 
-                <!-- 承诺账本 tab:自含数据加载,节拍行点场景跳回线程规划 -->
+                <!-- 承诺账本 tab:自含数据加载,节拍行点场景跳回线程规划;写操作成功经 mutated 转发宿主刷新计数与场景缓存 -->
                 <PlotPromiseLedgerTab
                     v-else-if="activeTab === 'promises'"
                     :project-path="props.projectPath"
@@ -416,16 +417,19 @@ function toPanelRefs(refs: WorkbenchManualRef[]): PlotThreadPanelRef[] {
                     :threads="props.threads"
                     :scenes="props.scenes"
                     @select-scene="jumpToSceneFromLedger"
+                    @mutated="emit('planningMutated', $event)"
                 />
 
                 <!-- 决策记录 tab:自含数据加载,引用/锚点点场景同样跳回线程规划 -->
                 <PlotDecisionLedgerTab
                     v-else
                     :project-path="props.projectPath"
+                    :acts="props.acts ?? []"
                     :chapters="props.chapters"
                     :threads="props.threads"
                     :scenes="props.scenes"
                     @select-scene="jumpToSceneFromLedger"
+                    @mutated="emit('planningMutated', $event)"
                 />
             </div>
         </div>

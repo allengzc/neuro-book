@@ -12,6 +12,7 @@ import type {ProfileTools} from "nbook/server/agent/profiles/profile-tools";
 import type {LowCodeFormDefinition} from "nbook/server/low-code-form";
 import type {LowCodeJsonObject} from "nbook/shared/dto/low-code-form.dto";
 import type {ProfileHomeDefinition, ProfileHomeFacade} from "nbook/server/agent/profiles/profile-home";
+import type {ProfileTurnContextPlan} from "nbook/server/agent/profiles/profile-turn-context";
 
 export type AgentProfileManifest<TKey extends string = string> = {
     key: TKey;
@@ -123,6 +124,8 @@ export type ProfileTurnPlan = {
     /** ModelContext 内需要按 AppendingSet 语义写入 session 的运行时提醒。 */
     modelContextAppendingMessages?: Message[];
     modelContextMessages?: AgentMessage[];
+    /** 每个 provider turn 由 profile 显式声明并动态物化的 AppendingSet 上下文。 */
+    turnContexts?: ProfileTurnContextPlan[];
     stateWrites?: SessionEntryDraft[];
 };
 

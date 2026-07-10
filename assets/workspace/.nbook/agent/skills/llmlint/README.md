@@ -2,7 +2,7 @@
 
 > 为 LLM 生成的中文文本做 lint 与润色 —— 用规则稳定定位 AI 味，再交给人/Agent 结合语境判断修复。
 
-[![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm--Noncommercial--1.0.0-blue.svg)](./LICENSE)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](./LICENSE)
 [![Runtime: Node.js or Bun](https://img.shields.io/badge/Runtime-Node.js%20or%20Bun-green.svg)](#运行要求)
 [![Version](https://img.shields.io/badge/version-2.0.0-green.svg)](./package.json)
 
@@ -163,7 +163,7 @@ export default {
 
 ## 许可证
 
-[PolyForm Noncommercial License 1.0.0](./LICENSE) —— 任何非商业用途（个人使用、研究、教育、非营利组织、政府机构）均可免费使用；商业用途需另行授权。Copyright © 2026 notnotype。
+[GNU Affero General Public License v3.0（仅此版本）](./LICENSE)，SPDX 标识为 `AGPL-3.0-only`。允许使用、研究、修改、分发和商业使用；分发修改版或通过网络向用户提供修改版服务时，需要依照 AGPLv3 提供对应源代码。Copyright © 2026 notnotype。
 
 ---
 
