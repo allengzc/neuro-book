@@ -1,6 +1,6 @@
 # Agent 变更收件箱与提示词顺序收口
 
-> 状态：已实施（2026-07-10，自动化门禁全绿；浏览器交互待用户验收）。本任务承接 Task 95 的文件变更 UI / Agent 感知后续，并修正 Profile prompt 的运行时顺序。
+> 状态：已实施并验收（2026-07-10，自动化门禁与 `$playwright-cli` 浏览器终验全绿）。本任务承接 Task 95 的文件变更 UI / Agent 感知后续，并修正 Profile prompt 的运行时顺序。
 
 ## Relative documents refs
 
@@ -24,8 +24,9 @@
 ## Current State
 
 - Agent Composer 输入卡上方已有默认收起的独立文件变更卡片；它与输入区保持紧凑间距但不共享边框或焦点态，完整 `WorkspaceHistoryInboxDialog` 与 Header 入口继续保留。
-- Composer 与完整 Dialog 共用 `useWorkspaceHistoryInbox`；workspace SSE 和 Agent workspace sync 会触发摘要刷新。
-- 小型安全文本 diff 可在 Composer 内按需展开；列表统一显示相对当前 Project Workspace 的路径，并提供单文件「接受」和服务端「接受全部」。敏感路径、二进制、快照缺失和 inline 超限由服务端返回无正文状态。
+- Composer 与完整 Dialog 共用 `useWorkspaceHistoryInbox`；workspace SSE 和 Agent workspace sync 会触发摘要刷新。Inbox / group 均带 revision，diff、accept、revert 和 accept-all 在服务端重新读取当前 Inbox 后做并发前置条件校验，旧版本统一 412。
+- 小型安全文本 diff 可在 Composer 内按需展开；列表、API 和打开文件事件统一使用原始 Project Workspace 相对路径，并提供单文件「接受」和服务端「接受全部」。敏感路径、二进制、快照缺失和 inline 超限由服务端返回无正文状态。
+- Composer 与完整 Dialog 共用版本化 diff 请求契约：缓存键为 `projectPath + path + revision + mode`，项目切换、Inbox 刷新和组件卸载会 abort 全部旧请求；loading/error/result 按版本键隔离，旧项目、旧 revision 和旧响应不能回填。Agent 模式从变更卡打开文件后会自动展开 Studio。
 - 公开读取入口已硬切到按 `projectPath + inbox path + mode` 授权的 `/api/workspace-history/diff`；旧 hash-only `snapshot` 路由已删除。
 - `<FileChangeNotice />` 是 Profile DSL 节点，`diffMaxChars` 控制 Agent 小 diff 字符预算，默认 512（约 256 tokens），变更行门槛按每 32 字符一行自动派生。Harness 只物化 `turnContexts` 并在成功 ingest 后结算游标；未声明节点的 profile 即使存在 unseen 也不会注入提醒。
 - provider 与 Profile Preview 共用 prompt assembler，固定顺序为 `History → ModelContext → AppendingSet → CurrentUserInput`。
@@ -39,19 +40,21 @@
 - D4：游标只在 notice 实际进入模型且 turn ingest 成功后推进；失败保持 at-least-once 重现。
 - D5：公开 diff API 必须按 inbox path 授权。敏感路径、二进制、快照缺失和超限内容不返回正文；旧 hash-only snapshot API 删除，不保留 legacy 别名。
 - D6：Composer 默认折叠面板与完整 Dialog 共用一个 history inbox 数据层和安全 diff 契约，不复制 accept/revert 业务逻辑。
-- D7：Agent diff 不运行 tokenizer。Profile 配置单文件字符预算，默认 512 字符约 256 tokens；行门槛自动派生为 16 条 added/removed 行。阈值针对每个文件的最终 unified diff；任一超限只注入可点击文件引用、hunk 行号范围和主动 `read` 提示。敏感路径仍由服务端在 `textDiff` 前硬阻断，Profile 无权放宽。
+- D7：Agent diff 不运行 tokenizer。Profile 配置单文件字符预算，默认 512 字符约 256 tokens；行门槛自动派生为 16 条 added/removed 行。系统再施加整轮硬保护：inline 总预算 `min(8192, diffMaxChars × 4)`、最多计算 4 个文件详情、最多逐项列出 50 个文件、最终 notice 不超过 12,288 字符。无法完整放入剩余预算时整段降级为 reference，不截断 diff；reference 不保留正文。
+- D8：敏感策略采用明确路径黑名单，不做内容扫描和 `secret` 等宽泛子串匹配。阻断 `.ssh/.aws/.azure/.kube/.docker/.gnupg`、所有 `.env` 变体与 `.envrc`、常见凭据文件、私钥名和 `.pem/.key/.p12/.pfx/.jks/.keystore`；安全近似创作文件不误拦。
+- D9：删除文件不生成可点击的当前文件引用；小型删除允许内联 removed diff，超限或快照不可用时明确说明当前路径不可 `read`，不再给通用读取建议。
 
 ## Verification / Test
 
 - `bun run generate:openapi`：通过。
-- `bun scripts/build/prepare-system-assets.ts --sync-user-assets --force-sync-user-assets`：通过；系统/用户 Profile 源码与当前 manifest artifact 已同步。
-- `bun scripts/build/profile.ts status --all --system`：14 个系统 Profile 全部 `loaded`。
-- `bun test ./server/workspace-history`：22/22 通过。
+- `bun scripts/build/prepare-system-assets.ts --sync-user-assets --force-sync-user-assets`：通过；14 个系统 Profile 重新编译，`bun scripts/build/profile.ts status --all --system` 全部 `loaded`。
+- Workspace History / API：9 files / 37 tests 通过，覆盖完整敏感路径矩阵、正文读取前阻断、group / Inbox revision 成功与 412、Agent 4 文件详情和整轮预算。
 - `bun test ./server/agent/tools`：147/147 通过。
-- Task 102 本轮聚焦套件：7 files / 70 tests 通过，覆盖 512 字符/16 行策略、超限引用、真实小 diff 注入、敏感 `.env` 黑盒阻断、Profile DSL/Workbench parser、builtin settings 与 artifact 加载。
+- Task 102 / Profile 聚焦套件：7 files / 70 tests 通过；额外 FauxProvider 黑盒锁定 notice 位于 CurrentUserInput 前、失败轮不推进游标、成功重试后结算。
+- 前端请求守卫：3/3 通过，覆盖刷新前旧响应、同路径旧 revision、旧项目和 A/B 文件并发状态隔离；Profile 新节点默认值和 literal TSX round-trip 已覆盖。
 - `bun run typecheck`：退出 0。
-- 卫生检查：公开 snapshot API / DTO 残留为 0；Harness 不再 import workspace-history unseen/cursor 或 notice 正文构造；新增文件均小于 800 行；Composer 新 UI 未使用 Tailwind 调色板色、`dark:`、调试日志或 demo 文本。
-- 未自动启动浏览器；按项目规则交用户做 Composer / diff / Dialog / profile 行为验收。
+- 卫生检查：旧 path-only 调用为 0；相关文件均小于 800 行；UI 无 Tailwind 调色板色、`dark:`、调试日志或 demo 文本。
+- `$playwright-cli` 在《命定之诗2》完成真实浏览器终验：默认收起、展开/收起高度动画、稳定滚动属性、Project Workspace 原始相对路径、同名 slug 子目录准确打开、Agent 模式自动展开 Studio、小 diff、`.envrc` 0 正文、延迟旧 200 diff 在 revision 刷新后不回填、accept / revert / accept-all 412 刷新均通过。临时文件已删除并只接受对应三组，最终 Inbox 恢复原 `test-html-demo.md` 单组基线；新会话 0 error / 0 warning。
 
 ## Implementation Walkthrough
 
@@ -69,6 +72,8 @@
 - 2026-07-10 收起动画与文件打开修复轮：展开主体不再依赖自适应 `grid-template-rows` 插值，而是在离场前锁定真实 `offsetHeight`，再以 220ms 高度过渡收至 0；文件行新增「打开」入口，复用 IDE workspace 引用打开链并永久打开对应标签，已删除文件禁用入口。
 - Composer inline diff 的“小型”契约仍为：前后全文 UTF-8 字节数合计不超过 24 KiB，且 added/removed 变更行合计不超过 120 行；任一超限只返回统计。
 - Agent `FileChangeNotice` 使用独立、Profile 可配置的单文件最终 unified diff 字符预算：builtin Leader/Writer 默认 `diffMaxChars=512`（约 256 tokens），自动派生 16 条变更行上限；任一超限不内联 diff，只给 Project Workspace 文件引用、hunk 新旧行号与 `read` 提示。设置为 0 可完全关闭 Agent diff 内联。敏感路径即使很小也只显示引用和阻断说明。
+- 2026-07-10 验收修复轮：安全黑名单扩展到明确凭据目录/文件/私钥格式；Inbox 与 group 引入 revision 并删除 path-only 调用；Composer / Dialog 接入版本键请求守卫与 412 刷新；Agent notice 增加 4 文件详情、50 文件列表、8192 inline 总额和 12,288 notice 硬上限，删除路径语义收口；Profile Inspector 补三档 mode 与 0–8192 数字约束。
+- 浏览器验收额外发现并修复 ProjectSession open 前的 Inbox 早发竞态：`useWorkspaceHistoryInbox` 增加宿主 enabled 契约，Composer 只在 Agent surface active 后加载，关闭中的 History Dialog 不再发请求。修复采用生命周期接线，不引入延时重试。
 
 ## Files Changed
 
@@ -86,6 +91,4 @@
 
 ## TODO / Follow-ups
 
-- [ ] 用户浏览器验收：Composer 默认收起、数量/SSE 刷新、小 diff 展开、大 diff 引导、`.env` 服务端阻断、完整 Dialog accept/revert。
-- [ ] 用户 Profile 行为验收：Leader full、Writer minimal、Inline Editor 0 notice；确认小 diff 内联、超限 diff 引用+hunk 位置、敏感路径 0 正文，并确认 provider 可见顺序为 `History → ModelContext → AppendingSet → CurrentUserInput`。
 - [ ] Task 95 的时间线 / 删除找回、D15b 外部变更列表和 history 设置表单仍是独立后续，不在本任务扩展。

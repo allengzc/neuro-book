@@ -299,10 +299,12 @@
 ## 2026-07-10 Task 102 DSL / Preview 演进
 
 - Workbench DTO、源码 parser、节点库、画布节点和图标已识别 `FileChangeNotice`；节点只能直接放在 `AppendingSet`，`mode` 支持 `off/minimal/full` 或 settings 表达式，`diffMaxChars` 支持数字或 settings 表达式并控制 Agent 小 diff 字符预算。
+- 组件库新建 `FileChangeNotice` 的 literal 默认固定为 `{mode: "minimal", diffMaxChars: 512}`；Inspector 对 literal mode 使用 `off/minimal/full` 下拉，`diffMaxChars` 使用 0–8192、step=1 的数字输入并在写回前归一化。settings expression 仍保留源码表达式编辑，不新增 Profile schema 字段。
 - source parser 回归锁定 `<FileChangeNotice mode={ctx.settings.fileChangeAwareness} />` 的表达式往返，不把它降级成普通源码文本。
+- literal 回归锁定 `<FileChangeNotice mode="minimal" diffMaxChars={512} />` 的画布生成与 parser round-trip。
 - Profile Preview 的分区展示顺序已改为 `history → modelContext → modelContextAppending/appending`，最终 `reactMessages` 通过统一 assembler 生成。
 - 当前用户输入属于 Harness 的 `CurrentUserInput`，Workbench 不建议 profile 作者把 `ctx.invocation.message` 复制到 AppendingSet。
-- 验证：Task 102 Profile 聚焦套件 48/48，通过全仓 typecheck；浏览器画布与 preview 交互待用户验收。
+- 验证：Task 102/Profile 聚焦套件 7 files / 70 tests、14 个 builtin Profile artifacts 全部 loaded、全仓 typecheck 通过；Task 102 浏览器终验已完成。
 
 详见 [Task 102](../102-agent-change-inbox-and-prompt-order/README.md)。
 

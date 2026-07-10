@@ -885,6 +885,13 @@ type AgentTreeRequest = {
 - Profile `.compiled` 追加验证：系统 profiles 均通过 `bun scripts/build/profile.ts status --all --system` 检查为 `loaded`；系统资产准备脚本会生成 `.compiled` artifact 与 `.system-profile-metadata.json`。
 - 删除/不可运行 profile 兼容验证：`bunx vitest run server/agent/harness/neuro-agent-harness.test.ts -t "profile 的历史 session|不可运行 profile|pending approval 没有可靠 waiting lifecycle" --testTimeout 20000` 通过，覆盖缺失 profile 的 list/snapshot/live state/relations、全局 pending approval 降级展示、prompt/continue/steer/followup/resolution 拒绝、`new`/`compact`/`tree + invoke` 拒绝且不移动 leaf，以及不可运行 profile 的 `unloadable` 标记。`bun run typecheck` 仍失败在既有无关红灯（tiptap agent-suggestion、ProfileTemplateNodeView、compaction.ts、silly-tavern-card-cli.test.ts）；整份 harness 单跑新增兼容用例通过，但全量 `neuro-agent-harness.test.ts` 当前仍有 compaction/summarizer 持久化断言和少量后台任务串扰失败，本轮未扩大修复范围。
 
+## 2026-07-10 Task 102 验收修复
+
+- `FileChangeNotice` 继续由 Profile `turnContexts` 声明；Harness 不恢复任何 hard-coded notice 分支，也不读取 profile setting 猜 fallback。
+- 动态上下文 settlement 仍只在 provider turn ingest 成功后执行。FauxProvider 黑盒新增 provider error → 同一 notice 在重试轮再次出现 → 成功后下一轮不新增 notice 的 at-least-once 覆盖，并锁定 notice 位于 CurrentUserInput 前。
+- Agent notice 预处理现在是有界成本：最多 4 个文件执行安全 diff / `structuredPatch`，reference 不保存正文，最多列 50 文件，最终 notice ≤12,288 字符；遗漏摘要仍视为本轮交付，settlement 推进全部 unseen 的最大 entry id。
+- 最终消息顺序保持 `History → ModelContext → AppendingSet → CurrentUserInput`，本轮未改变 CurrentUserInput 的 durable prompt 所有权。
+
 ## TODO / Follow-ups
 
 - 补完整 session history HTTP/API 或调试 API：当前正式 HTTP 只提供前端 snapshot 和轻量 session query，不提供完整 history 原文下载。
