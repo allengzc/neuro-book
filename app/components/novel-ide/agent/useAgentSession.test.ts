@@ -2,6 +2,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import type {AssistantMessageEvent} from "@earendil-works/pi-ai";
 import {useAgentSession} from "nbook/app/components/novel-ide/agent/useAgentSession";
 import type {AgentRuntimeStreamEventDto, AgentSessionEventDto, AgentSessionSnapshotDto} from "nbook/shared/dto/agent-session.dto";
+import type {SessionEntry} from "nbook/server/agent/session/types";
 
 type RuntimeMessage = Extract<AgentRuntimeStreamEventDto, {message: unknown}>["message"];
 type AssistantRuntimeMessage = Extract<RuntimeMessage, {role: "assistant"}>;
@@ -96,6 +97,19 @@ const assistantMessage = (timestamp = 1): AssistantRuntimeMessage => ({
 const assistantMessageWithText = (text: string, timestamp = 1): AssistantRuntimeMessage => ({
     ...assistantMessage(timestamp),
     content: [{type: "text", text}],
+});
+
+const userEntry = (id: string, text: string, parentId: string | null = null): SessionEntry => ({
+    id,
+    parentId,
+    timestamp: 1,
+    type: "message",
+    origin: "prompt",
+    message: {
+        role: "user",
+        content: [{type: "text", text}],
+        timestamp: 1,
+    },
 });
 
 const textDeltaEvent = (delta: string): AssistantMessageEvent => ({
@@ -512,6 +526,33 @@ describe("useAgentSession", () => {
 
         expect(session.messages.value).toEqual([]);
         expect(session.needsSnapshot.value).toBe(false);
+    });
+
+    it("prependEntriesPage 会把更早历史插入当前轻快照前方", () => {
+        const session = useAgentSession();
+        session.applySnapshot({
+            ...baseSnapshot(0),
+            entries: [userEntry("entry-2", "second", "entry-1")],
+            entryPage: {
+                hasMoreBefore: true,
+                beforeEntryId: "entry-2",
+                total: 2,
+                limit: 1,
+            },
+        });
+
+        session.prependEntriesPage({
+            sessionId: 1,
+            entries: [userEntry("entry-1", "first")],
+            hasMoreBefore: false,
+            beforeEntryId: null,
+            total: 2,
+            limit: 1,
+        });
+
+        expect(session.snapshot.value?.entries.map((entry) => entry.id)).toEqual(["entry-1", "entry-2"]);
+        expect(session.snapshot.value?.entryPage?.hasMoreBefore).toBe(false);
+        expect(session.messages.value.map((message) => message.content)).toEqual(["first", "second"]);
     });
 
     it("工具完成后 active invocation 仍保持 finishing phase", () => {

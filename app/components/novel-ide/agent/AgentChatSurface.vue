@@ -84,6 +84,8 @@ const fileChangedSinceLastSend = ref(false);
 const selectionVersion = ref(0);
 const sessionDialogOpen = ref(false);
 const sessionTreeDialogOpen = ref(false);
+const sessionTreeLoading = ref(false);
+const loadingEarlierMessages = ref(false);
 const sessionActionId = ref<number | null>(null);
 const editingMessageId = ref<string | null>(null);
 const messageActionId = ref<string | null>(null);
@@ -196,6 +198,7 @@ const activeSummary = computed(() => activeSnapshot.value?.summary ?? null);
 const activeSummarizer = computed(() => activeSnapshot.value?.summarizer ?? null);
 const linkedAgents = computed(() => activeSnapshot.value?.linkedAgents ?? []);
 const linkedByAgents = computed(() => activeSnapshot.value?.linkedByAgents ?? []);
+const hasMoreEarlierMessages = computed(() => activeSnapshot.value?.entryPage?.hasMoreBefore === true);
 const queuedMessages = computed<AgentQueuedMessageDto[]>(() => [
     ...activeSnapshot.value?.steerQueue ?? [],
     ...activeSnapshot.value?.followUpQueue.items ?? [],
@@ -891,6 +894,71 @@ const refreshLinkedAgentRelations = async (): Promise<void> => {
         if (requestId === linkedAgentRelationsRequestId) {
             linkedAgentsLoading.value = false;
         }
+    }
+};
+
+/**
+ * 向上分页加载更早的 active path entries。
+ */
+const loadEarlierMessages = async (): Promise<void> => {
+    const snapshot = activeSnapshot.value;
+    if (!activeSessionId.value || !snapshot?.entryPage?.hasMoreBefore || loadingEarlierMessages.value) {
+        return;
+    }
+    loadingEarlierMessages.value = true;
+    try {
+        const page = await agentApi.getSessionEntries(activeSessionId.value, {
+            beforeEntryId: snapshot.entryPage.beforeEntryId,
+            limit: snapshot.entryPage.limit,
+        });
+        await chatFlowRef.value?.preserveScrollAnchor(async () => {
+            session.prependEntriesPage(page);
+        });
+    } catch (error) {
+        console.error("加载更早 Agent 消息失败", error);
+        notifyAgentError(error, t("agent.chatSurface.refreshFailed"));
+    } finally {
+        loadingEarlierMessages.value = false;
+    }
+};
+
+/**
+ * 懒加载完整 session tree，再打开分支树弹窗。
+ */
+const openSessionTreeDialog = async (): Promise<void> => {
+    if (!activeSessionId.value) {
+        return;
+    }
+    if (activeSnapshot.value?.treeComplete) {
+        sessionTreeDialogOpen.value = true;
+        return;
+    }
+    sessionTreeLoading.value = true;
+    try {
+        const treeSnapshot = await agentApi.getSessionTree(activeSessionId.value);
+        const current = activeSnapshot.value;
+        if (!current || current.summary.sessionId !== treeSnapshot.sessionId) {
+            return;
+        }
+        session.applySnapshot({
+            ...current,
+            activeLeafId: treeSnapshot.activeLeafId,
+            tree: treeSnapshot.tree,
+            entries: treeSnapshot.entries,
+            treeComplete: true,
+            entryPage: {
+                hasMoreBefore: false,
+                beforeEntryId: null,
+                total: treeSnapshot.entries.length,
+                limit: treeSnapshot.entries.length,
+            },
+        });
+        sessionTreeDialogOpen.value = true;
+    } catch (error) {
+        console.error("加载 session tree 失败", error);
+        notifyAgentError(error, t("agent.chatSurface.refreshFailed"));
+    } finally {
+        sessionTreeLoading.value = false;
     }
 };
 
@@ -2545,8 +2613,8 @@ function isApprovalApproved(answer?: {
                         <span class="i-lucide-users h-4 w-4"></span>
                         <span v-if="linkedAgentCount" class="rounded-sm bg-[var(--accent-main)] px-1 text-[9px] font-bold text-[var(--text-inverse)]">{{ linkedAgentCount }}</span>
                     </button>
-                    <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :title="t('agent.chatSurface.sessionTreeTitle')" :disabled="!activeSessionId" @click="sessionTreeDialogOpen = true">
-                        <span class="i-lucide-git-branch h-4 w-4"></span>
+                    <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :title="t('agent.chatSurface.sessionTreeTitle')" :disabled="!activeSessionId || sessionTreeLoading" @click="void openSessionTreeDialog()">
+                        <span :class="sessionTreeLoading ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-git-branch'" class="h-4 w-4"></span>
                     </button>
                     <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('agent.chatSurface.sessionListTitle')" @click="void openSessionDialog()">
                         <span class="i-lucide-messages-square h-4 w-4"></span>
@@ -2575,6 +2643,8 @@ function isApprovalApproved(answer?: {
                 :messages="renderNodes"
                 :session-id="activeSessionId"
                 :running="running"
+                :has-more-before="hasMoreEarlierMessages"
+                :loading-before="loadingEarlierMessages"
                 mode="main"
                 :editing-message-id="editingMessageId"
                 :message-action-disabled="messageActionsDisabled"
@@ -2594,6 +2664,7 @@ function isApprovalApproved(answer?: {
                 @retry="void refreshMessage($event)"
                 @delete="void rollbackMessage($event)"
                 @cycle-branch="void cycleMessageBranch($event.messageId, $event.direction)"
+                @load-before="void loadEarlierMessages()"
             />
 
             <AgentComposer

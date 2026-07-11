@@ -19,6 +19,14 @@
 - 前端聊天恢复仍使用 `entries` 派生 UI 消息，因此本轮不改变聊天展示、pending approval、tree 细节行为。
 - 新增 harness 回归：`getSessionSnapshot()` 默认不返回 `messages`，但 repository reduce 的 provider context 仍完整保留。
 
+#### Follow-up: HTTP Light Snapshot / Pagination
+
+- `/api/agent/sessions/:id` 默认改为轻快照：只返回最近 120 条 active entries，不返回 tree、不计算 `systemPrompt` / `contextUsage`。
+- 新增 `GET /api/agent/sessions/:id/entries`，按 `beforeEntryId + limit` 向前分页读取历史 active entries，前端聊天顶部提供“加载更早消息”并保持滚动锚点。
+- 新增 `GET /api/agent/sessions/:id/tree`，会话树 Dialog 打开时按需加载完整 tree；主快照用 `treeComplete` 标记是否已包含完整 tree。
+- `getSessionLiveState()` 的 context usage 改为 best-effort，估算失败只跳过该字段，不阻断 session 写入 / SSE 广播。
+- System summarizer session 在 harness 内部直接使用内置 profile，避免未编译磁盘 profile 影响后台摘要；相关测试改用隔离 profile catalog，避免误扫真实 assets profile 目录。
+
 ### Config Editor Snapshot
 
 - `readConfigEditorSnapshot()` 增加按 query + config 文件 mtime 的 2s 短缓存。
@@ -38,10 +46,11 @@
 - `bun test server/workspace-files/project-workspace-index.test.ts app/components/novel-ide/agent/agent-message.test.ts`：23 pass。
 - `bun test server/agent/harness/neuro-agent-harness.test.ts -t "session snapshot 默认不返回 provider messages"`：1 pass。
 - `bun test server/config/config-service.test.ts`：72 pass。
-- `bun run typecheck`：仍失败于既有 `app/components/novel-ide/plot/workbench/PlotWorkbenchDialog.vue:422` 缺少 `acts` prop，本轮相关类型错误已清除。
+- `bun run test server/agent/http.test.ts server/agent/harness/neuro-agent-harness.test.ts app/components/novel-ide/agent/useAgentSession.test.ts app/components/novel-ide/agent/agent-message.test.ts`：221 pass。
+- `bun run typecheck`：pass。
 
 ## Notes
 
 - 本轮没有做浏览器验证，遵循当前项目指令不自动浏览器验收。
-- `/api/agent/sessions/:id` 仍携带 `entries` 和 `tree`，因此超长历史下还会有进一步优化空间；下一步应拆主聊天轻 snapshot、tree/detail 按需接口和消息分页。
+- `/api/agent/sessions/:id` 已拆为主聊天轻 snapshot、历史 entries 分页和 tree 按需接口；超长会话首屏不再依赖完整 history/tree 响应体。
 - Workspace tree 仍是全量重建模型；本轮只是避免旧缓存存在时阻塞用户请求，后续若大项目仍慢，需要把正文派生数据和目录树元数据拆分或做增量 patch。

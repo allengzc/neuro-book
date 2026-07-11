@@ -1444,6 +1444,8 @@ const enUS = {
             startTitle: "Start Collaborating With AI",
             startDescription: "Ask me to design characters, plan outlines, or discuss where the story should go next.",
             waiting: "Waiting for Agent response...",
+            loadEarlier: "Load earlier messages",
+            loadingEarlier: "Loading...",
         },
         clientVariables: {
             activePanelInvalid: "client.ide.activePanel only accepts {values} or null.",

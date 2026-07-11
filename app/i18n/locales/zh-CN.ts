@@ -1442,6 +1442,8 @@ const zhCN = {
             startTitle: "开始与 AI 协作",
             startDescription: "你可以让我帮你设计角色、规划大纲，或者直接讨论接下来的剧情走向。",
             waiting: "等待 Agent 响应…",
+            loadEarlier: "加载更早消息",
+            loadingEarlier: "加载中…",
         },
         clientVariables: {
             activePanelInvalid: "client.ide.activePanel 只能写入 {values} 或 null。",

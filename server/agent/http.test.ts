@@ -69,7 +69,21 @@ describe("agent session http helpers", () => {
 
         await getAgentSessionSnapshot(12, {getSessionSnapshot} as never);
 
-        expect(getSessionSnapshot).toHaveBeenCalledWith(12);
+        expect(getSessionSnapshot).toHaveBeenCalledWith(12, undefined, undefined);
+    });
+
+    it("getAgentSessionSnapshot 会透传轻快照选项", async () => {
+        const getSessionSnapshot = vi.fn(async () => ({sessionId: 12}));
+        const options = {
+            entryLimit: 120,
+            includeTree: false,
+            includeSystemPrompt: false,
+            includeContextUsage: false,
+        };
+
+        await getAgentSessionSnapshot(12, {getSessionSnapshot} as never, undefined, options);
+
+        expect(getSessionSnapshot).toHaveBeenCalledWith(12, undefined, options);
     });
 
     it("getAgentSessionRelations 调用 harness.getSessionRelations", async () => {
@@ -168,7 +182,7 @@ describe("agent session http helpers", () => {
         await getAgentSessionRelations(12, {getSessionRelations} as never, timingSink);
         await runAgentSessionCommand(12, {command: "mode", mode: "plan"}, {runCommand} as never, timingSink);
 
-        expect(getSessionSnapshot).toHaveBeenCalledWith(12, timingSink);
+        expect(getSessionSnapshot).toHaveBeenCalledWith(12, timingSink, undefined);
         expect(getSessionRelations).toHaveBeenCalledWith(12, timingSink);
         expect(runCommand).toHaveBeenCalledWith(12, {command: "mode", mode: "plan"}, timingSink);
     });

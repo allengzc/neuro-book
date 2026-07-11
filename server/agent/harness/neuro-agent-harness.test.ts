@@ -110,6 +110,18 @@ function visibleMessageText(messages: AgentMessage[]): string {
         .join("\n");
 }
 
+/**
+ * 创建启用 summarizer 的隔离 harness，避免测试误扫真实 assets profile 目录。
+ */
+function createSummarizerHarness(root: string, faux: FauxProviderRegistration): NeuroAgentHarness {
+    return new NeuroAgentHarness({
+        repo: new JsonlSessionRepository(root),
+        profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
+        modelResolver: () => faux.getModel(),
+        enableSessionSummarizer: true,
+    });
+}
+
 class BrokenProfileCatalog extends AgentProfileCatalog {
     override async get(profileKey: string): Promise<AgentProfile> {
         if (profileKey === "test.unloadable") {
@@ -6085,11 +6097,7 @@ describe("NeuroAgentHarness", () => {
     }, 30_000);
 
     it("source profile completed 后会后台运行 summarizer 并写回 active leaf title/summary", async () => {
-        harness = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            modelResolver: () => faux.getModel(),
-            enableSessionSummarizer: true,
-        });
+        harness = createSummarizerHarness(root, faux);
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.summarized-source",
@@ -6176,11 +6184,7 @@ describe("NeuroAgentHarness", () => {
     });
 
     it("summarizer 写回前 source leaf 变化时只标 dirty 不覆盖当前 title/summary", async () => {
-        harness = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            modelResolver: () => faux.getModel(),
-            enableSessionSummarizer: true,
-        });
+        harness = createSummarizerHarness(root, faux);
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.summarizer-stale",
@@ -6259,11 +6263,7 @@ describe("NeuroAgentHarness", () => {
     });
 
     it("summarizer preflight 超过 Agent Dialogue Content token 上限时只写状态不启动 hidden run", async () => {
-        harness = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            modelResolver: () => faux.getModel(),
-            enableSessionSummarizer: true,
-        });
+        harness = createSummarizerHarness(root, faux);
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.summarizer-too-large",
@@ -6326,11 +6326,7 @@ describe("NeuroAgentHarness", () => {
     });
 
     it("summarizer sourceInvocation interval 会按 source prompt turn 间隔触发", async () => {
-        harness = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            modelResolver: () => faux.getModel(),
-            enableSessionSummarizer: true,
-        });
+        harness = createSummarizerHarness(root, faux);
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.summarizer-interval",
@@ -6408,11 +6404,7 @@ describe("NeuroAgentHarness", () => {
     });
 
     it("summarizer 运行失败后同一份 Agent Dialogue Content 可以重试", async () => {
-        harness = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            modelResolver: () => faux.getModel(),
-            enableSessionSummarizer: true,
-        });
+        harness = createSummarizerHarness(root, faux);
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.summarizer-retry",
@@ -6483,11 +6475,7 @@ describe("NeuroAgentHarness", () => {
     });
 
     it("rename 命令锁定标题后 summarizer 只更新 summary，summarize 命令解锁并立即重跑", async () => {
-        harness = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
-            modelResolver: () => faux.getModel(),
-            enableSessionSummarizer: true,
-        });
+        harness = createSummarizerHarness(root, faux);
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.summarizer-rename",
@@ -9450,6 +9438,41 @@ describe("NeuroAgentHarness", () => {
         const contextText = visibleMessageText(harness.repo.reduce(await harness.repo.readSession(created.sessionId)).messages);
         expect(contextText).toContain("snapshot prompt");
         expect(contextText).toContain("snapshot reply");
+    });
+
+    it("HTTP 轻快照只返回最近 entries，历史 entries 可继续分页读取", async () => {
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        await harness.repo.appendUserMessage(created.sessionId, "first");
+        await harness.repo.appendUserMessage(created.sessionId, "second");
+        await harness.repo.appendUserMessage(created.sessionId, "third");
+
+        const snapshot = await harness.getSessionSnapshot(created.sessionId, undefined, {
+            entryLimit: 2,
+            includeTree: false,
+            includeSystemPrompt: false,
+            includeContextUsage: false,
+        });
+
+        expect(snapshot.tree).toEqual([]);
+        expect(snapshot.treeComplete).toBe(false);
+        expect(snapshot.entries).toHaveLength(2);
+        expect(snapshot.entryPage).toEqual(expect.objectContaining({
+            hasMoreBefore: true,
+            total: expect.any(Number),
+            limit: 2,
+        }));
+
+        const page = await harness.getSessionEntries(created.sessionId, {
+            beforeEntryId: snapshot.entryPage?.beforeEntryId ?? undefined,
+            limit: 2,
+        });
+
+        expect(page.hasMoreBefore).toBe(false);
+        expect(page.entries.some((entry) => entry.type === "message" && messageText(entry.message) === "first")).toBe(true);
     });
 
     it("session command 和 tree API 支持 mode、archive、retry、tree+invoke", async () => {

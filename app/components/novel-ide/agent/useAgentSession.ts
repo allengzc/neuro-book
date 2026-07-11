@@ -1,4 +1,5 @@
-import type {AgentRuntimeStreamEventDto, AgentSessionEventDto, AgentSessionLiveStateDto, AgentSessionRelationsDto, AgentSessionSnapshotDto, AgentPendingApprovalDto} from "nbook/shared/dto/agent-session.dto";
+import type {AgentRuntimeStreamEventDto, AgentSessionEventDto, AgentSessionLiveStateDto, AgentSessionRelationsDto, AgentSessionSnapshotDto, AgentPendingApprovalDto, AgentSessionEntryPageDto} from "nbook/shared/dto/agent-session.dto";
+import type {SessionEntry} from "nbook/server/agent/session/types";
 import {computed, getCurrentScope, onScopeDispose, ref, shallowRef} from "vue";
 import {
     applyRuntimeEventToMessages,
@@ -250,6 +251,33 @@ export function useAgentSession() {
     };
 
     /**
+     * 将更早的 active path entries 前置到当前轻快照，供聊天历史向上翻页。
+     */
+    const prependEntriesPage = (page: AgentSessionEntryPageDto): void => {
+        const current = snapshot.value;
+        if (!current || current.summary.sessionId !== page.sessionId || page.entries.length === 0) {
+            return;
+        }
+        const seen = new Set(current.entries.map((entry) => entry.id));
+        const nextEntries: SessionEntry[] = [
+            ...page.entries.filter((entry) => !seen.has(entry.id)),
+            ...current.entries,
+        ];
+        const nextSnapshot: AgentSessionSnapshotDto = {
+            ...current,
+            entries: nextEntries,
+            entryPage: {
+                hasMoreBefore: page.hasMoreBefore,
+                beforeEntryId: page.beforeEntryId,
+                total: page.total,
+                limit: page.limit,
+            },
+        };
+        snapshot.value = nextSnapshot;
+        messages.value = reconcileMessages(messages.value, deriveMessagesFromSessionSnapshot(nextSnapshot));
+    };
+
+    /**
      * 只更新关联 Agent 面板需要的关系数据，不重建消息流。
      */
     const applyRelations = (payload: AgentSessionRelationsDto): void => {
@@ -450,6 +478,7 @@ export function useAgentSession() {
         applyLiveState,
         applyRelations,
         applySnapshot,
+        prependEntriesPage,
         canSteer,
         canFollowUp,
         clearSnapshotRequest,

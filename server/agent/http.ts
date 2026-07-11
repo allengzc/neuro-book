@@ -1,6 +1,7 @@
 import {createError, getRouterParam} from "h3";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import type {InvokeAgentInput} from "nbook/server/agent/harness/types";
+import type {AgentSessionSnapshotOptions} from "nbook/server/agent/harness/neuro-agent-harness";
 import type {ServerTimingSink} from "nbook/server/utils/server-timing";
 import {
     AgentSessionIdSchema,
@@ -13,6 +14,7 @@ import {
     type AgentSessionEventsQueryDto,
     type AgentSessionListPageDto,
     type AgentSessionListQueryDto,
+    type AgentSessionEntriesQueryDto,
     type AgentTreeRequestDto,
 } from "nbook/shared/dto/agent-session.dto";
 
@@ -94,10 +96,24 @@ export async function listAgentSessions(query: AgentSessionListQueryDto, harness
 /**
  * 返回前端恢复用 session snapshot。
  */
-export async function getAgentSessionSnapshot(sessionId: number, harness = useAgentHarness(), timingSink?: ServerTimingSink) {
+export async function getAgentSessionSnapshot(sessionId: number, harness = useAgentHarness(), timingSink?: ServerTimingSink, options?: AgentSessionSnapshotOptions) {
     return timingSink
-        ? harness.getSessionSnapshot(sessionId, timingSink)
-        : harness.getSessionSnapshot(sessionId);
+        ? harness.getSessionSnapshot(sessionId, timingSink, options)
+        : harness.getSessionSnapshot(sessionId, undefined, options);
+}
+
+/**
+ * 返回 active path entries 的分页窗口。
+ */
+export async function getAgentSessionEntries(sessionId: number, query: AgentSessionEntriesQueryDto, harness = useAgentHarness()) {
+    return harness.getSessionEntries(sessionId, query);
+}
+
+/**
+ * 返回完整 session tree。只在用户打开分支树时加载。
+ */
+export async function getAgentSessionTreeSnapshot(sessionId: number, harness = useAgentHarness()) {
+    return harness.getSessionTreeSnapshot(sessionId);
 }
 
 /**

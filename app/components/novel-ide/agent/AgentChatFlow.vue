@@ -42,6 +42,10 @@ const props = defineProps<{
     costDisplayOptions: CostDisplayOptions;
     /** 费用 tooltip 汇率说明。 */
     costExchangeRateSuffix?: string;
+    /** 当前轻快照之前是否还有更早消息。 */
+    hasMoreBefore?: boolean;
+    /** 是否正在加载更早消息。 */
+    loadingBefore?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -53,6 +57,7 @@ const emit = defineEmits<{
     (e: "retry", message: AgentMessage): void;
     (e: "delete", message: AgentMessage): void;
     (e: "cycle-branch", payload: {messageId: string; direction: -1 | 1}): void;
+    (e: "load-before"): void;
 }>();
 
 const scrollRef = ref<HTMLDivElement | null>(null);
@@ -220,17 +225,40 @@ const forceScrollToBottom = (): void => {
     scrollToBottom();
 };
 
+/**
+ * 加载更早消息时保持用户当前视口锚点。
+ */
+const preserveScrollAnchor = async (task: () => Promise<void>): Promise<void> => {
+    const container = scrollRef.value;
+    if (!container) {
+        await task();
+        return;
+    }
+    const beforeHeight = container.scrollHeight;
+    const beforeTop = container.scrollTop;
+    await task();
+    await nextTick();
+    container.scrollTop = beforeTop + Math.max(0, container.scrollHeight - beforeHeight);
+    lastScrollTop.value = container.scrollTop;
+};
+
 onUnmounted(() => {
     cancelScheduledScrollToBottom();
 });
 
-defineExpose({ scrollToBottom: forceScrollToBottom, scrollRef });
+defineExpose({ scrollToBottom: forceScrollToBottom, scrollRef, preserveScrollAnchor });
 </script>
 
 <template>
     <!-- 通用对话流容器 -->
     <div ref="scrollRef" class="flex flex-1 flex-col overflow-y-auto p-4 pb-12 bg-[var(--bg-panel)]" @scroll="onScroll">
         <template v-if="props.messages.length > 0">
+            <div v-if="props.hasMoreBefore" class="mb-4 flex justify-center">
+                <button type="button" class="inline-flex h-8 items-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-main)] px-3 text-xs font-medium text-[var(--text-secondary)] shadow-sm transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-wait disabled:opacity-60" :disabled="props.loadingBefore" @click="emit('load-before')">
+                    <span :class="props.loadingBefore ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-chevron-up'" class="h-3.5 w-3.5"></span>
+                    <span>{{ props.loadingBefore ? t("agent.chat.loadingEarlier") : t("agent.chat.loadEarlier") }}</span>
+                </button>
+            </div>
             <div
                 v-for="(node, index) in chatNodes"
                 :key="getNodeKey(node)"

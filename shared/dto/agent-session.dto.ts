@@ -139,6 +139,18 @@ export const AgentSessionEventsQueryDtoSchema = z.object({
     eventEpoch: z.string().trim().min(1).optional(),
 });
 
+export const AgentSessionSnapshotQueryDtoSchema = z.object({
+    includeTree: z.coerce.boolean().optional(),
+    includeSystemPrompt: z.coerce.boolean().optional(),
+    includeContextUsage: z.coerce.boolean().optional(),
+    entryLimit: z.coerce.number().int().min(1).max(500).optional(),
+});
+
+export const AgentSessionEntriesQueryDtoSchema = z.object({
+    beforeEntryId: z.string().trim().min(1).optional(),
+    limit: z.coerce.number().int().min(1).max(500).optional(),
+});
+
 export const AgentCommandRequestDtoSchema = z.discriminatedUnion("command", [
     z.object({command: z.literal("new")}),
     z.object({command: z.literal("archive"), reason: z.string().optional()}),
@@ -193,6 +205,8 @@ export type AgentUserMessageInputDto = z.infer<typeof AgentUserMessageInputDtoSc
 export type AgentInvokeRequestDto = z.infer<typeof AgentInvokeRequestDtoSchema>;
 export type AgentSessionListQueryDto = z.infer<typeof AgentSessionListQueryDtoSchema>;
 export type AgentSessionEventsQueryDto = z.infer<typeof AgentSessionEventsQueryDtoSchema>;
+export type AgentSessionSnapshotQueryDto = z.infer<typeof AgentSessionSnapshotQueryDtoSchema>;
+export type AgentSessionEntriesQueryDto = z.infer<typeof AgentSessionEntriesQueryDtoSchema>;
 export type AgentCommandRequestDto = z.infer<typeof AgentCommandRequestDtoSchema>;
 export type AgentTreeRequestDto = z.infer<typeof AgentTreeRequestDtoSchema>;
 export type AgentAbortRequestDto = z.infer<typeof AgentAbortRequestDtoSchema>;
@@ -229,6 +243,24 @@ export type AgentSessionContextUsageDto = {
     /** usedTokens / limitTokens 的百分比；limitTokens 为空时为空。 */
     percent: number | null;
     estimated: true;
+};
+
+export type AgentSessionEntryPageDto = {
+    sessionId: number;
+    entries: SessionEntry[];
+    /** 本页之前是否还有更早的 active path entries。 */
+    hasMoreBefore: boolean;
+    /** 下一次向前翻页传入的 cursor；为空表示已经到 active path 起点。 */
+    beforeEntryId: string | null;
+    total: number;
+    limit: number;
+};
+
+export type AgentSessionTreeSnapshotDto = {
+    sessionId: number;
+    activeLeafId: string | null;
+    tree: SessionTreeNode[];
+    entries: SessionEntry[];
 };
 
 export type AgentSessionSummaryDto = {
@@ -557,6 +589,10 @@ export type AgentSessionSnapshotDto = {
     messages?: AgentMessage[];
     tree: SessionTreeNode[];
     entries: SessionEntry[];
+    /** entries 当前是否只包含 active path 的尾部窗口。 */
+    entryPage?: Omit<AgentSessionEntryPageDto, "sessionId" | "entries">;
+    /** tree 是否为完整分支树；false 表示首屏轻快照省略了 tree。 */
+    treeComplete?: boolean;
     linkedAgents: AgentLinkedSessionDto[];
     linkedByAgents: AgentLinkedSessionDto[];
     pendingUserInputs: AgentPendingUserInputDto[];

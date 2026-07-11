@@ -10,10 +10,12 @@ import type {
     AgentInvokeRequestDto,
     AgentSessionEventDto,
     AgentSessionEventsQueryDto,
+    AgentSessionEntryPageDto,
     AgentSessionListPageDto,
     AgentSessionListQueryDto,
     AgentSessionRelationsDto,
     AgentSessionSnapshotDto,
+    AgentSessionTreeSnapshotDto,
     AgentTreeRequestDto,
     ClientVariablePatchAckDto,
 } from "nbook/shared/dto/agent-session.dto";
@@ -37,6 +39,19 @@ export function useAgentSessionApi() {
 
     const getSession = (sessionId: number) => {
         return $fetch<AgentSessionSnapshotDto>(`/api/agent/sessions/${sessionId}`);
+    };
+
+    const getSessionEntries = (sessionId: number, query: {beforeEntryId?: string | null; limit?: number} = {}) => {
+        return $fetch<AgentSessionEntryPageDto>(`/api/agent/sessions/${sessionId}/entries`, {
+            query: {
+                ...(query.beforeEntryId ? {beforeEntryId: query.beforeEntryId} : {}),
+                ...(query.limit ? {limit: query.limit} : {}),
+            },
+        });
+    };
+
+    const getSessionTree = (sessionId: number) => {
+        return $fetch<AgentSessionTreeSnapshotDto>(`/api/agent/sessions/${sessionId}/tree`);
     };
 
     const getSessionRelations = (sessionId: number) => {
@@ -108,7 +123,9 @@ export function useAgentSessionApi() {
         abortSession,
         createSession,
         getSession,
+        getSessionEntries,
         getSessionRelations,
+        getSessionTree,
         invokeSession,
         listSessions,
         moveTree,

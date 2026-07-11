@@ -16,6 +16,8 @@ import type {
     AgentSessionRelationsDto,
     AgentSessionSnapshotDto,
     AgentSessionSummaryDto,
+    AgentSessionEntryPageDto,
+    AgentSessionTreeSnapshotDto,
     AgentTreeRequestDto,
 } from "nbook/shared/dto/agent-session.dto";
 
@@ -160,6 +162,8 @@ export type AgentSessionService = {
     listSessions(query?: AgentSessionListQueryDto): Promise<AgentSessionSummaryDto[]>;
     listSessionPage(query?: AgentSessionListQueryDto): Promise<AgentSessionListPageDto>;
     getSessionSnapshot(sessionId: number, timingSink?: ServerTimingSink): Promise<AgentSessionSnapshotDto>;
+    getSessionEntries(sessionId: number, input?: {beforeEntryId?: string; limit?: number}): Promise<AgentSessionEntryPageDto>;
+    getSessionTreeSnapshot(sessionId: number): Promise<AgentSessionTreeSnapshotDto>;
     getSessionRelations(sessionId: number, timingSink?: ServerTimingSink): Promise<AgentSessionRelationsDto>;
     runCommand(sessionId: number, body: AgentCommandRequestDto, timingSink?: ServerTimingSink): Promise<AgentCommandResult>;
     moveTree(sessionId: number, body: AgentTreeRequestDto): Promise<AgentTreeResult>;
