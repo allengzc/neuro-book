@@ -15,6 +15,7 @@ import {
     LowCodeResourceMutationDtoSchema,
 } from "nbook/shared/dto/low-code-form.dto";
 import {themeAppearanceValues, themeVarNames} from "nbook/shared/theme/theme-vars";
+import {DEFAULT_AGENT_DIFF_MAX_CHARS, MAX_AGENT_DIFF_MAX_CHARS} from "nbook/shared/agent/file-change-policy";
 
 const themeVarNameSet = new Set<string>(themeVarNames);
 
@@ -178,8 +179,9 @@ export const ConfigAgentProfileSettingsDtoSchema = z.object({
         model: AgentProfileModelConfigDtoSchema,
         loadStatus: ConfigAgentProfileLoadStatusDtoSchema,
         hasSettingsForm: z.boolean().default(false),
-        // profile 源码是否声明了后台会话摘要（summarizer）；true 时设置面板才展示摘要开关。
+        // Profile 是否声明了专用 summarizer 策略；仅用于展示默认开关值，所有 Profile 都可配置。
         hasSummarizer: z.boolean().default(false),
+        fileChangeDiffMaxChars: z.number().int().min(0).max(MAX_AGENT_DIFF_MAX_CHARS).default(DEFAULT_AGENT_DIFF_MAX_CHARS),
         issue: ConfigAgentProfileIssueDtoSchema.nullable().default(null),
         sourcePath: z.string().trim().min(1).nullable().default(null),
         buildState: ConfigAgentProfileBuildStateDtoSchema,
@@ -272,8 +274,11 @@ export const ConfigAgentProfileMapDtoSchema = z.record(z.string(), z.object({
     model: AgentProfileModelConfigDtoSchema.partial().default({}),
     settings: LowCodeJsonObjectSchema.optional(),
     resourceMutations: z.array(LowCodeResourceMutationDtoSchema).optional(),
-    // 后台会话摘要开关。缺省沿用 profile 源码默认（开启）；enabled=false 表示对该 profile 禁用 summarizer。
+    // 后台会话摘要开关。缺省时，声明策略的 Profile 默认开启，未声明策略的 Profile 默认关闭。
     summarizer: z.object({enabled: z.boolean().optional()}).optional(),
+    fileChangeNotice: z.object({
+        diffMaxChars: z.number().int().min(0).max(MAX_AGENT_DIFF_MAX_CHARS).optional(),
+    }).optional(),
 })).default({});
 
 export const WebConfigDtoSchema = z.object({
@@ -334,9 +339,6 @@ export const WorkspaceHistoryConfigDtoSchema = WorkspaceHistoryFieldsDtoSchema.p
 export const ProjectWorkspaceHistoryConfigDtoSchema = WorkspaceHistoryFieldsDtoSchema.omit({enabled: true}).partial();
 
 export const GlobalConfigDtoSchema = z.object({
-    auth: z.object({
-        enabled: z.boolean().default(true),
-    }).default({enabled: true}),
     models: z.object({
         default: NullableModelKeySchema,
         providers: z.array(ConfiguredProviderConfigDtoSchema).default([]),
@@ -361,9 +363,6 @@ export const GlobalConfigDtoSchema = z.object({
 }).partial().passthrough();
 
 export const GlobalConfigUpdateDtoSchema = z.object({
-    auth: z.object({
-        enabled: z.boolean().default(true),
-    }).optional(),
     models: z.object({
         default: NullableModelKeySchema,
         providers: z.array(ConfiguredProviderConfigDtoSchema).default([]),

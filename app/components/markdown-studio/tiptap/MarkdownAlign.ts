@@ -89,9 +89,9 @@ export const MarkdownAlign = Node.create({
     renderMarkdown: (node, helpers) => {
         const align = normalizeAlign(node.attrs?.align);
         if (align === "left") {
-            return helpers.renderChildren(node);
+            return helpers.renderChildren(node, "\n\n");
         }
-        return renderMarkdownAlign(align, helpers.renderChildren(node));
+        return renderMarkdownAlign(align, helpers.renderChildren(node, "\n\n"));
     },
 
     addCommands() {

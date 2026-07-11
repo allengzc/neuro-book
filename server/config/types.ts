@@ -30,23 +30,33 @@ export type AgentProfileSettingsConfig = {
 };
 
 /**
- * 后台会话摘要开关。enabled 缺省沿用 profile 源码默认（开启）；false 表示对该 profile 禁用 summarizer。
+ * 后台会话摘要开关。enabled 缺省沿用 Profile 策略声明决定的默认值。
  */
 export type AgentProfileSummarizerConfig = {
     enabled?: boolean;
 };
 
+export type AgentProfileFileChangeNoticeConfig = {
+    diffMaxChars: number;
+};
+
+export type StoredAgentProfileFileChangeNoticeConfig = {
+    diffMaxChars?: number;
+};
+
 export type AgentProfileConfig = {
     model: AgentProfileModelConfig;
     settings: AgentProfileSettingsConfig;
-    /** 缺省表示未配置，按 profile 源码默认处理。 */
+    /** 缺省表示未配置：声明 summarizer 策略的 Profile 默认开启，否则默认关闭。 */
     summarizer?: AgentProfileSummarizerConfig;
+    fileChangeNotice: AgentProfileFileChangeNoticeConfig;
 };
 
 export type StoredAgentProfileConfig = {
     model: Partial<AgentProfileModelConfig>;
     settings?: AgentProfileSettingsConfig;
     summarizer?: AgentProfileSummarizerConfig;
+    fileChangeNotice?: StoredAgentProfileFileChangeNoticeConfig;
 };
 
 export type StoredAgentProfileModelDefaultsConfig = Partial<AgentProfileModelConfig>;
@@ -163,9 +173,6 @@ export type StoredWebSettingsConfig = {
 };
 
 export type EffectiveConfig = {
-    auth: {
-        enabled: boolean;
-    };
     models: ModelSettingsConfig;
     embedding: EmbeddingServiceConfig;
     agent: {
@@ -227,9 +234,6 @@ export type StoredProviderConfig = Omit<ConfiguredProviderConfig, "models"> & {
 };
 
 export type StoredGlobalConfig = {
-    auth?: {
-        enabled?: boolean;
-    };
     models?: {
         default?: string | null;
         providers?: StoredProviderConfig[];

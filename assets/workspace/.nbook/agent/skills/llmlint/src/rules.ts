@@ -2,7 +2,8 @@ import {existsSync} from "node:fs";
 import {readFile, readdir, stat} from "node:fs/promises";
 import {dirname, relative, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
-import {DEFAULT_NAMESPACE_ALIASES, DEFAULT_NAMESPACE_POLICY} from "./namespaces";
+import {DEFAULT_NAMESPACE_ALIASES, DEFAULT_NAMESPACE_POLICY, DEFAULT_RULE_POLICY} from "./namespaces";
+import {materializeRules} from "./rule-registry";
 import type {
     ActiveRuleRecord,
     DeclarativeRuleRecord,
@@ -10,14 +11,12 @@ import type {
     HandlerRuleRecord,
     LintRuleRecord,
     LoadedRules,
-    LLMRuleRecord,
     NormalizedLlmlintConfig,
     NormalizedRuleOverride,
     RegistryDiagnostic,
-    RegistrySummary,
-    RegexRuleRecord,
     Review,
     RuleLevel,
+    RuleRegistryCatalogItem,
     RulesetManifest,
 } from "./types";
 
@@ -25,17 +24,34 @@ const SKILL_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const RULESETS_ROOT = resolve(SKILL_ROOT, "rulesets");
 const RULES_DIRECTORY = "rules";
 
-type RegistryItem = {
-    rule: ActiveRuleRecord;
-    defaultEnabled: boolean;
+export type LoadedRuleCatalog = {
+    catalog: RuleRegistryCatalogItem[];
+    diagnostics: RegistryDiagnostic[];
+    namespaceAliases: Record<string, string>;
+    loadedRulesets: string[];
 };
 
 /**
  * 加载 ruleset，合并成扁平 Rule Registry，并应用 ruleset / namespace / rule 覆盖。
  */
 export async function loadRules(config: NormalizedLlmlintConfig): Promise<LoadedRules> {
+    const source = await loadRuleCatalog(config);
+    return materializeRules({
+        catalog: source.catalog,
+        config,
+        diagnostics: source.diagnostics,
+        namespaceAliases: source.namespaceAliases,
+        loadedRulesets: source.loadedRulesets,
+    });
+}
+
+/**
+ * 加载完整规则目录，不应用最终启停覆盖。浏览器构建期用它预烘 catalog，
+ * 客户端再按本地设置调用 materializeRules。
+ */
+export async function loadRuleCatalog(config: NormalizedLlmlintConfig): Promise<LoadedRuleCatalog> {
     const diagnostics: RegistryDiagnostic[] = [];
-    const registry = new Map<string, RegistryItem>();
+    const registry = new Map<string, RuleRegistryCatalogItem>();
     const namespaceAliases: Record<string, string> = {...DEFAULT_NAMESPACE_ALIASES};
     const loadedRulesets: string[] = [];
 
@@ -90,17 +106,11 @@ export async function loadRules(config: NormalizedLlmlintConfig): Promise<Loaded
         }
     }
 
-    const activeRules = [...registry.values()]
-        .flatMap((item) => applyConfig(item, config, namespaceAliases));
-    const regexRules = activeRules.filter((rule): rule is RegexRuleRecord => rule.detector.type === "regex");
-    const llmRules = activeRules.filter((rule): rule is LLMRuleRecord => rule.detector.type === "llm");
-
     return {
-        rules: activeRules,
-        regexRules,
-        llmRules,
+        catalog: [...registry.values()],
         diagnostics,
-        summary: summarizeRegistry([...registry.values()], activeRules, loadedRulesets),
+        namespaceAliases,
+        loadedRulesets,
     };
 }
 
@@ -187,13 +197,15 @@ function normalizeRule(
     }
 
     // 解析最终 review / fixability，优先级：规则自带字段 > 命名空间策略表 > detector/action 推导。
-    const policy = DEFAULT_NAMESPACE_POLICY[namespace];
+    // fixability 最后还要受规则能力约束：只有 regex + replace 才能进入 auto/candidate。
+    const namespacePolicy = DEFAULT_NAMESPACE_POLICY[namespace];
+    const rulePolicy = DEFAULT_RULE_POLICY[rule.id];
     return {
         ...rule,
         namespace,
         ruleset: manifest.id,
-        review: rule.review ?? policy?.review ?? deriveReview(rule),
-        fixability: rule.fixability ?? policy?.fixability ?? deriveFixability(rule),
+        review: rule.review ?? rulePolicy?.review ?? namespacePolicy?.review ?? deriveReview(rule),
+        fixability: resolveFixability(rule, rulePolicy?.fixability ?? namespacePolicy?.fixability),
     };
 }
 
@@ -202,42 +214,20 @@ function deriveReview(_rule: DeclarativeRuleRecord): Review {
     return "agent";
 }
 
-/** detector/action 推导默认修复能力：有替换候选记 candidate，否则 manual。 */
-function deriveFixability(rule: DeclarativeRuleRecord): Fixability {
-    if (rule.detector.type === "llm") {
-        return "manual";
-    }
-    return rule.action.type === "replace" ? "candidate" : "manual";
+/** detector/action 推导默认修复能力：语义 replace 只是模板，不自动获得可应用权限。 */
+function deriveFixability(_rule: DeclarativeRuleRecord): Fixability {
+    return "manual";
 }
 
-/** 规则在应用配置覆盖过程中的可变状态。 */
-type RuleState = {
-    enabled: boolean;
-    level: RuleLevel;
-    review: Review;
-    fixability: Fixability;
-};
-
-function applyConfig(item: RegistryItem, config: NormalizedLlmlintConfig, aliases: Record<string, string>): ActiveRuleRecord[] {
-    const rulesetSetting = config.rulesetOverrides[item.rule.ruleset];
-    let state: RuleState = {
-        enabled: item.defaultEnabled,
-        level: item.rule.level,
-        review: item.rule.review,
-        fixability: item.rule.fixability,
-    };
-
-    if (rulesetSetting === "on") {
-        state = {...state, enabled: true};
+function resolveFixability(rule: DeclarativeRuleRecord, policyFixability: Fixability | undefined): Fixability {
+    const declared = rule.fixability ?? policyFixability ?? deriveFixability(rule);
+    if (declared === "manual") {
+        return "manual";
     }
-
-    // 覆盖优先级：rule id > namespace。后应用者覆盖前者。
-    state = applyOverride(state, resolveNamespaceOverride(config.namespaces, item.rule.namespace, aliases));
-    state = applyOverride(state, config.rules[item.rule.id]);
-
-    return state.enabled
-        ? [{...item.rule, level: state.level, review: state.review, fixability: state.fixability}]
-        : [];
+    if (rule.detector.type !== "regex" || rule.action.type !== "replace") {
+        return "manual";
+    }
+    return declared;
 }
 
 function isExplicitlyEnabled(rule: ActiveRuleRecord, config: NormalizedLlmlintConfig, aliases: Record<string, string>): boolean {
@@ -259,45 +249,6 @@ function resolveNamespaceOverride(overrides: Record<string, NormalizedRuleOverri
         }
     }
     return undefined;
-}
-
-/** 应用单个归一覆盖 patch：只对显式设置的字段做覆盖，未设置的字段保持原状。 */
-function applyOverride(state: RuleState, override: NormalizedRuleOverride | undefined): RuleState {
-    if (override === undefined) {
-        return state;
-    }
-    return {
-        enabled: override.enabled ?? state.enabled,
-        level: override.level ?? state.level,
-        review: override.review ?? state.review,
-        fixability: override.fixability ?? state.fixability,
-    };
-}
-
-function summarizeRegistry(items: RegistryItem[], activeRules: ActiveRuleRecord[], rulesets: string[]): RegistrySummary {
-    const activeIds = new Set(activeRules.map((rule) => rule.id));
-    const namespaceMap = new Map<string, {namespace: string; totalRules: number; activeRules: number}>();
-
-    for (const item of items) {
-        const current = namespaceMap.get(item.rule.namespace) ?? {
-            namespace: item.rule.namespace,
-            totalRules: 0,
-            activeRules: 0,
-        };
-        current.totalRules++;
-        if (activeIds.has(item.rule.id)) {
-            current.activeRules++;
-        }
-        namespaceMap.set(item.rule.namespace, current);
-    }
-
-    return {
-        rulesets,
-        totalRules: items.length,
-        activeRules: activeRules.length,
-        disabledRules: items.length - activeRules.length,
-        namespaces: [...namespaceMap.values()].sort((left, right) => left.namespace.localeCompare(right.namespace)),
-    };
 }
 
 function resolveRulesetRoot(rulesetId: string): string {
@@ -361,6 +312,8 @@ function validateRuleRecord(value: unknown, fieldName: string): LintRuleRecord {
         ruleset: readOptionalString(value, "ruleset", `${fieldName}.ruleset`),
         title: readRequiredString(value, "title", `${fieldName}.title`),
         level: readRuleLevel(value.level, `${fieldName}.level`),
+        review: readOptionalReview(value, "review", `${fieldName}.review`),
+        fixability: readOptionalFixability(value, "fixability", `${fieldName}.fixability`),
         enabled: readOptionalBoolean(value, "enabled", `${fieldName}.enabled`),
         note: readOptionalString(value, "note", `${fieldName}.note`),
         examples: readExamples(value.examples, `${fieldName}.examples`),
@@ -550,6 +503,28 @@ function readRuleLevel(value: unknown, fieldName: string): RuleLevel {
         throw new Error(`${fieldName} 必须是 high、medium 或 low。`);
     }
     return value;
+}
+
+function readOptionalReview(value: Record<string, unknown>, key: string, fieldName: string): Review | undefined {
+    const raw = value[key];
+    if (raw === undefined) {
+        return undefined;
+    }
+    if (raw !== "agent" && raw !== "human" && raw !== "none") {
+        throw new Error(`${fieldName} 必须是 agent、human 或 none。`);
+    }
+    return raw;
+}
+
+function readOptionalFixability(value: Record<string, unknown>, key: string, fieldName: string): Fixability | undefined {
+    const raw = value[key];
+    if (raw === undefined) {
+        return undefined;
+    }
+    if (raw !== "auto" && raw !== "candidate" && raw !== "manual") {
+        throw new Error(`${fieldName} 必须是 auto、candidate 或 manual。`);
+    }
+    return raw;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

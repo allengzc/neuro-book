@@ -1,5 +1,7 @@
 # Profile Variable Types
 
+> 2026-07-11 当前状态：变量类型生成、definition artifact、`ctx.vars` 与三个全局 Agent variable tools 继续保留；`Variable` / `VariableSchema` TSX helper、`builtin.variable` Profile 绑定和 Workbench 变量插入已暂时下线。Workbench 只读展示 schema/runtime 数据。本文其余内容保留类型系统建设历史。
+
 > Active task directory format: `NN-kebab-case-name/`. Archived tasks move to `docs/tasks/archived/<task-slug>/`.
 
 ## User Request

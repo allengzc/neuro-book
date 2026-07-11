@@ -30,6 +30,8 @@ const emit = defineEmits<{
     (e: "insert-reference"): void;
     (e: "insert-image"): void;
     (e: "add-comment"): void;
+    (e: "add-ruby"): void;
+    (e: "add-bilingual"): void;
     (e: "add-ai-reference"): void;
 }>();
 
@@ -475,6 +477,24 @@ onUnmounted(() => {
                         @click="runCommand(() => props.editor.chain().focus().toggleMarkdownSubscript().run(), false)"
                     >
                         <span class="i-lucide-subscript h-3.5 w-3.5"></span>
+                    </button>
+                    <button
+                        type="button"
+                        class="markdown-selection-menu__button markdown-selection-menu__button--icon"
+                        :class="isActive('markdownRuby') ? 'is-active' : ''"
+                        :title="t('markdownStudio.selection.addRuby')"
+                        @click="closeDropdowns(); emit('add-ruby')"
+                    >
+                        <span class="i-lucide-languages h-3.5 w-3.5"></span>
+                    </button>
+                    <button
+                        type="button"
+                        class="markdown-selection-menu__button markdown-selection-menu__button--icon"
+                        :class="isActive('markdownBilingual') ? 'is-active' : ''"
+                        :title="t('markdownStudio.selection.addBilingual')"
+                        @click="closeDropdowns(); emit('add-bilingual')"
+                    >
+                        <span class="i-lucide-letter-text h-3.5 w-3.5"></span>
                     </button>
                     <div class="markdown-selection-menu__divider"></div>
                     <button type="button" class="markdown-selection-menu__button markdown-selection-menu__button--icon" :title="t('markdownStudio.selection.alignLeft')" @click="applyAlign('left')">

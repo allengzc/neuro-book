@@ -9,7 +9,7 @@ import {createTextToolResult, createToolResultFromResult, createUserMessage, mes
 import {AgentProfileCatalog, type AgentProfileRuntimeResolution} from "nbook/server/agent/profiles/catalog";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
 import {summarizerProfile} from "nbook/server/agent/profiles/summarizer-profile";
-import type {AgentProfile, ProfileCompactionPlan, ProfileTurnPlan, SidecarContext, SidecarMergePlan, SidecarProfilePass, SidecarProfilePassStage, SidecarResult} from "nbook/server/agent/profiles/types";
+import type {AgentProfile, AgentProfileSummarizerConfig, ProfileCompactionPlan, ProfileTurnPlan, SidecarContext, SidecarMergePlan, SidecarProfilePass, SidecarProfilePassStage, SidecarResult} from "nbook/server/agent/profiles/types";
 import {compileProfileSystemPrompt, validateProfileTurnPlan} from "nbook/server/agent/profiles/profile-dsl";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {buildAgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
@@ -48,8 +48,6 @@ import {resolveTurnContinuation} from "nbook/server/agent/harness/turn-continuat
 import {createFailedTurnIngestDraft, createRuntimeErrorAssistant, sanitizePartialAssistant} from "nbook/server/agent/harness/turn-failure";
 import {applyFailedTurnTransaction, applySuccessfulTurnTransaction} from "nbook/server/agent/harness/turn-transaction";
 import {applyNextTurnPreparation} from "nbook/server/agent/harness/prepare-next-turn";
-import {buildFileChangeReminder, resolveFileChangeAwareness, type FileChangeAwareness} from "nbook/server/agent/harness/file-change-reminder";
-import {advanceAgentCursor, readUnseenForAgent} from "nbook/server/workspace-history/project-history";
 import {assertValidProfileStateWrite, compilePrepareRunWritePlan} from "nbook/server/agent/harness/prepare-run";
 import {toRunKernelErrorInfo, withRunKernelPhase} from "nbook/server/agent/harness/run-kernel-error";
 import {consumeNextTurnModelMessages, createRunFrame} from "nbook/server/agent/harness/run-frame-state";
@@ -57,9 +55,18 @@ import {estimateModelRequestTokens} from "nbook/server/agent/harness/model-conte
 import {isEmptyObjectSchema, reportResultSchemaForProfile, reportSidecarResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
 import {resolveRuntimeProfileSettings} from "nbook/server/agent/profiles/profile-settings";
 import {createLayeredProfileHomeFacade, ensureGlobalProfileHome, ensureProfileHome, resolveProjectRootForProfileHome} from "nbook/server/agent/profiles/profile-home";
+import {assemblePersistedProfilePromptMessages} from "nbook/server/agent/profiles/prompt-order";
+import {
+    materializeProfileTurnContexts,
+    mergeProfileTurnContextMessages,
+    settleProfileTurnContexts,
+    type ProfileTurnContextSettlement,
+} from "nbook/server/agent/profiles/profile-turn-context";
 import {resolvePiApiKeyForModelFromConfig, resolvePiModelFromConfig} from "nbook/server/agent/harness/model-resolver";
 import {planModeDirectory, resolvePlanModeFile} from "nbook/server/agent/plan-mode-path";
 import {resolveWorkspacePath} from "nbook/server/agent/tools/file-tool-utils";
+import {DEFAULT_AGENT_DIFF_MAX_CHARS} from "nbook/shared/agent/file-change-policy";
+import {resolveProfileSummarizer} from "nbook/server/agent/profiles/profile-summarizer";
 import {extractPatchTargetPaths} from "nbook/server/agent/tools/apply-patch";
 import {isReadonlyMode, type AgentMode} from "nbook/shared/dto/agent-session.dto";
 import type {EffectiveConfig} from "nbook/server/config/types";
@@ -187,8 +194,7 @@ type PendingUserResolutionState = {
 type PreparedRunProfile = {
     plan: ProfileTurnPlan;
     writePlan?: SessionWritePlan;
-    /** 从 resolved settings 读出的文件变更感知模式（未声明 profile 默认 minimal，D12）。 */
-    fileChangeAwareness: FileChangeAwareness;
+    turnContextSettlements: ProfileTurnContextSettlement[];
 };
 
 type PreparedInvocationPayload = {
@@ -214,7 +220,7 @@ type PreparedRun = {
     executionToolKeys?: string[];
     thinkingLevel: ThinkingLevel;
     reportResultReminderEnabled: boolean;
-    fileChangeAwareness: FileChangeAwareness;
+    turnContextSettlements: ProfileTurnContextSettlement[];
 };
 
 type SidecarRunContext = {
@@ -802,7 +808,8 @@ export class NeuroAgentHarness {
                 profileKey: preparedRun.context.profileKey,
                 profile: preparedRun.profile,
                 agentMode: preparedRun.context.agentMode,
-                fileChangeAwareness: preparedRun.fileChangeAwareness,
+                profileTurnContexts: preparedRun.prepared.turnContexts,
+                pendingProfileTurnContextSettlements: preparedRun.turnContextSettlements,
                 thinkingLevel: preparedRun.thinkingLevel,
                 runtimeState,
                 reportResultReminderEnabled: preparedRun.reportResultReminderEnabled,
@@ -1166,7 +1173,7 @@ export class NeuroAgentHarness {
         if (input.finalResult.status !== "waiting") {
             await this.finishInvocation(input.sessionId, input.invocationId);
         }
-        if (this.enableSessionSummarizer && input.finalResult.status === "completed" && input.profile.summarizer && input.profile.summarizer.enabled !== false) {
+        if (this.enableSessionSummarizer && input.finalResult.status === "completed") {
             this.scheduleSessionSummarizer(input.sessionId).catch((error) => {
                 void appLogger.error("agent.summarizer.schedule.error", {
                     sessionId: input.sessionId,
@@ -1308,11 +1315,19 @@ export class NeuroAgentHarness {
         const thinkingLevel = this.resolveThinkingLevel(context, config, model);
         const systemPrompt = prepareRunHooks.profilePrompt ? prepared.plan.systemPrompt ?? context.systemPrompt : context.systemPrompt;
         const preparedModelContextMessages = prepareRunHooks.sessionContext === true ? prepared.plan.modelContextMessages ?? [] : [];
-        const messages = [
-            ...context.messages,
+        const appendingCount = prepareRunHooks.sessionContext === true
+            ? (prepared.plan.modelContextAppendingMessages?.length ?? 0) + (prepared.plan.appendingMessages?.length ?? 0)
+            : 0;
+        const modelContext = [
             ...prepareRunHooks.runtimeMessages,
             ...preparedModelContextMessages,
         ];
+        const messages = assemblePersistedProfilePromptMessages({
+            persistedMessages: context.messages,
+            modelContext,
+            appendingCount,
+            currentUserInputCount: input.pendingUserMessage ? 1 : 0,
+        });
         this.assertNoUnclosedToolCallsForModel(messages, this.userResolutionToolKeysForProfile(runProfile));
 
         snapshot = await this.repo.readSession(input.sessionId);
@@ -1323,11 +1338,7 @@ export class NeuroAgentHarness {
             profile: runProfile,
             prepared: prepared.plan,
             systemPrompt,
-            messages: [
-                ...context.messages,
-                ...prepareRunHooks.runtimeMessages,
-                ...preparedModelContextMessages,
-            ],
+            messages,
             model,
             apiKey,
             timeoutMs: providerOptions.timeoutMs,
@@ -1339,7 +1350,7 @@ export class NeuroAgentHarness {
             executionToolKeys,
             thinkingLevel,
             reportResultReminderEnabled: prepareRunHooks.reportResultReminder === true,
-            fileChangeAwareness: prepared.fileChangeAwareness,
+            turnContextSettlements: prepared.turnContextSettlements,
         };
     }
 
@@ -2196,11 +2207,6 @@ export class NeuroAgentHarness {
             return this.commandLiveStateResult(sessionId, "completed", result, timing);
         }
         if (body.command === "summarize") {
-            // 预检：profile 必须声明 summarizer 才能手动生成摘要；预检失败时不动标题所有权。
-            const profile = await this.profiles.get(snapshot.metadata.profileKey);
-            if (!profile.summarizer) {
-                throw new Error(`agent profile ${snapshot.metadata.profileKey} 未声明会话摘要功能，无法手动生成摘要。`);
-            }
             // 把标题所有权交还给 auto，并以 force 语义强制 summarizer 立即重跑一次（绕过 fingerprint 判定与配置禁用）。
             await this.executeWritePlan({
                 target: {sessionId},
@@ -2665,17 +2671,30 @@ export class NeuroAgentHarness {
         });
         validateProfileTurnPlan(profile.manifest.key, prepared);
 
+        const materializedTurnContexts = await materializeProfileTurnContexts({
+            plans: prepared.turnContexts ?? [],
+            projectPath: context.projectPath,
+            sessionId: snapshot.metadata.sessionId,
+        });
+        const preparedWithTurnContext: ProfileTurnPlan = {
+            ...prepared,
+            appendingMessages: mergeProfileTurnContextMessages(
+                prepared.appendingMessages ?? [],
+                materializedTurnContexts.insertions,
+            ),
+        };
+
         const writePlan = compilePrepareRunWritePlan({
             sessionId: snapshot.metadata.sessionId,
             profileKey: profile.manifest.key,
             context,
-            prepared,
+            prepared: preparedWithTurnContext,
             sessionContextEnabled: options.sessionContextEnabled,
         });
         return {
-            plan: prepared,
+            plan: preparedWithTurnContext,
             writePlan,
-            fileChangeAwareness: resolveFileChangeAwareness(settings),
+            turnContextSettlements: materializedTurnContexts.settlements,
         };
     }
 
@@ -2718,8 +2737,9 @@ export class NeuroAgentHarness {
     }
 
     private async runSessionSummarizerJob(sourceSessionId: number, job: SessionSummarizerJob): Promise<void> {
-        // 配置禁用检查每个 job 只做一次（不进 do/while，避免每轮 rerun 重复读配置文件）。
-        let configDisabled: boolean | null = null;
+        // 每个 job 只读取一次有效配置，后续 dirty rerun 复用同一开关快照。
+        let configuredEnabled: boolean | undefined;
+        let configLoaded = false;
         do {
             job.rerunRequested = false;
             const force = job.forceRequested;
@@ -2729,22 +2749,18 @@ export class NeuroAgentHarness {
                 return;
             }
             const sourceProfile = await this.profiles.get(sourceSnapshot.metadata.profileKey);
-            const config = sourceProfile.summarizer;
-            if (!config || config.enabled === false) {
-                return;
-            }
-            // 用户可在配置中按 profile 禁用后台摘要；force（用户显式 summarize 命令）绕过该禁用。
-            // 禁用时不 return 而是回到循环条件：运行中排队进来的 force 请求仍能被下一轮处理。
             if (!force) {
-                if (configDisabled === null) {
+                if (!configLoaded) {
                     const effectiveConfig = await loadEffectiveConfig(sourceSnapshot.metadata);
-                    configDisabled = effectiveConfig.agent.profiles[sourceSnapshot.metadata.profileKey]?.summarizer?.enabled === false;
-                }
-                if (configDisabled) {
-                    continue;
+                    configuredEnabled = effectiveConfig.agent.profiles[sourceSnapshot.metadata.profileKey]?.summarizer?.enabled;
+                    configLoaded = true;
                 }
             }
-            await this.runSessionSummarizer(sourceSnapshot, sourceProfile, force);
+            const config = resolveProfileSummarizer(sourceProfile, configuredEnabled, force);
+            if (!config) {
+                continue;
+            }
+            await this.runSessionSummarizer(sourceSnapshot, config, force);
             const latest = await this.repo.readSession(sourceSessionId);
             const latestState = this.readSummarizerState(this.repo.reduce(latest));
             if (latestState.dirty && this.shouldAttemptDirtySummarizerRerun(latestState)) {
@@ -2770,11 +2786,7 @@ export class NeuroAgentHarness {
      * 运行一次 summarizer preflight + 隐藏 run。force=true 时跳过 fingerprint/间隔判定
      * （用户显式 summarize 命令），但仍受 maxDialogueContentTokens 上限约束。
      */
-    private async runSessionSummarizer(sourceSnapshot: SessionSnapshot, sourceProfile: AgentProfile, force = false): Promise<void> {
-        const config = sourceProfile.summarizer;
-        if (!config || config.enabled === false) {
-            return;
-        }
+    private async runSessionSummarizer(sourceSnapshot: SessionSnapshot, config: AgentProfileSummarizerConfig, force = false): Promise<void> {
         const profileKey = config.profileKey;
         const summarizerInput = this.summarizerInput(sourceSnapshot.metadata.sessionId, config.input);
         const summarizerInputFingerprint = stableJsonHash({
@@ -2855,7 +2867,77 @@ export class NeuroAgentHarness {
                 dirty: false,
                 lastError: result.error ?? "summarizer 运行失败。",
             }, "summarizer.error");
+            return;
         }
+        await this.settleSessionSummarizerResult(sourceSnapshot.metadata.sessionId, result.reportResult?.data);
+    }
+
+    /**
+     * 把 hidden summarizer 的结构化结果写回 source session。
+     * source leaf 在运行期间变化时不覆盖展示信息，只标 dirty 让 job 基于新 leaf 重跑。
+     */
+    private async settleSessionSummarizerResult(sourceSessionId: number, data: unknown): Promise<void> {
+        const result = isRecord(data) ? data : {};
+        if (typeof result.title !== "string" || typeof result.summary !== "string") {
+            const current = this.readSummarizerState(this.repo.reduce(await this.repo.readSession(sourceSessionId)));
+            await this.writeSummarizerState(sourceSessionId, {
+                ...current,
+                running: false,
+                dirty: false,
+                lastError: "summarizer 未返回合法 title/summary。",
+            }, "summarizer.result.invalid");
+            return;
+        }
+        const latestSnapshot = await this.repo.readSession(sourceSessionId);
+        const latestContext = this.repo.reduce(latestSnapshot);
+        const current = this.readSummarizerState(latestContext);
+        if (latestSnapshot.leafId !== current.sourceLeafId) {
+            await this.writeSummarizerState(sourceSessionId, {
+                ...current,
+                running: false,
+                dirty: true,
+            }, "summarizer.result.stale");
+            return;
+        }
+        const {
+            runningDialogueContentFingerprint,
+            runningDialogueContentTokens,
+            runningSourcePromptUserTurnCount,
+            lastError: _lastError,
+            ...settled
+        } = current;
+        const updates = {
+            ...(readTitleOwner(latestContext.customState) === "auto" ? {title: this.normalizeSessionTitle(result.title, "summarizer.title")} : {}),
+            summary: result.summary.trim(),
+        };
+        await this.executeWritePlan({
+            target: {sessionId: sourceSessionId},
+            cause: "summarizer.result",
+            ops: [
+                {
+                    kind: "append",
+                    projection: true,
+                    entry: {type: "session_update", updates},
+                },
+                {
+                    kind: "append",
+                    projection: true,
+                    entry: {
+                        type: "custom",
+                        key: SESSION_SUMMARIZER_STATE_KEY,
+                        value: {
+                            ...settled,
+                            running: false,
+                            dirty: false,
+                            ...(runningSourcePromptUserTurnCount !== undefined ? {sourcePromptUserTurnCount: runningSourcePromptUserTurnCount} : {}),
+                            ...(runningDialogueContentTokens !== undefined ? {lastDialogueContentTokens: runningDialogueContentTokens} : {}),
+                            ...(runningDialogueContentFingerprint !== undefined ? {lastDialogueContentFingerprint: runningDialogueContentFingerprint} : {}),
+                            lastRunAt: Date.now(),
+                        },
+                    },
+                },
+            ],
+        });
     }
 
     private async ensureSummarizerSession(input: {
@@ -3235,8 +3317,8 @@ export class NeuroAgentHarness {
         profile: AgentProfile;
         /** 本 run 的 Agent 工作模式（Task 90）。 */
         agentMode: AgentMode;
-        /** 文件变更感知模式（Task 95）；缺省 off（sidecar 等路径不注入提醒）。 */
-        fileChangeAwareness?: FileChangeAwareness;
+        profileTurnContexts?: RunFrame["profileTurnContexts"];
+        pendingProfileTurnContextSettlements?: RunFrame["pendingProfileTurnContextSettlements"];
         thinkingLevel: ThinkingLevel;
         runtimeState: RunRuntimeState;
         reportResultReminderEnabled: boolean;
@@ -3307,6 +3389,9 @@ export class NeuroAgentHarness {
     private async runTurnTransaction(frame: RunFrame): Promise<RunTurnTransactionResult> {
         frame.turnIndex += 1;
         await this.emitRuntimeEvent(frame, {type: "turn_start", turnIndex: frame.turnIndex});
+        if (frame.turnIndex > 1) {
+            await this.appendProfileTurnContexts(frame);
+        }
         const preModelSteers = frame.disableSteer ? [] : await this.drainSteers({
             sessionId: frame.sessionId,
             workspaceKey: frame.workspaceKey,
@@ -3315,10 +3400,6 @@ export class NeuroAgentHarness {
         for (const steeredMessage of preModelSteers) {
             frame.messages.push(steeredMessage);
         }
-        // Task 95：pre-model 注入他人文件变更提醒。一个 turn 只有一次模型请求（N7），
-        // 这个单一挂点同时覆盖 turn 开始与工具批之后的下一轮感知。
-        await this.injectFileChangeNotice(frame);
-
         const turnSnapshot = await withRunKernelPhase("model", () => this.createTurnSnapshot(frame));
         const outcome = await this.executeTurn(frame, turnSnapshot);
         if (outcome.kind === "failed") {
@@ -3346,8 +3427,8 @@ export class NeuroAgentHarness {
         }));
         const transaction = applySuccessfulTurnTransaction(frame, outcome, ingest);
         this.clearPersistedTranscriptReplayAnchor(frame, ingest);
-        // notice 已随本轮 ingest 落盘：推进 unseen 游标（失败轮不会走到这里，N9）。
-        await this.settleFileChangeCursor(frame);
+        await settleProfileTurnContexts(frame.pendingProfileTurnContextSettlements ?? []);
+        frame.pendingProfileTurnContextSettlements = [];
         if (!frame.disableSteer && !turn.waiting) {
             this.steerableSessions.delete(frame.sessionId);
         }
@@ -3387,53 +3468,46 @@ export class NeuroAgentHarness {
     }
 
     /**
-     * pre-model 注入文件变更提醒（Task 95 S6）。
-     * off / 无 projectPath / sidecar 跳过；unseen 查询 fail-open（失败视为无变更，门面内已兜）。
-     * 注入后记 pendingHistoryCursorAdvance，本轮 ingest 成功后由 settleFileChangeCursor 推进（N9）。
+     * 物化并追加 Profile 声明的逐 turn 动态上下文。
+     * 具体查询、正文与结算语义由 profiles/profile-turn-context.ts 持有。
      */
-    private async injectFileChangeNotice(frame: RunFrame): Promise<void> {
-        if (frame.fileChangeAwareness === "off" || !frame.projectPath || frame.activeSidecar) {
+    private async appendProfileTurnContexts(frame: RunFrame): Promise<void> {
+        const materialized = await materializeProfileTurnContexts({
+            plans: frame.profileTurnContexts ?? [],
+            projectPath: frame.projectPath,
+            sessionId: frame.sessionId,
+        });
+        const messages = materialized.insertions
+            .sort((left, right) => left.appendingIndex - right.appendingIndex)
+            .map((insertion) => insertion.message);
+        if (messages.length === 0) {
             return;
         }
-        const groups = await readUnseenForAgent(frame.projectPath, frame.sessionId);
-        if (groups.length === 0) {
-            return;
-        }
-        const reminder = createUserMessage({text: buildFileChangeReminder(groups, frame.fileChangeAwareness)});
-        frame.messages.push(reminder);
-        // 游标语义 = last_seen_entry_id（unseen 为 id > 游标），按模块契约原样传 maxEntryId；
-        // 多传 1 会把回合进行中恰好落在 max+1 的他人写入永久吞出 unseen（验收轮修复的 off-by-one）。
-        frame.pendingHistoryCursorAdvance = Math.max(...groups.map((group) => group.maxEntryId));
+        frame.messages.push(...messages);
+        frame.pendingProfileTurnContextSettlements = [
+            ...frame.pendingProfileTurnContextSettlements ?? [],
+            ...materialized.settlements,
+        ];
         if (frame.forceRuntimeOnlyTranscript || frame.lastTurnIngest?.transcript === "runtime_only") {
             return;
         }
-        // savePoint 持久化 + leaf 回填，照 report_result reminder 先例（prepare-next-turn.ts）。
         const entries = await withRunKernelPhase("ingest", () => this.executeWritePlan({
             target: {sessionId: frame.sessionId},
-            cause: "file-change-notice",
+            cause: "profile.turn-context",
             durability: "savePoint",
             ops: [{
-                kind: "append",
-                entry: {type: "message", message: reminder, origin: "harness"},
+                kind: "appendMany",
+                entries: messages.map((message) => ({
+                    type: "custom_message" as const,
+                    message,
+                    visibleToModel: true,
+                })),
             }],
         }, frame.invocationId));
-        const noticeEntry = entries.findLast((entry) => entry.type === "message");
-        if (noticeEntry) {
-            frame.transcriptParentLeafId = noticeEntry.id;
+        const contextEntry = entries.at(-1);
+        if (contextEntry) {
+            frame.transcriptParentLeafId = contextEntry.id;
         }
-    }
-
-    /**
-     * 本轮 ingest 成功后推进会话 unseen 游标。失败轮保留 pending，下轮 notice 重现
-     * （at-least-once，可能重复一条提醒，接受）。
-     */
-    private async settleFileChangeCursor(frame: RunFrame): Promise<void> {
-        if (frame.pendingHistoryCursorAdvance === undefined || !frame.projectPath) {
-            return;
-        }
-        const target = frame.pendingHistoryCursorAdvance;
-        frame.pendingHistoryCursorAdvance = undefined;
-        await advanceAgentCursor(frame.projectPath, frame.sessionId, target);
     }
 
     /**
@@ -5345,7 +5419,7 @@ export class NeuroAgentHarness {
         context: Pick<NeuroSessionContext, "profileKey" | "workspaceRoot" | "projectPath">,
     ): Promise<Record<string, JsonValue>> {
         const home = await this.ensureProfileHome(profile, context);
-        return resolveRuntimeProfileSettings(
+        const customSettings = await resolveRuntimeProfileSettings(
             profile,
             config.agent.profiles[context.profileKey]?.settings,
             {
@@ -5356,6 +5430,10 @@ export class NeuroAgentHarness {
                 ...(home ? {home, allowGlobalResourceKeys: true} : {}),
             },
         );
+        return {
+            ...customSettings,
+            fileChangeDiffMaxChars: config.agent.profiles[context.profileKey]?.fileChangeNotice.diffMaxChars ?? DEFAULT_AGENT_DIFF_MAX_CHARS,
+        };
     }
 
     private piStreamOptions(requestOptions: Record<string, JsonValue> | undefined): Record<string, unknown> {

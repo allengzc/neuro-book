@@ -646,6 +646,15 @@ defineRouteMeta({
                                                                     }
                                                                 ]
                                                             }
+                                                        },
+                                                        "summarizer": {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "enabled": {
+                                                                    "type": "boolean"
+                                                                }
+                                                            },
+                                                            "additionalProperties": false
                                                         }
                                                     },
                                                     "required": [
@@ -1090,6 +1099,32 @@ defineRouteMeta({
                                             }
                                         },
                                         "additionalProperties": false
+                                    },
+                                    "history": {
+                                        "default": {},
+                                        "type": "object",
+                                        "properties": {
+                                            "enabled": {
+                                                "type": "boolean"
+                                            },
+                                            "retentionFullDays": {
+                                                "type": "integer",
+                                                "minimum": 1,
+                                                "maximum": 9007199254740991
+                                            },
+                                            "keepDailyLastAfterWindow": {
+                                                "type": "boolean"
+                                            },
+                                            "autoAcceptEnabled": {
+                                                "type": "boolean"
+                                            },
+                                            "autoAcceptDays": {
+                                                "type": "integer",
+                                                "minimum": 1,
+                                                "maximum": 9007199254740991
+                                            }
+                                        },
+                                        "additionalProperties": false
                                     }
                                 },
                                 "additionalProperties": {}
@@ -1361,6 +1396,15 @@ defineRouteMeta({
                                                                     }
                                                                 ]
                                                             }
+                                                        },
+                                                        "summarizer": {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "enabled": {
+                                                                    "type": "boolean"
+                                                                }
+                                                            },
+                                                            "additionalProperties": false
                                                         }
                                                     },
                                                     "required": [
@@ -1491,6 +1535,28 @@ defineRouteMeta({
                                                     "renderWhitespace"
                                                 ],
                                                 "additionalProperties": false
+                                            }
+                                        },
+                                        "additionalProperties": false
+                                    },
+                                    "history": {
+                                        "type": "object",
+                                        "properties": {
+                                            "retentionFullDays": {
+                                                "type": "integer",
+                                                "minimum": 1,
+                                                "maximum": 9007199254740991
+                                            },
+                                            "keepDailyLastAfterWindow": {
+                                                "type": "boolean"
+                                            },
+                                            "autoAcceptEnabled": {
+                                                "type": "boolean"
+                                            },
+                                            "autoAcceptDays": {
+                                                "type": "integer",
+                                                "minimum": 1,
+                                                "maximum": 9007199254740991
                                             }
                                         },
                                         "additionalProperties": false
@@ -2200,6 +2266,8 @@ defineRouteMeta({
     }
 } as never,
 });
+
+
 
 /**
  * 重置 Project Workspace 中指定 profile 的 profile home。

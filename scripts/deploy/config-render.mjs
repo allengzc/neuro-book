@@ -26,6 +26,8 @@ export function renderBootConfig(config) {
     return `# neuro-book Boot Config.
 # This file is for startup/deployment settings only.
 # Provider keys, model defaults and Agent profile settings live in ${GLOBAL_CONFIG_FILENAME}.
+auth:
+  enabled: ${config.authEnabled ?? true}
 server:
   host: '0.0.0.0'
   port: ${config.port}
@@ -33,6 +35,56 @@ database:
   kind: \${DATABASE_KIND:-sqlite}
   url: \${DATABASE_URL:-file:./workspace/.nbook/neuro-book.sqlite}
 `;
+}
+
+/** 读取 Boot Config 中显式配置的鉴权开关；未配置返回 null。 */
+export function readBootConfigAuth(text) {
+    const parsed = parseBootConfig(text);
+    return parsed.auth?.enabled ?? null;
+}
+
+/**
+ * 更新 Boot Config 鉴权开关并保留其他字段。值未变化时返回 null，避免无意义重写。
+ */
+export function updateBootConfigAuth(text, enabled) {
+    const parsed = parseBootConfig(text);
+    if ((parsed.auth?.enabled ?? true) === enabled) {
+        return null;
+    }
+    parsed.auth = {...parsed.auth, enabled};
+    return yaml.stringify(parsed, {indent: 2});
+}
+
+/**
+ * 决定部署流程是否需要写 Boot Config。null 表示保留现有文件，不发生写入。
+ */
+export function resolveDeployBootConfig(existingText, config) {
+    if (existingText === null) {
+        return renderBootConfig(config);
+    }
+    if (!config.authExplicit) {
+        return null;
+    }
+    return updateBootConfigAuth(existingText, config.authEnabled);
+}
+
+function parseBootConfig(text) {
+    let parsed;
+    try {
+        parsed = yaml.parse(text);
+    } catch (error) {
+        throw new Error(`无法解析 config.yaml：${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('config.yaml 顶层必须是对象。');
+    }
+    if (parsed.auth !== undefined && (!parsed.auth || typeof parsed.auth !== 'object' || Array.isArray(parsed.auth))) {
+        throw new Error('config.yaml auth 必须是对象。');
+    }
+    if (parsed.auth?.enabled !== undefined && typeof parsed.auth.enabled !== 'boolean') {
+        throw new Error('config.yaml auth.enabled 必须是 boolean。');
+    }
+    return parsed;
 }
 
 /** 生成 Workspace Root \`.nbook/config.json\` 业务配置。 */
@@ -51,10 +103,6 @@ export function renderGlobalConfig(config, legacyText = null) {
         : [];
 
     return `${JSON.stringify({
-        auth: {
-            // 部署交互/--auth 的显式选择优先于旧配置迁移值。
-            enabled: config.authEnabled ?? legacy?.auth?.enabled ?? true,
-        },
         models: {
             default: legacy?.models?.default ?? modelKey,
             providers,
@@ -133,7 +181,6 @@ function parseLegacyGlobalConfig(text) {
         : Array.isArray(parsed.models?.providers) ? parsed.models.providers : [];
 
     return {
-        auth: parsed.auth,
         models: {
             default: parsed.models?.default ?? null,
             providers,

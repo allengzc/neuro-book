@@ -4,6 +4,10 @@ import {compileProfileContext, validateCompactionPlan, validateProfileTurnPlan} 
 import {agentRuntimeBuiltins, defineAgentRuntime} from "nbook/server/agent/profiles/define-agent-runtime";
 import type {ProfileTools} from "nbook/server/agent/profiles/profile-tools";
 import {parseLowCodeFormValue, type LowCodeFormDefinition} from "nbook/server/low-code-form";
+import {DEFAULT_AGENT_DIFF_MAX_CHARS} from "nbook/shared/agent/file-change-policy";
+import type {LowCodeJsonObject} from "nbook/shared/dto/low-code-form.dto";
+
+const PROFILE_COMMON_SETTING_KEYS = ["fileChangeDiffMaxChars"] as const;
 
 /**
  * 定义一个 v3 Agent Profile。用户自定义 profile 必须通过这个函数导出。
@@ -21,6 +25,7 @@ export function defineAgentProfile<
     const rootToolKeys = assertProfileTools(profile.manifest.key, profile.tools);
     assertProfileSummarizer(profile.manifest.key, profile.summarizer);
     assertProfileSkills(profile.manifest.key, profile.skills);
+    assertProfileSettingsForm(profile.manifest.key, profile.settingsForm);
     validateCompactionPlan(profile.manifest.key, profile.compaction);
     assertProfileToolKeys(profile.manifest.key, rootToolKeys, profile.toolKeys);
     assertProfileSidecars(profile.manifest.key, rootToolKeys, profile.sidecars);
@@ -54,19 +59,47 @@ export function defineAgentProfile<
 }
 
 /**
- * 为手工调用 profile.prepare 的旧测试和预览路径补齐默认 settings。
+ * 为直接调用 profile.prepare 的路径补齐 Profile defaults 与通用 settings。
+ * 优先级固定为：Profile defaults < 调用方 settings；通用默认值只补缺失项。
  */
 function withDefaultSettings<TContext extends ProfilePrepareContext>(
     profile: {settingsForm?: LowCodeFormDefinition},
     ctx: TContext,
 ): TContext {
-    if (ctx.settings !== undefined) {
-        return ctx;
-    }
+    const providedSettings = (ctx.settings ?? {}) as LowCodeJsonObject & {fileChangeDiffMaxChars?: number};
+    const profileSettings: LowCodeJsonObject = profile.settingsForm
+        ? parseLowCodeFormValue(profile.settingsForm, providedSettings) as LowCodeJsonObject
+        : providedSettings;
     return {
         ...ctx,
-        settings: profile.settingsForm ? parseLowCodeFormValue(profile.settingsForm, undefined) : {},
+        settings: {
+            ...profileSettings,
+            fileChangeDiffMaxChars: providedSettings.fileChangeDiffMaxChars ?? DEFAULT_AGENT_DIFF_MAX_CHARS,
+        },
     } as TContext;
+}
+
+/**
+ * Profile 通用 settings 由 runtime 统一提供，不能再由 settingsForm 声明同名字段。
+ */
+function assertProfileSettingsForm(profileKey: string, settingsForm: LowCodeFormDefinition | undefined): void {
+    if (!settingsForm) {
+        return;
+    }
+    const schemaProperties = "properties" in settingsForm.schema
+        && settingsForm.schema.properties
+        && typeof settingsForm.schema.properties === "object"
+        && !Array.isArray(settingsForm.schema.properties)
+        ? settingsForm.schema.properties as object
+        : undefined;
+    for (const reservedKey of PROFILE_COMMON_SETTING_KEYS) {
+        const declaresReservedSchema = schemaProperties ? Object.hasOwn(schemaProperties, reservedKey) : false;
+        const declaresReservedDefault = Object.hasOwn(settingsForm.defaults as object, reservedKey);
+        const declaresReservedField = settingsForm.fields.some((field) => field.path === reservedKey);
+        if (declaresReservedSchema || declaresReservedDefault || declaresReservedField) {
+            throw new Error(`profile ${profileKey} settingsForm 不能声明通用设置 ${reservedKey}。`);
+        }
+    }
 }
 
 /**
@@ -108,9 +141,6 @@ export function assertProfileManifest(manifest: AgentProfileManifest): void {
  */
 function assertProfileSummarizer(profileKey: string, summarizer: AgentProfile["summarizer"]): void {
     if (!summarizer) {
-        return;
-    }
-    if (summarizer.enabled === false) {
         return;
     }
     if (!summarizer.profileKey || !summarizer.profileKey.trim()) {

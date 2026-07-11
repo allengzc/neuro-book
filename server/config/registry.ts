@@ -5,8 +5,8 @@ export const CONFIG_VERSION = "config-v1";
 export const CONFIG_REGISTRY: ConfigItemMeta[] = [
     {
         key: "auth.enabled",
-        scope: "global",
-        effect: "hot",
+        scope: "boot",
+        effect: "restart-required",
         merge: "replace",
         secret: false,
         description: "是否启用整站鉴权。关闭时管理员接口也退化为本地无鉴权访问。",

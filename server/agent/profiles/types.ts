@@ -12,6 +12,7 @@ import type {ProfileTools} from "nbook/server/agent/profiles/profile-tools";
 import type {LowCodeFormDefinition} from "nbook/server/low-code-form";
 import type {LowCodeJsonObject} from "nbook/shared/dto/low-code-form.dto";
 import type {ProfileHomeDefinition, ProfileHomeFacade} from "nbook/server/agent/profiles/profile-home";
+import type {ProfileTurnContextPlan} from "nbook/server/agent/profiles/profile-turn-context";
 
 export type AgentProfileManifest<TKey extends string = string> = {
     key: TKey;
@@ -68,7 +69,7 @@ export type AgentCatalogItem = {
     builtin: boolean;
     loadStatus: AgentProfileLoadStatus;
     hasSettingsForm: boolean;
-    /** profile 源码是否声明了后台会话摘要（summarizer），设置面板据此展示摘要开关。 */
+    /** 是否声明专用 summarizer 策略；决定无用户覆盖时的默认开关，不控制设置 UI 可见性。 */
     hasSummarizer: boolean;
     canResetHome: boolean;
     issue?: AgentProfileIssue;
@@ -79,11 +80,16 @@ export type AgentCatalogSnapshot = {
     issues: AgentProfileIssue[];
 };
 
+export type ProfileCommonSettings = {
+    /** Profile 通用文件变更提醒预算；手工构造 prepare context 时可省略并回退 512。 */
+    fileChangeDiffMaxChars?: number;
+};
+
 type ProfileSettingsContext<TSettings> = TSettings extends undefined
-    ? {settings?: LowCodeJsonObject}
+    ? {settings: ProfileCommonSettings & LowCodeJsonObject}
     : unknown extends TSettings
-        ? {settings?: LowCodeJsonObject}
-    : {settings: TSettings};
+        ? {settings: ProfileCommonSettings & LowCodeJsonObject}
+    : {settings: ProfileCommonSettings & TSettings};
 
 type StaticSettings<TSettingsSchema extends TSchema | undefined> = [TSettingsSchema] extends [TSchema]
     ? Static<TSettingsSchema>
@@ -93,14 +99,14 @@ export type ProfilePrepareContext<TInitial = JsonValue, TPayload = unknown, TSet
     session: RuntimeSessionFacade;
     /** 创建 agent session 时传入的稳定初始化参数。 */
     initial: TInitial;
-    /** 本次 invocation 的一次性入参。clientState 会同时归一化进 ctx.vars.client.*。 */
+    /** 本次 invocation 的一次性入参；runtime reminder 可直接读取 clientState。 */
     invocation?: {
         payload?: TPayload;
         message?: string;
         clientState?: ClientStateSnapshot;
         caller: AgentInvokeCaller;
     };
-    /** 统一变量访问器。profile 普通写法优先用 TSX <Variable>/<VariableSchema> helper。 */
+    /** 底层变量访问器；保留给需要显式编程访问的 profile。 */
     vars: ProfileVariableAccessor;
     /** Agent profile catalog snapshot，用于 AgentCatalog 和 create_agent/invoke_agent 提示。 */
     catalog: AgentCatalogSnapshot;
@@ -123,6 +129,8 @@ export type ProfileTurnPlan = {
     /** ModelContext 内需要按 AppendingSet 语义写入 session 的运行时提醒。 */
     modelContextAppendingMessages?: Message[];
     modelContextMessages?: AgentMessage[];
+    /** 每个 provider turn 由 profile 显式声明并动态物化的 AppendingSet 上下文。 */
+    turnContexts?: ProfileTurnContextPlan[];
     stateWrites?: SessionEntryDraft[];
 };
 
@@ -142,8 +150,6 @@ export type KnownAgentProfileInputs = {
 };
 
 export type AgentProfileSummarizerConfig<TKey extends string = string> = {
-    /** false 表示显式关闭当前 profile 的展示标题/摘要维护。 */
-    enabled?: boolean;
     profileKey: TKey;
     input?: TKey extends keyof KnownAgentProfileInputs ? KnownAgentProfileInputs[TKey] : JsonValue;
 };

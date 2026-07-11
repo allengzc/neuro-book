@@ -5,7 +5,7 @@
 [![GitHub Release](https://img.shields.io/github/v/release/notnotype/neuro-book?include_prereleases&label=release)](https://github.com/notnotype/neuro-book/releases)
 [![GHCR App](https://img.shields.io/badge/GHCR-neuro--book-8957e5?logo=github&label=app)](https://github.com/notnotype/neuro-book/pkgs/container/neuro-book)
 [![Bun](https://img.shields.io/badge/runtime%20%2B%20build-Bun-000000?logo=bun)](https://bun.sh/)
-[![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue)](LICENSE)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-join%20community-5865F2?logo=discord&logoColor=white)](https://discord.gg/bSQB7mNpHB)
 ![QQ Group](https://img.shields.io/badge/QQ%20Group-287447372-12B7F5?logo=qq&logoColor=white)
 
@@ -93,7 +93,7 @@ Check manuscripts the way eslint checks code. 340 rules cover filler words, mech
 .\Start Neuro Book.cmd
 ```
 
-The package bundles the Bun runtime, prebuilt artifacts, and a full source snapshot — no dependency install, no build; first start initializes data and works password-free by default. Run `.\Create Admin.cmd` anytime to create an administrator and enable password protection. Upgrade later with `.\Update Neuro Book.cmd`; everything in `data/` is preserved.
+The package bundles the Bun runtime, prebuilt artifacts, and a full source snapshot — no dependency install, no build; first start initializes data and works password-free by default. Run `.\Create Admin.cmd` anytime to create an administrator and enable password protection, then restart NeuroBook. Upgrade later with `.\Update Neuro Book.cmd`; everything in `data/` is preserved.
 
 **Server / Docker:**
 
@@ -162,16 +162,18 @@ Come say hi — feature requests, bug reports, or just tell us about the book yo
 
 ## License
 
-This project is source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE). You may use, study, modify, and share the software for noncommercial purposes.
+NeuroBook is free and open-source software licensed under the [GNU Affero General Public License v3.0 only](LICENSE), identified by the SPDX expression `AGPL-3.0-only`. The license permits use, study, modification, distribution, and commercial use. Modified versions that are distributed or made available to users over a network must provide the corresponding source code under the AGPLv3.
 
-Commercial use requires prior written permission from the copyright holder. Personal authors may use NeuroBook to create, edit, and publish their own original works, including commercially published writing. The commercial restriction applies to commercial use of the software itself, not to the user's original creative output.
+Original works created, edited, or published with NeuroBook do not automatically become subject to the AGPL merely because the software was used. Independently licensed third-party components in this repository remain under their respective licenses. Copyright © 2026 notnotype.
+
+## Star History
 
 ## Star History
 
 <a href="https://www.star-history.com/?repos=notnotype%2Fneuro-book&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=notnotype/neuro-book&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=notnotype/neuro-book&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=notnotype/neuro-book&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=notnotype/neuro-book&type=date&theme=dark&legend=top-left&sealed_token=ago-VvdvFFQoL3gwjchdv-mcsM5c6Jq5jL8IHxVu4HwYL6d45RujQKDxAzgV-pzxLGddtmU92wJo44_ZhFx-zOI0MXUc46jN6Dq27ZwiLyXfoBdUYSJlVQ" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=notnotype/neuro-book&type=date&legend=top-left&sealed_token=ago-VvdvFFQoL3gwjchdv-mcsM5c6Jq5jL8IHxVu4HwYL6d45RujQKDxAzgV-pzxLGddtmU92wJo44_ZhFx-zOI0MXUc46jN6Dq27ZwiLyXfoBdUYSJlVQ" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=notnotype/neuro-book&type=date&legend=top-left&sealed_token=ago-VvdvFFQoL3gwjchdv-mcsM5c6Jq5jL8IHxVu4HwYL6d45RujQKDxAzgV-pzxLGddtmU92wJo44_ZhFx-zOI0MXUc46jN6Dq27ZwiLyXfoBdUYSJlVQ" />
  </picture>
 </a>

@@ -613,9 +613,9 @@ describe("llmlint", () => {
         const loadedRules = await loadRules(emptyConfig([rulesetId]));
         const byId = new Map(loadedRules.rules.map((rule) => [rule.id, rule]));
 
-        expect(byId.get("test.policy.dash")).toMatchObject({review: "human", fixability: "candidate"});
+        expect(byId.get("test.policy.dash")).toMatchObject({review: "human", fixability: "manual"});
         expect(byId.get("test.policy.dedup")).toMatchObject({review: "none", fixability: "auto"});
-        expect(byId.get("test.policy.plain")).toMatchObject({review: "agent", fixability: "candidate"});
+        expect(byId.get("test.policy.plain")).toMatchObject({review: "agent", fixability: "manual"});
         expect(byId.get("test.policy.suggest")).toMatchObject({review: "agent", fixability: "manual"});
     });
 
@@ -689,7 +689,7 @@ describe("llmlint", () => {
         };
         expect(report.filter).toMatchObject({review: "agent", hiddenByReview: 1, minLevel: "low", hiddenByLevel: 0});
         expect(report.issues).toHaveLength(1);
-        expect(report.issues[0]?.rule).toMatchObject({review: "agent", fixability: "candidate"});
+        expect(report.issues[0]?.rule).toMatchObject({review: "agent", fixability: "manual"});
     });
 
     it("config review 非法值返回明确 schema 错误", async () => {

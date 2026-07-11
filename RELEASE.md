@@ -1,5 +1,88 @@
 # Release Notes
 
+## 0.7.2-canary - 2026-07-11
+
+这次 patch 集中收口 Agent Profile 的通用运行设置、自动摘要、Workspace 语义和发布产物一致性，同时修复 Markdown 编辑器的若干边界问题，并降低 llmlint 自动改写风险。
+
+1. 所有 Profile 都能配置自动摘要
+Global / Project 设置现在会为每个 Profile 提供自动摘要开关。声明专用 summarizer 策略的 Profile 默认开启，普通 Profile 默认关闭；用户显式开启普通 Profile 或手动执行 `/summarize` 时，会使用系统默认摘要策略。摘要结果由 Harness 统一写回，继续遵守用户改名后的标题所有权；摘要运行期间 source leaf 变化会标记 dirty 并基于新内容重跑，summarizer 自身不会递归摘要。
+
+2. Profile Workbench 公开表面进一步简化
+`FileChangeNotice` 节点只保留 `mode`，单文件 diff 预算迁移到每个 Profile 的通用 Global / Project 设置。Variable 系统的运行时能力、`ctx.vars`、definition artifact 和全局工具仍然保留，但 `Variable` / `VariableSchema` TSX helper、`builtin.variable` Profile 绑定和 Workbench 变量插入暂时下线，减少 Profile 作者面对的重复入口。
+
+发布前同时修复了 Profile settings fallback 的优先级回归：直接调用 Profile prepare 时，用户设置现在稳定覆盖表单默认值，通用 diff 上限只在缺失时补入默认 512；`leader.assets` 的“最高优先级置顶提示词”不会再被空默认值覆盖。通用设置保留键会从 schema、defaults 和 fields 三个入口统一拦截，避免 Profile 自定义表单再次取得重复所有权。
+
+3. Agent 文件提醒和 Workspace 语义更准确
+文件变更 notice 改为英文 Git 风格状态，能区分 added、modified、deleted、renamed、restored 和 reverted，并继续保留 hunk、diff 统计、安全阻断、预算与 at-least-once 游标语义。敏感路径即使超出前四个 diff detail，也只显示不可点击路径与 file change inbox 指引，不会通过通用 footer 建议 Agent 主动读取。Reminder 状态分离“已观察值”和“实际注入轮次”，空 linked agents 不再产生空提醒，清空后重新关联同一 Agent 仍能再次通知。文档与提示词明确：Current Project Workspace 只是默认焦点，不是访问边界；普通 Agent cwd 始终是 Workspace Root。
+
+4. Markdown 方言和模式切换更稳
+`StructuredTextEditor` 在 rich/source 模式切换前同步结算两个编辑器的防抖输入，修复 300ms 窗口内切换可能丢失末尾输入的问题。Markdown 方言扩展组改为真实编辑器与测试共用的单一来源；HTML fallback 使用真实配对闭合判据，规范化规则与 tokenizer 保持同构；Inline AI 引用高亮的全文文本映射改为每轮只构建一次，避免随引用数量重复扫描全文。
+
+5. Portable Profile artifacts 发布校验加强
+`profile status` 发现 `compile_stale` 时会返回非零退出码。Product staging 会按 manifest 当前引用清理隔离副本中的历史 Profile artifacts，并同时校验 artifact / type artifact 是否存在、是否携带构建机绝对路径；Windows Portable 使用同一套 manifest 归一化规则，兼容数组与按 Profile key 索引的序列化形态。
+
+6. 鉴权配置迁移到 Boot Config
+`auth.enabled` 从可热更新的 Global Config 移到启动期 `config.yaml`。服务器部署默认开启、Windows Portable 默认关闭；创建管理员后会更新 Boot Config，并在重启后生效。管理员 API 统一使用同一守卫，鉴权关闭时本地放行；非法 Boot Config 会明确失败，不再静默伪装成默认值。
+
+7. llmlint 自动修复权限更保守
+默认规则集只保留 3 条无需语境判断的机械规则为 `fixability:auto`，不默认启用 candidate，其余规则均为 manual。规则带有 `action.replace` 只表示存在替换模板，不再隐含允许自动应用；最终是否可自动或候选修复，统一以配置合并后的 `fixability` 为准。
+
+8. Profile 设置合并与旧 artifact 升级修复
+Profile 直接 prepare 的默认设置遵循“表单默认值 < 调用方设置”，通用文件 diff 预算只补缺失项，不再覆盖用户已有设置。Profile 核心 helper 的语义变化会通过 compilerVersion 7 强制旧 bundle 失效重编，避免状态显示 loaded 但实际仍执行旧设置合并逻辑。
+
+本轮发布前执行全仓类型检查，并覆盖 Profile / Harness / Config、Markdown 方言、Portable manifest、llmlint 与相关契约测试。浏览器验收未自动执行，建议重点手动检查普通 Profile 的自动摘要开关、StructuredTextEditor 快速切换模式，以及 Profile Workbench 精简后的编辑流程。
+
+## 0.7.1-canary - 2026-07-10
+
+这次 patch 是 0.7.0 canary 的验收与契约同步版，不新增业务代码，主要补齐 Agent 文件变更收件箱的最终验证结果和公开行为说明。
+
+1. 文件历史操作的并发边界正式确认
+Inbox 与每个变更组都以 revision 作为版本前置条件。读取 diff、接受、回退和接受全部时如果页面持有的是旧版本，服务端统一返回 412 并要求刷新，不会对已经变化的文件版本继续读取或执行操作。
+
+2. 旧请求不会污染新项目或新版本
+Composer 与完整 History Dialog 的 diff 请求按 `projectPath + path + revision + mode` 隔离。切换项目、刷新 Inbox 或卸载组件时会取消旧请求；延迟返回的旧项目、旧 revision 响应不会覆盖当前界面。
+
+3. 敏感文件与 Agent 提示词预算说明补齐
+敏感路径黑名单明确覆盖 `.ssh`、`.aws`、`.azure`、`.kube`、`.docker`、`.gnupg`、所有 `.env` 变体、常见凭据文件及私钥格式，并在读取 snapshot 正文前阻断。Agent 文件变更提醒最多展开 4 个文件详情、逐项列出 50 个文件，inline diff 总额最多 8192 字符，最终 notice 不超过 12,288 字符；Profile 只能收紧单文件预算，不能放宽系统上限。
+
+4. 删除文件与大批量变更行为明确
+已删除文件不会生成指向当前路径的无效链接；小型删除可展示 removed diff，超限时引导用户到文件变更收件箱审查或还原。文件超过逐项上限时会给出准确遗漏数量，并在成功交付后推进全部已见变更的游标，避免大批量改动反复提醒。
+
+5. 浏览器终验完成
+已在真实 Project 中验证收件箱默认收起、展开动画、滚动行为、同名子目录文件打开、Agent 模式自动展开 Studio、小型 diff、`.envrc` 正文阻断、旧响应隔离，以及 accept / revert / accept-all 的 412 刷新行为；验收产生的临时文件已清理并恢复原 Inbox 基线。
+
+本轮发布前重新运行全仓类型检查和完整 Vitest。全套并发运行中，计时敏感的 Profile / Harness / Workspace Files 套件在负载下出现固定超时；所有受影响文件随后串行复跑并全部通过（5 files / 316 tests），未发现稳定业务失败。浏览器验收沿用 Task 102 已完成的真实终验记录，不重复自动启动浏览器。
+
+## 0.7.0-canary - 2026-07-10
+
+这次 minor canary 重点改善长篇写作时的编辑性能、Agent 文件变更审查和 Plot 规划体验，同时完成许可证迁移与一批运行时安全收口。
+
+1. Markdown Studio 长文输入更流畅
+富文本与源码编辑器统一使用防抖更新协议，输入过程中不再每次按键都触发多轮全文序列化、扫描和隐藏编辑器同步。切换文件、保存、磁盘同步和外部工具改写前会先结算待提交输入，并抑制自己保存产生的 watcher 回声，降低长章节卡顿和文本被旧磁盘内容覆盖的风险。
+
+2. Markdown 方言能力扩展
+评论统一为 `<comment>`，同时支持行内评论和跨段落评论块；新增 `<ruby>` 注音、`<bilingual>` 双语对照和显式 `<html>` 交互块。未知 HTML 默认只保留源码，不直接执行；显式 HTML 块需要用户点击后才在 sandbox iframe 中渲染。空文档、残缺标签和混合 Markdown 的 round-trip 也增加了回归保护。
+
+3. Agent 文件变更收件箱
+Agent 输入区上方新增默认收起的文件变更卡片，可查看 Project Workspace 相对路径、小型安全 diff，并执行单文件接受或接受全部；完整 Monaco 审查 Dialog 继续保留。`.env`、凭据、私钥、证书和 `.ssh` 等敏感路径在服务端读取正文前就会被阻断，大型或二进制变更只返回统计与文件引用。
+
+4. Profile 提示词顺序与变更感知收口
+Provider 消息顺序固定为 `History → ModelContext → AppendingSet → CurrentUserInput`，真实用户输入不再被 Writer 或 Inline Editor 重复复制。文件变更提醒改由 Profile DSL 的 `<FileChangeNotice />` 显式声明：Leader 使用完整模式、Writer 使用精简模式、Inline Editor 默认关闭；只有提醒成功进入模型后才推进游标，失败会在后续回合重试。
+
+5. Plot 规划工作台更完整
+剧本工作台收敛为线程规划、承诺账本和决策记录三个真实页面。承诺可查看铺垫/升级/兑现时间线并执行兑现、放弃、重开；决策可记录候选方案、风险、拍板理由和失效原因。Scene / Thread 编辑补齐结果类型、节奏职责与 MICE 类型，引用候选改接 Project Workspace 真实内容节点，相关刷新和错误展示也做了修正。
+
+6. Project 生命周期与操作历史继续硬化
+Project 数据面入口进一步统一要求显式打开项目，RAG、Profile Home、配置和相关 worker 路径补齐生命周期守卫。Workspace History 的安全 diff、收件箱查询、接受/回退和 Agent notice 共用同一套服务端策略，减少不同入口各自解释历史数据造成的偏差。
+
+7. 许可证迁移到 AGPLv3
+NeuroBook 与内置 llmlint snapshot 的许可证统一为 `AGPL-3.0-only`，README、manifest 和官网文案同步更新。第三方写作参考、本地文风素材和旧致谢文件不再进入 Git 或 Product source snapshot；用户用 NeuroBook 创作的独立作品不会仅因使用本软件而自动适用 AGPL。
+
+8. llmlint 与交互细节更新
+内置 llmlint snapshot 同步规则注册和修复能力更新；Profile Template、Plot 编辑器、文件历史、API 错误消息与中英文文案也完成了一轮一致性修整。
+
+本轮自动化验证覆盖 Markdown 方言与空文档回归、Workspace History、Agent tools、Profile DSL / prompt 顺序、Plot 服务和全仓类型检查；各任务记录中的聚焦套件均已通过。浏览器交互未自动执行，发布后建议重点手动验收长章节连续输入、Markdown 新方言、Agent 收件箱小 diff / 敏感文件阻断、Profile 提示词行为，以及 Plot 承诺和决策工作台。
+
 ## 0.5.7-canary - 2026-07-06
 
 这次 canary 主要是写作工作台体验、Plot/Writer 架构、Agent 可观测性和主题系统的一轮大更新。

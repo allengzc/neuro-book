@@ -1,7 +1,7 @@
 import type {H3Event} from "h3";
 import {getRequestProtocol} from "h3";
 import type {Prisma, PrismaClient, User, UserRole} from "nbook/server/generated/prisma/client";
-import {loadGlobalEffectiveConfigSync} from "nbook/server/config/config-service";
+import {loadBootAuthEnabledSync} from "nbook/server/config/boot-config";
 import {lockDatabaseKey} from "nbook/server/database/locks";
 import {prisma} from "nbook/server/utils/prisma";
 import type {AdminUserListItemDto, AuthUserDto} from "nbook/shared/dto/auth.dto";
@@ -24,10 +24,10 @@ function authSessionConfig(event: H3Event) {
 }
 
 /**
- * 判断当前配置是否启用全站鉴权。未配置时默认启用。
+ * 判断 Boot Config 是否启用全站鉴权。未配置时开发环境关闭、其他环境开启。
  */
 export function isAuthEnabled(): boolean {
-    return loadGlobalEffectiveConfigSync().auth.enabled;
+    return loadBootAuthEnabledSync();
 }
 
 /**
@@ -172,6 +172,16 @@ export async function requireAdmin(event: H3Event): Promise<User> {
     }
 
     return user;
+}
+
+/**
+ * 执行管理员 API 的统一访问守卫。鉴权关闭时，管理员接口按本地无鉴权模式放行。
+ */
+export async function requireAdminAccess(event: H3Event): Promise<void> {
+    if (!isAuthEnabled()) {
+        return;
+    }
+    await requireAdmin(event);
 }
 
 /**

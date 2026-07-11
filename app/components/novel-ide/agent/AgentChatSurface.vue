@@ -49,6 +49,7 @@ const props = defineProps<{
     active: boolean;
     layout: "drawer" | "workbench";
     novelId: string;
+    historyInboxRefreshKey?: string | number;
     selectedFilePath?: string;
     /** 打开消息 Markdown 中的 workspace 引用。 */
     openReference?: (target: string) => void;
@@ -58,6 +59,7 @@ const emit = defineEmits<{
     (e: "close"): void;
     (e: "sync-workspace", payload: AgentWorkspaceSyncPayload): void;
     (e: "open-reference", target: string): void;
+    (e: "open-history-inbox"): void;
 }>();
 
 const inputText = ref("");
@@ -2626,6 +2628,9 @@ function isApprovalApproved(answer?: {
                 :connection-needs-action="connectionNeedsAction"
                 :queued-messages="queuedMessages"
                 :menu-refresh-key="agentMenuRefreshKey"
+                :project-path="props.novelId || null"
+                :history-inbox-refresh-key="props.historyInboxRefreshKey ?? 0"
+                :history-inbox-active="props.active"
                 :resolve-menu="resolveInputMenu"
                 :on-skill-trigger-start="refreshSkillCatalog"
                 @submit-user-input="void submitUserInputAnswers($event)"
@@ -2642,6 +2647,8 @@ function isApprovalApproved(answer?: {
                 @reset-session-model-settings="void resetSessionModelSettings()"
                 @reconnect-events="void reconnectActiveSessionEvents()"
                 @refresh-history="void syncActiveSessionSnapshot()"
+                @open-history-inbox="emit('open-history-inbox')"
+                @open-workspace-file="openMessageReference"
             />
 
             <!-- Session 管理弹窗 -->

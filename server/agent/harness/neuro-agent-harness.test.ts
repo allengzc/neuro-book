@@ -6582,7 +6582,7 @@ describe("NeuroAgentHarness", () => {
         expect(context.summary).toBe("Auto summary 3.");
     }, 30_000);
 
-    it("summarize 命令对未声明 summarizer 的 profile 报错且不解锁标题所有权", async () => {
+    it("summarize 命令允许未声明策略的普通 Profile 使用系统默认 summarizer", async () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.summarize-unsupported",
@@ -6600,13 +6600,25 @@ describe("NeuroAgentHarness", () => {
             workspaceRoot: root,
         });
         await harness.runCommand(created.sessionId, {command: "rename", title: "手动标题"});
+        faux.setResponses([fauxAssistantMessage([
+            fauxToolCall("report_result", {
+                result: "summary ok",
+                data: {
+                    title: "默认摘要标题",
+                    summary: "默认摘要内容。",
+                },
+            }, {id: "summarizer-default-report"}),
+        ], {stopReason: "toolUse"})]);
 
-        await expect(harness.runCommand(created.sessionId, {command: "summarize"})).rejects.toThrow("未声明会话摘要功能");
+        const result = await harness.runCommand(created.sessionId, {command: "summarize"});
+        await harness.drainSessionSummarizer(created.sessionId);
 
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
-        expect(context.title).toBe("手动标题");
-        expect(context.customState["session.titleOwner"]).toEqual({owner: "user"});
-    }, 10_000);
+        expect(result.status).toBe("started");
+        expect(context.title).toBe("默认摘要标题");
+        expect(context.summary).toBe("默认摘要内容。");
+        expect(context.customState["session.titleOwner"]).toEqual({owner: "auto"});
+    }, 30_000);
 
     it("自定义 runtime 不组合 reportResult built-in 时不会自动注入 report_result reminder", async () => {
         harness.profiles.register(defineAgentProfile({
@@ -7693,7 +7705,7 @@ describe("NeuroAgentHarness", () => {
         });
         await collect;
 
-        expect(result.finalMessage).toBe("MODEL_REMINDER|PROMPT|MODEL_ONLY");
+        expect(result.finalMessage).toBe("MODEL_ONLY|MODEL_REMINDER|PROMPT");
         expect(entryTexts).toContain("MODEL_REMINDER");
     });
 
@@ -10118,10 +10130,7 @@ describe("NeuroAgentHarness", () => {
 
     it("profile 内 session variable definition 会进入工具 registry", async () => {
         harness.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "test.session-vars",
-                name: "Session Vars",
-            },
+            manifest: {key: "test.session-vars", name: "Session Vars"},
             initialSchema: Type.Object({}),
             allowedToolKeys: ["variable_read", "variable_patch"],
             variableDefinitions: [
@@ -10137,22 +10146,13 @@ describe("NeuroAgentHarness", () => {
         }), false);
         faux.setResponses([
             fauxAssistantMessage([
-                fauxToolCall("variable_read", {
-                    namespace: "session",
-                    path: "affections",
-                }, {id: "vars-read-1"}),
+                fauxToolCall("variable_read", {namespace: "session", path: "affections"}, {id: "vars-read-1"}),
             ], {stopReason: "toolUse"}),
             fauxAssistantMessage([
                 fauxToolCall("variable_patch", {
                     namespace: "session",
                     path: "affections",
-                    patch: [{
-                        op: "replace",
-                        path: "",
-                        value: {
-                            alice: 3,
-                        },
-                    }],
+                    patch: [{op: "replace", path: "", value: {alice: 3}}],
                 }, {id: "vars-1"}),
             ], {stopReason: "toolUse"}),
             fauxAssistantMessage(fauxText("done")),
@@ -10207,6 +10207,7 @@ describe("NeuroAgentHarness", () => {
             path: "affections",
         }));
     });
+
 });
 
 type RelationIdentity = {

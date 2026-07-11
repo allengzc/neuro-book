@@ -4,12 +4,12 @@
 
 这个包已经包含预构建 Product Payload 和内置 Bun runtime。首次启动会初始化 `data/`、迁移 SQLite 数据库；不会 clone 源码、安装依赖或执行 Nuxt build。
 
-密码保护默认关闭，浏览器打开即可使用。如需设置密码，运行 `Create Admin.cmd` 创建管理员账号，创建成功后会自动开启密码保护；之后访问需要登录。
+密码保护默认关闭，浏览器打开即可使用。如需设置密码，运行 `Create Admin.cmd` 创建管理员账号；命令会更新 `data/config.yaml`，重启 NeuroBook 后密码保护生效。
 
 常用入口：
 
 - `Start Neuro Book.cmd` / `Start Neuro Book.ps1`：启动本地服务。
-- `Create Admin.cmd` / `Create Admin.ps1`：创建或重置管理员，并开启密码保护。
+- `Create Admin.cmd` / `Create Admin.ps1`：创建或重置管理员，开启密码保护；完成后需要重启 NeuroBook。
 - `Update Neuro Book.cmd` / `Update Neuro Book.ps1`：列出 GitHub Releases 中带 Windows 包的 stable / canary 等版本，选择目标版本后下载并校验 `neuro-book-windows-x64.zip`，保留 `data/` 后切换新版 `app/`、`launcher/` 和根启动脚本。
 
 目录边界：

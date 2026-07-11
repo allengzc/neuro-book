@@ -5,7 +5,7 @@
 - 统一 NeuroBook 的配置系统。
 - 配置分为 Boot Config、Global Config、Project Config 和 Browser State。
 - 前端每次获取配置都必须是最新的。
-- 有些配置影响整个应用，不能被 Project Config 覆盖，例如 `auth.enabled`。
+- 有些配置影响整个应用且属于启动期安全边界，例如 `auth.enabled`，必须放在 Boot Config。
 - 有些配置修改后需要重启服务，应从可热更新配置中拆开。
 - 有些配置需要像 VSCode 一样允许当前 Project Workspace 覆盖全局默认值。
 - 设置页按照 Global 和当前 Project Workspace 组织，接近配置文件的真实边界。
@@ -41,10 +41,11 @@
 
 - 位置：根目录 `config.yaml`。
 - 作用：启动/部署期配置。
-- 当前示例只保留 `server.host`、`server.port`、`database.url`。
-- 设置页第一版不编辑 Boot Config。
+- 当前示例只保留 `auth.enabled`、`server.host`、`server.port`、`database.kind`、`database.url`。
+- `auth.enabled` 是 Boot Config 字段，修改后需要重启；缺省时开发环境关闭、生产环境开启。
+- 设置页提供只读 Boot Config / 密码保护说明，不通过 API 编辑启动配置。
 - 模型 Provider、API Key、Agent Profile 默认模型、UI/editor 偏好不再写入这里。
-- 旧根 `config.yaml` 可通过 `bun run config:migrate` 收窄为只包含 `server` / `database` 的 Boot Config。
+- 旧根 `config.yaml` 可通过 `bun run config:migrate` 收窄为只包含 `auth` / `server` / `database` 的 Boot Config。
 
 ### Global Config
 
@@ -54,7 +55,6 @@
 - GET snapshot 不自动创建文件；PUT 或部署初始化才创建。
 - `bun run config:migrate` 会创建 `workspace/.nbook/config.json`。
 - 保存内容包括：
-    - `auth.enabled`
     - `models.default`
     - `models.providers`
     - `agent.defaultProfileKey.novel`
@@ -72,7 +72,6 @@
 - user-assets 入口没有独立 Project Config；它直接编辑 Workspace Root `.nbook/config.json`。
 - 只允许覆盖 registry 标记为 `global-workspace` 的字段。
 - Project Config 会拒绝覆盖：
-    - `auth.enabled`
     - `models.providers`
 
 ### Browser State
@@ -97,7 +96,7 @@
 - object 默认 deep-merge。
 - array / primitive 默认 replace。
 - `models.providers` 是 global-only。
-- `auth.enabled` 是 global-only。
+- `auth.enabled` 是 Boot Config、`restart-required`，不会进入 Global/Project Config 写入 API。
 - `models.default`、`agent.defaultProfileKey`、`agent.profileModelDefaults`、`agent.profiles`、`editor.markdown`、`editor.monaco` 可被 Project Config 覆盖。
 - `agent.tools.allow/deny` 已删除，工具权限继续由 profile/tool policy 控制。
 

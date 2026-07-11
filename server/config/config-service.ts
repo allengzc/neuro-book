@@ -69,6 +69,7 @@ import {
     resolveConfiguredModel,
 } from "nbook/server/utils/model-settings";
 import {assertProjectOpen, markProjectActivity} from "nbook/server/workspace-files/project-session";
+import {DEFAULT_AGENT_DIFF_MAX_CHARS} from "nbook/shared/agent/file-change-policy";
 
 const GLOBAL_CONFIG_PATH = path.resolve(process.cwd(), "workspace", ".nbook", "config.json");
 const CONFIG_EDITOR_SNAPSHOT_CACHE_TTL_MS = 2_000;
@@ -254,7 +255,6 @@ export async function saveGlobalConfig(
     const current = await readGlobalConfigFile();
     const next = normalizeGlobalConfig({
         ...current,
-        ...(input.auth !== undefined ? {auth: input.auth} : {}),
         ...(input.agent !== undefined ? {agent: input.agent} : {}),
         ...(input.ui !== undefined ? {ui: input.ui} : {}),
         ...(input.editor !== undefined ? {editor: input.editor} : {}),
@@ -389,7 +389,7 @@ export async function loadEffectiveConfigForAgentRuntime(input: {workspaceRoot?:
 }
 
 /**
- * 同步读取 Global Config。仅用于 auth middleware 和 provider key 这类同步入口。
+ * 同步读取 Global Config。仅用于 provider key 这类同步入口。
  */
 export function loadGlobalEffectiveConfigSync(): EffectiveConfig {
     const global = readJsonFileSync<StoredGlobalConfig>(GLOBAL_CONFIG_PATH);
@@ -524,7 +524,6 @@ async function readProjectConfigFile(configPath: string): Promise<StoredProjectC
 
 function redactGlobalConfig(config: StoredGlobalConfig): GlobalConfigDto {
     return GlobalConfigDtoSchema.parse({
-        auth: config.auth,
         agent: config.agent,
         ui: config.ui,
         editor: config.editor,
@@ -632,6 +631,7 @@ async function buildConfigAgentProfileSettingsDto(input: {
             loadStatus: definition.loadStatus,
             hasSettingsForm: definition.hasSettingsForm,
             hasSummarizer: definition.hasSummarizer,
+            fileChangeDiffMaxChars: input.effective.agent.profiles[definition.key]?.fileChangeNotice.diffMaxChars ?? DEFAULT_AGENT_DIFF_MAX_CHARS,
             issue: toConfigProfileIssue(definition.issue),
             sourcePath: definition.sourcePath ?? null,
             buildState: input.profiles.buildStateFor(definition.key),
@@ -995,6 +995,7 @@ function stripProfileResourceMutations(input: ProjectConfigDto): ProjectConfigDt
                     model: profileConfig.model,
                     ...(profileConfig.settings !== undefined ? {settings: profileConfig.settings} : {}),
                     ...(profileConfig.summarizer !== undefined ? {summarizer: profileConfig.summarizer} : {}),
+                    ...(profileConfig.fileChangeNotice !== undefined ? {fileChangeNotice: profileConfig.fileChangeNotice} : {}),
                 },
             ]))),
         },

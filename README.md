@@ -5,7 +5,7 @@
 [![GitHub Release](https://img.shields.io/github/v/release/notnotype/neuro-book?include_prereleases&label=release)](https://github.com/notnotype/neuro-book/releases)
 [![GHCR App](https://img.shields.io/badge/GHCR-neuro--book-8957e5?logo=github&label=app)](https://github.com/notnotype/neuro-book/pkgs/container/neuro-book)
 [![Bun](https://img.shields.io/badge/runtime%20%2B%20build-Bun-000000?logo=bun)](https://bun.sh/)
-[![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue)](LICENSE)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-%E5%8A%A0%E5%85%A5%E7%A4%BE%E5%8C%BA-5865F2?logo=discord&logoColor=white)](https://discord.gg/bSQB7mNpHB)
 ![QQ Group](https://img.shields.io/badge/QQ%E7%BE%A4-287447372-12B7F5?logo=qq&logoColor=white)
 
@@ -94,7 +94,7 @@ AI 已经是一匹好马，NeuroBook 是那副鞍（NeuroAgentHarness——Harne
 .\Start Neuro Book.cmd
 ```
 
-包内内置 Bun runtime、预构建产物和完整源码快照，不装依赖、不跑构建；首次启动自动初始化数据，默认免密码直接使用，需要时运行 `.\Create Admin.cmd` 创建管理员并开启密码保护。之后用 `.\Update Neuro Book.cmd` 一键升级，`data/` 中的作品和配置全部保留。
+包内内置 Bun runtime、预构建产物和完整源码快照，不装依赖、不跑构建；首次启动自动初始化数据，默认免密码直接使用。需要时运行 `.\Create Admin.cmd` 创建管理员并开启密码保护，然后重启 NeuroBook。之后用 `.\Update Neuro Book.cmd` 一键升级，`data/` 中的作品和配置全部保留。
 
 **服务器 / Docker：**
 
@@ -156,23 +156,26 @@ bun run dev
 
 ## 社区
 
+- LINUX DO：https://linux.do/
 - 💬 Discord：https://discord.gg/bSQB7mNpHB
 - 🐧 QQ 讨论群：287447372
 
 欢迎来聊——功能建议、问题反馈，或者只是聊聊你正在写的书。
 
-## License
+## 许可证
 
-This project is source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE). You may use, study, modify, and share the software for noncommercial purposes.
+NeuroBook 是采用 [GNU Affero General Public License v3.0（仅此版本）](LICENSE) 的自由开源软件，SPDX 标识为 `AGPL-3.0-only`。该许可证允许使用、研究、修改、分发和商业使用；分发修改版或通过网络向用户提供修改版服务时，需要依照 AGPLv3 提供对应源代码。
 
-Commercial use requires prior written permission from the copyright holder. Personal authors may use NeuroBook to create, edit, and publish their own original works, including commercially published writing. The commercial restriction applies to commercial use of the software itself, not to the user's original creative output.
+用户使用 NeuroBook 创作、编辑或发表的原创作品不会仅因使用本软件而自动适用 AGPL。仓库中另有许可证声明的独立第三方组件继续适用各自的许可证。Copyright © 2026 notnotype。
+
+## Star History
 
 ## Star History
 
 <a href="https://www.star-history.com/?repos=notnotype%2Fneuro-book&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=notnotype/neuro-book&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=notnotype/neuro-book&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=notnotype/neuro-book&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=notnotype/neuro-book&type=date&theme=dark&legend=top-left&sealed_token=ago-VvdvFFQoL3gwjchdv-mcsM5c6Jq5jL8IHxVu4HwYL6d45RujQKDxAzgV-pzxLGddtmU92wJo44_ZhFx-zOI0MXUc46jN6Dq27ZwiLyXfoBdUYSJlVQ" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=notnotype/neuro-book&type=date&legend=top-left&sealed_token=ago-VvdvFFQoL3gwjchdv-mcsM5c6Jq5jL8IHxVu4HwYL6d45RujQKDxAzgV-pzxLGddtmU92wJo44_ZhFx-zOI0MXUc46jN6Dq27ZwiLyXfoBdUYSJlVQ" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=notnotype/neuro-book&type=date&legend=top-left&sealed_token=ago-VvdvFFQoL3gwjchdv-mcsM5c6Jq5jL8IHxVu4HwYL6d45RujQKDxAzgV-pzxLGddtmU92wJo44_ZhFx-zOI0MXUc46jN6Dq27ZwiLyXfoBdUYSJlVQ" />
  </picture>
 </a>

@@ -4,7 +4,6 @@ import ProfileTemplateLibraryItem from "nbook/app/components/profile-template-ed
 import type {
     ComponentLibraryGroup,
     ComponentLibraryGroupView,
-    LibraryVariableItem,
 } from "nbook/app/components/profile-template-editor/profile-template-editor-ui";
 import type {ProfileTemplateNodeType} from "nbook/shared/dto/profile-template.dto";
 
@@ -13,7 +12,6 @@ const props = defineProps<{
     activeGroup: ComponentLibraryGroup;
     groupTabs: Array<{value: ComponentLibraryGroup; label: string}>;
     componentGroups: ComponentLibraryGroupView[];
-    variableItems: LibraryVariableItem[];
 }>();
 
 const emit = defineEmits<{
@@ -21,7 +19,6 @@ const emit = defineEmits<{
     (e: "update:activeGroup", value: ComponentLibraryGroup): void;
     (e: "collapse"): void;
     (e: "add-node", type: ProfileTemplateNodeType): void;
-    (e: "insert-variable", value: string): void;
 }>();
 </script>
 
@@ -66,20 +63,6 @@ const emit = defineEmits<{
                         :item-class="`component-${item.group} library-node-${item.type}`"
                         @add="emit('add-node', $event)"
                     />
-                </div>
-            </section>
-            <section v-if="props.activeGroup === 'all' || props.activeGroup === 'variables'">
-                <div class="mb-2 text-[11px] font-semibold text-[var(--text-secondary)]">变量与引用</div>
-                <div class="space-y-2">
-                    <button v-for="item in props.variableItems" :key="item.value" class="component-item variable-library-item" @click="emit('insert-variable', item.value)">
-                        <span class="component-icon">
-                            <span :class="item.iconClass" class="h-3.5 w-3.5"></span>
-                        </span>
-                        <span class="min-w-0">
-                            <span class="block truncate text-xs font-semibold text-[var(--text-main)]">{{ item.label }}</span>
-                            <span class="mt-1 block truncate text-[11px] text-[var(--text-muted)]">{{ item.description }}</span>
-                        </span>
-                    </button>
                 </div>
             </section>
         </div>
@@ -155,12 +138,6 @@ const emit = defineEmits<{
     border-radius: 7px;
     background: color-mix(in srgb, var(--component-bg, var(--bg-input)) 64%, var(--bg-panel));
     color: var(--component-accent, var(--accent-text));
-}
-
-.variable-library-item {
-    --component-bg: color-mix(in srgb, var(--accent-bg) 42%, var(--bg-input));
-    --component-border: color-mix(in srgb, var(--accent-main) 24%, var(--border-color));
-    --component-accent: var(--accent-text);
 }
 
 .library-tab {

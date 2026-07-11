@@ -56,12 +56,10 @@ const emit = defineEmits<{
     (e: "collapse"): void;
     (e: "source-change", value: string): void;
     (e: "source-save-request"): void;
-    (e: "update-active-target", value: "text" | string): void;
     (e: "update-prop", key: string, value: ProfileTemplatePropValue): void;
     (e: "update-expression-prop", key: string, value: string): void;
     (e: "update-text", value: string): void;
     (e: "commit-message-text"): void;
-    (e: "insert-variable", value: string): void;
     (e: "toggle-variable-group", group: string): void;
     (e: "save-schema", payload: {schemaName: ProfileSchemaName; fields: AgentProfileSchemaFieldDto[]}): void;
 }>();
@@ -73,6 +71,11 @@ const schemaTypeOptions = [
     {value: "enum", label: "enum"},
     {value: "array", label: "array"},
     {value: "object", label: "object"},
+];
+const fileChangeNoticeModeOptions = [
+    {value: "off", label: "off"},
+    {value: "minimal", label: "minimal"},
+    {value: "full", label: "full"},
 ];
 type ProfileSchemaName = "InitialSchema" | "PayloadSchema" | "OutputSchema";
 
@@ -289,20 +292,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
                                 <div class="field-label">{{ props.propLabel(key) }}</div>
                                 <span v-if="props.isExpressionValue(value)" class="rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--accent-text)]">表达式</span>
                             </div>
-                            <FormSelect v-if="key === 'role'" :model-value="String(value ?? 'user')" :options="props.roleOptions" @focus="emit('update-active-target', key)" @update:model-value="emit('update-prop', key, $event)" />
-                            <FormSelect v-else-if="key === 'status'" :model-value="String(value ?? 'drafting')" :options="props.toolStatusOptions" @focus="emit('update-active-target', key)" @update:model-value="emit('update-prop', key, $event)" />
-                            <FormSelect v-else-if="key === 'source'" :model-value="String(value ?? 'context')" :options="props.sourceOptions" @focus="emit('update-active-target', key)" @update:model-value="emit('update-prop', key, $event)" />
+                            <FormSelect v-if="key === 'role'" :model-value="String(value ?? 'user')" :options="props.roleOptions" @update:model-value="emit('update-prop', key, $event)" />
+                            <FormSelect v-else-if="key === 'status'" :model-value="String(value ?? 'drafting')" :options="props.toolStatusOptions" @update:model-value="emit('update-prop', key, $event)" />
+                            <FormSelect v-else-if="key === 'source'" :model-value="String(value ?? 'context')" :options="props.sourceOptions" @update:model-value="emit('update-prop', key, $event)" />
+                            <FormSelect v-else-if="props.selectedNode.type === 'FileChangeNotice' && key === 'mode' && !props.isExpressionValue(value)" :model-value="String(value ?? 'minimal')" :options="fileChangeNoticeModeOptions" @update:model-value="emit('update-prop', key, $event)" />
                             <FormTextarea
                                 v-else-if="props.isExpressionValue(value)"
                                 :model-value="props.propInputValue(value)"
                                 :rows="4"
                                 class="textarea font-mono"
-                                @focus="emit('update-active-target', key)"
                                 @update:model-value="emit('update-expression-prop', key, $event)"
                             />
-                            <FormCheckbox v-else-if="typeof value === 'boolean'" :model-value="value" @focus="emit('update-active-target', key)" @update:model-value="emit('update-prop', key, $event)" />
-                            <FormInput v-else-if="typeof value === 'number'" :model-value="String(value)" type="number" @focus="emit('update-active-target', key)" @update:model-value="emit('update-prop', key, Number($event || 0))" />
-                            <FormInput v-else :model-value="props.propInputValue(value)" @focus="emit('update-active-target', key)" @update:model-value="emit('update-prop', key, $event)" />
+                            <FormCheckbox v-else-if="typeof value === 'boolean'" :model-value="value" @update:model-value="emit('update-prop', key, $event)" />
+                            <FormInput v-else-if="typeof value === 'number'" :model-value="String(value)" type="number" @update:model-value="emit('update-prop', key, Number($event || 0))" />
+                            <FormInput v-else :model-value="props.propInputValue(value)" @update:model-value="emit('update-prop', key, $event)" />
                         </div>
                     </div>
                     <div v-else class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/45 px-3 py-2 text-xs text-[var(--text-muted)]">此节点暂无属性。</div>
@@ -318,24 +321,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
                             :show-format-toolbar="props.selectedNode.type !== 'Text' && props.selectedNode.textKind !== 'source' && props.selectedNode.textKind !== 'template'"
                             :theme="props.theme"
                             :placeholder="props.selectedNode.type === 'Text' ? '输入文本片段' : '输入 Message 正文，可使用 Markdown 与变量引用'"
-                            @focus="emit('update-active-target', 'text')"
                             @blur="emit('commit-message-text')"
                             @update:model-value="emit('update-text', $event)"
                         />
                         <div class="text-right text-[11px] text-[var(--text-muted)]">字数：{{ props.selectedTextLength }} / 20000</div>
-                        <div class="space-y-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/45 p-3">
-                            <div class="text-[11px] font-semibold text-[var(--text-secondary)]">变量插入提示</div>
-                            <div class="flex flex-wrap gap-2">
-                                <button
-                                    v-for="item in (props.variableGroups[0]?.items ?? []).slice(0, 3)"
-                                    :key="item.value"
-                                    class="variable-chip"
-                                    @click="emit('insert-variable', item.token)"
-                                >
-                                    {{ item.token }}
-                                </button>
-                            </div>
-                        </div>
                     </template>
                 </div>
                 <div v-else class="empty-state">请选择一个节点。</div>
@@ -351,14 +340,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
             </div>
 
             <div v-else-if="props.activeTab === 'variables'" class="space-y-3">
-                <div class="text-[11px] leading-5 text-[var(--text-muted)]">点击变量会追加到当前聚焦字段；未聚焦时追加到选中节点文本。</div>
+                <div class="text-[11px] leading-5 text-[var(--text-muted)]">变量信息仅用于检查 Profile schema 与运行时上下文，不会生成 TSX helper。</div>
                 <FormInput :model-value="props.variableSearch" placeholder="搜索变量、路径或当前值" @update:model-value="emit('update:variableSearch', $event)" />
                 <ProfileTemplateVariableGroups
                     :groups="props.filteredVariableGroups"
                     :is-collapsed="props.isVariableGroupCollapsed"
                     :format-value="props.formatVariableValue"
                     @toggle-group="emit('toggle-variable-group', $event)"
-                    @insert-variable="emit('insert-variable', $event)"
                 />
             </div>
 
@@ -370,7 +358,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
                     :is-collapsed="props.isVariableGroupCollapsed"
                     :format-value="props.formatVariableValue"
                     @toggle-group="emit('toggle-variable-group', $event)"
-                    @insert-variable="emit('insert-variable', $event)"
                 />
             </div>
 

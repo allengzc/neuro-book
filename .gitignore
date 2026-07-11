@@ -44,6 +44,10 @@ docs/.vitepress/cache
 assets/workspace/.nbook/agent/profiles/.compiled/
 assets/workspace/.nbook/agent/variables/.compiled/
 assets/workspace/.nbook/agent/profiles/.system-profile-metadata.json
+# 本地 Writer 文风、写作参考与旧致谢来源含个人或第三方素材，不进入公开仓库和 Product source snapshot
+/assets/workspace/.nbook/agent/writing-presets/references/
+/assets/workspace/.nbook/agent/writing-presets/styles/
+/ACKNOWLEDGEMENTS.md
 # llmlint 评测 harness（消费侧代码）：本地运行，不进 git
 assets/workspace/.nbook/agent/skills/llmlint/evals/
 # AIGC 检测 reference 语料（104 本版权书，I11 合规边界）：正文绝不入 git；catalog.json 元数据可进

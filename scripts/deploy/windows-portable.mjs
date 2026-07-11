@@ -8,6 +8,7 @@ import {build} from "esbuild";
 import yazl from "yazl";
 
 import {runCapture} from "../utils/process.mjs";
+import {normalizeProfileManifestProfiles} from "./profile-artifact-manifest.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const LAUNCHER_SOURCE = join(REPO_ROOT, "scripts", "deploy", "windows-portable", "launcher");
@@ -67,15 +68,26 @@ async function assertProductProfileArtifactsPortable() {
     if (!existsSync(join(compiledRoot, "manifest.json"))) {
         throw new Error(`Product profile artifact 缺少 manifest：${join(compiledRoot, "manifest.json")}`);
     }
-    const entries = await readdir(compiledRoot, {withFileTypes: true}).catch(() => []);
+    const manifestPath = join(compiledRoot, "manifest.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    const profiles = normalizeProfileManifestProfiles(manifest, manifestPath);
     const offenders = [];
-    for (const entry of entries) {
-        if (!entry.isFile() || !entry.name.endsWith(".mjs")) {
+    for (const profile of profiles) {
+        for (const fileName of [profile.artifactFileName, profile.typeFileName]) {
+            if (typeof fileName === "string" && !existsSync(join(compiledRoot, ...fileName.split("/")))) {
+                throw new Error(`Product profile manifest 引用了缺失 artifact：${fileName}`);
+            }
+        }
+        if (typeof profile.artifactFileName !== "string" || !profile.artifactFileName.endsWith(".mjs")) {
             continue;
         }
-        const head = (await readFile(join(compiledRoot, entry.name), "utf8")).slice(0, 2048).replaceAll("\\", "/");
+        const filePath = join(compiledRoot, ...profile.artifactFileName.split("/"));
+        if (!existsSync(filePath)) {
+            throw new Error(`Product profile manifest 引用了缺失 artifact：${profile.artifactFileName}`);
+        }
+        const head = (await readFile(filePath, "utf8")).slice(0, 2048).replaceAll("\\", "/");
         if (/__nbookCreateRequire\(["']file:\/\/\/[A-Za-z]:/u.test(head) || head.includes("D:/a/neuro-book/")) {
-            offenders.push(entry.name);
+            offenders.push(profile.artifactFileName);
         }
     }
     if (offenders.length > 0) {

@@ -1,5 +1,5 @@
 import {ResetUserPasswordRequestDtoSchema, type AdminUserListItemDto} from "nbook/shared/dto/auth.dto";
-import {assertCanChangeAdminState, isAuthEnabled, lockAdminStateChanges, requireAdmin, requireUserId, toAdminUserListItem} from "nbook/server/utils/auth";
+import {assertCanChangeAdminState, lockAdminStateChanges, requireAdminAccess, requireUserId, toAdminUserListItem} from "nbook/server/utils/auth";
 import {hashUserPassword} from "nbook/server/utils/password";
 import {prisma} from "nbook/server/utils/prisma";
 import {validateBody} from "nbook/server/utils/novel-chapter";
@@ -8,9 +8,7 @@ import {validateBody} from "nbook/server/utils/novel-chapter";
  * 管理员重置用户密码，并让旧 session 失效。
  */
 export default defineEventHandler(async (event): Promise<AdminUserListItemDto> => {
-    if (isAuthEnabled()) {
-        await requireAdmin(event);
-    }
+    await requireAdminAccess(event);
     const userId = requireUserId(event);
     const body = await validateBody(event, ResetUserPasswordRequestDtoSchema);
     const passwordHash = await hashUserPassword(body.password);

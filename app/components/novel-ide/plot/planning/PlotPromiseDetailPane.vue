@@ -36,20 +36,27 @@ const emit = defineEmits<{
 // 章 id → 「序号 标题」显示名。
 const chapterLabelById = computed(() => new Map(props.chapters.map((chapter) => [chapter.id, `${chapter.numberLabel} ${chapter.title}`.trim()])));
 
+// 章 id → 全书章序(chapters prop 的顺序即承载树章序,由宿主按 acts[].chapters + ungroupedChapters 拍平)。
+const chapterIndexById = computed(() => new Map(props.chapters.map((chapter, index) => [chapter.id, index])));
+
 /**
- * 节拍时间线排序:有章序的按 scene.chapterSortOrder 升序;未挂章 / 无章序的垫底,组内按节拍创建时间。
+ * 节拍时间线排序:先按所在章的全书章序,同章内再按 scene.chapterSortOrder(它只是章内序号,跨章不可直接比较);
+ * 未挂章 / 所在章已不在承载树中的垫底,组内按节拍创建时间。
  */
 const sortedBeats = computed(() => {
     return [...(props.detail?.beats ?? [])].sort((left, right) => {
-        const leftOrder = left.scene.chapterSortOrder;
-        const rightOrder = right.scene.chapterSortOrder;
-        if (leftOrder !== null && rightOrder !== null) {
-            return leftOrder - rightOrder;
+        const leftChapter = left.scene.chapter ? chapterIndexById.value.get(left.scene.chapter.id) : undefined;
+        const rightChapter = right.scene.chapter ? chapterIndexById.value.get(right.scene.chapter.id) : undefined;
+        if (leftChapter !== undefined && rightChapter !== undefined) {
+            if (leftChapter !== rightChapter) {
+                return leftChapter - rightChapter;
+            }
+            return (left.scene.chapterSortOrder ?? 0) - (right.scene.chapterSortOrder ?? 0);
         }
-        if (leftOrder !== null) {
+        if (leftChapter !== undefined) {
             return -1;
         }
-        if (rightOrder !== null) {
+        if (rightChapter !== undefined) {
             return 1;
         }
         return left.createdAt.localeCompare(right.createdAt);

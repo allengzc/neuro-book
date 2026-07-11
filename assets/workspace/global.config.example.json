@@ -1,7 +1,4 @@
 {
-    "auth": {
-        "enabled": true
-    },
     "models": {
         "default": "deepseek/deepseek-v4-flash",
         "providers": [

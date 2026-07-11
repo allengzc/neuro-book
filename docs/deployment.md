@@ -71,7 +71,7 @@ Windows Product Portable 是 Windows x64 的 Product Payload + Windows Launcher 
 - 初始化 `data/.env`、`data/config.yaml` 和 `data/workspace/.nbook/config.json`。
 - 将 `app/workspace` 映射到 `data/workspace`，让服务 cwd 保持 Product Root，同时把用户数据留在 `data/`。
 - 执行 SQLite migration。
-- 提示密码保护状态。Windows Portable 默认关闭密码保护，浏览器打开即可使用；运行 `Create Admin.cmd` 创建管理员后会自动开启密码保护。
+- 提示密码保护状态。Windows Portable 默认关闭密码保护，浏览器打开即可使用；运行 `Create Admin.cmd` 创建管理员后会更新 Boot Config，重启 NeuroBook 后密码保护生效。
 - 启动本地网页。
 
 目录边界：
@@ -181,7 +181,8 @@ NeuroBook 的运行状态默认不进 Git。
 
 - `.env`：容器或本机运行环境变量。
 - `config.yaml`：Boot Config，保存启动和部署期配置。
-- `workspace/.nbook/config.json`：Global Config，保存 auth、models、agent、UI/editor 长期偏好。
+- `config.yaml`：Boot Config，保存 server、database 与 `auth.enabled`；修改鉴权后需要重启。
+- `workspace/.nbook/config.json`：Global Config，保存 models、agent、UI/editor 长期偏好。
 - `workspace/{project}/.nbook/config.json`：Project Config，只覆盖当前 Project 允许的配置项。
 - `workspace/.nbook/neuro-book.sqlite`：App SQLite。
 - `workspace/{project}/.nbook/project.sqlite`：Project SQLite。
@@ -190,9 +191,9 @@ NeuroBook 的运行状态默认不进 Git。
 
 ## 管理员与鉴权
 
-服务器部署默认开启全站鉴权；Windows Product Portable 默认关闭，运行 `Create Admin.cmd` 创建管理员后自动开启。
+服务器部署默认开启全站鉴权；Windows Product Portable 默认关闭，运行 `Create Admin.cmd` 创建管理员后更新 `data/config.yaml`，重启后开启。
 
-`neuro-book-deploy` 交互部署会询问是否开启密码保护，也可以用 `--auth enabled` / `--auth disabled` 显式指定（非交互默认开启）。redeploy 时显式选择会更新已有 `workspace/.nbook/config.json` 的 `auth.enabled`，未显式选择则保持原值。
+`neuro-book-deploy` 交互部署会询问是否开启密码保护，也可以用 `--auth enabled` / `--auth disabled` 显式指定（非交互默认开启）。选择结果写入 `config.yaml`；redeploy 时显式选择会更新已有 Boot Config，未显式选择则保持原值。关闭后管理员接口也不再鉴权。
 
 开启鉴权的部署在首次使用前创建管理员。
 

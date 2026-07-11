@@ -5,7 +5,7 @@ import {Type, type Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {builtin, plotReadBindings, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {WriterInitialSchema, WriterOutputSchema, WriterPayloadSchema} from "nbook/server/agent/profiles/builtin-contracts";
-import {AppendingSet, HistorySet, If, Import, Message, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
+import {AppendingSet, FileChangeNotice, HistorySet, If, Import, Message, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 import {DEFAULT_WRITING_REFERENCE_PRESET, buildWritingReference, legacyReferenceKeyToHomeKey, loadWritingReferencePresets, normalizeReferenceHomeKey} from "nbook/server/agent/profiles/writer-writing-reference";
@@ -445,7 +445,10 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                 <Message>{inputContext}</Message>
             </HistorySet>
             <AppendingSet>
-                <Message>{ctx.invocation?.message ?? "本轮没有收到 invoke_agent.message。不要写文件；请通过 report_result.result 要求调用方补充本轮写作任务。"}</Message>
+                <FileChangeNotice mode={ctx.settings.fileChangeAwareness} />
+                <If condition={!ctx.invocation?.message}>
+                    <Message>本轮没有收到 invoke_agent.message。不要写文件；请通过 report_result.result 要求调用方补充本轮写作任务。</Message>
+                </If>
             </AppendingSet>
         </ProfilePrompt>
     );

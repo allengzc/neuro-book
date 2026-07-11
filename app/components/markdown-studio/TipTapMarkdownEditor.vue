@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import {EditorContent, useEditor} from "@tiptap/vue-3";
-import {Extension, getTextBetween, getTextSerializersFromSchema, type Editor, type JSONContent} from "@tiptap/core";
-import {Plugin, PluginKey} from "@tiptap/pm/state";
-import {Decoration, DecorationSet} from "@tiptap/pm/view";
+import {getTextBetween, getTextSerializersFromSchema, type Editor} from "@tiptap/core";
 import {flattenAgentSuggestionItems, type AgentSuggestionMenuState} from "nbook/app/components/novel-ide/agent/tiptap/agent-suggestion";
 import type {AgentTriggerMenuContext, AgentTriggerMenuState} from "nbook/app/components/novel-ide/agent/trigger-menu";
 import ContextMenu, {type ContextMenuItem} from "nbook/app/components/common/ContextMenu.vue";
@@ -11,46 +9,19 @@ import MarkdownSelectionMenu from "nbook/app/components/markdown-studio/Markdown
 import TipTapFrontmatterPanel from "nbook/app/components/markdown-studio/TipTapFrontmatterPanel.vue";
 import type {MarkdownFormatCommand, MarkdownInlineCommentItem, MarkdownStudioEditorHandle, MarkdownStudioScrollPosition} from "nbook/app/composables/useMarkdownStudioController";
 import {createMarkdownEditorExtensions} from "nbook/app/components/markdown-studio/tiptap/markdown-editor-extensions";
-import {collectInlineComments, INLINE_COMMENT_PLUGIN_KEY, type InlineCommentRange} from "nbook/app/components/markdown-studio/tiptap/InlineComment";
+import {COMMENT_PLUGIN_KEY, type CommentItem} from "nbook/app/components/markdown-studio/tiptap/Comment";
 import {useDialog} from "nbook/app/composables/useDialog";
+import {useEditorChangeDebounce} from "nbook/app/composables/useEditorChangeDebounce";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {refreshWorkspaceReferenceNodes, type WorkspaceReferenceResolver} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
+import {applyInlineAiReferenceHighlight, countMarkdownLines, InlineAiReferenceHighlight, locateInlineAiSelectionTextRange, serializeEditorPrefix} from "nbook/app/components/markdown-studio/tiptap/InlineAiReferenceHighlight";
 import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, type FrontmatterProfileKind, type MarkdownEditorPreferences} from "nbook/shared/editor-workbench";
 import {splitMarkdownFrontmatter} from "nbook/shared/editor-workbench";
-import {buildSelectionRefChip, locateSelectionRange, type InlineEditReference, type InlineEditReferenceTextRange, type SelectionRangeLocation} from "nbook/app/utils/inline-editor-selection";
+import {normalizeMarkdownDialectBlocks} from "nbook/shared/markdown-workbench";
+import {buildSelectionRefChip, locateSelectionRange, type InlineEditReference, type SelectionRangeLocation} from "nbook/app/utils/inline-editor-selection";
 import YAML from "yaml";
 
 type PopoverDirection = "auto" | "up" | "down";
-
-const INLINE_AI_REFERENCE_HIGHLIGHT_PLUGIN_KEY = new PluginKey<DecorationSet>("inlineAiReferenceHighlight");
-
-const inlineAiReferenceHighlightExtension = Extension.create({
-    name: "inlineAiReferenceHighlight",
-    addProseMirrorPlugins() {
-        return [
-            new Plugin<DecorationSet>({
-                key: INLINE_AI_REFERENCE_HIGHLIGHT_PLUGIN_KEY,
-                state: {
-                    init: () => DecorationSet.empty,
-                    apply(transaction, decorationSet) {
-                        const nextDecorationSet = transaction.getMeta(INLINE_AI_REFERENCE_HIGHLIGHT_PLUGIN_KEY) as DecorationSet | undefined;
-                        if (nextDecorationSet) {
-                            return nextDecorationSet;
-                        }
-                        return transaction.docChanged
-                            ? decorationSet.map(transaction.mapping, transaction.doc)
-                            : decorationSet;
-                    },
-                },
-                props: {
-                    decorations(state) {
-                        return INLINE_AI_REFERENCE_HIGHLIGHT_PLUGIN_KEY.getState(state) ?? DecorationSet.empty;
-                    },
-                },
-            }),
-        ];
-    },
-});
 
 const props = withDefaults(defineProps<{
     initialValue?: string;
@@ -206,8 +177,45 @@ function frontmatterLineOffset(): number {
     return `---\n${frontmatterText.value.trimEnd()}\n---\n\n`.split("\n").length - 1;
 }
 
+/**
+ * 变更上报防抖：打字期间不做全文 Markdown 序列化（大文档下每键序列化是 CPU 跑满的元凶），
+ * 停顿后才序列化并 emit change；失焦、保存快捷键、store flush 钩子强制结算。
+ * 切换文件等会消费 store 内容的路径由 novel-ide store 的 activeEditorFlush 钩子先行 flush，
+ * 组件卸载时只丢弃 pending（此时 store 活动文件可能已切换，emit 会把内容写进别的文件）。
+ */
+const changeDebounce = useEditorChangeDebounce({
+    readValue: () => {
+        const currentEditor = editor.value;
+        if (!currentEditor) {
+            return null;
+        }
+        return composeMarkdown(currentEditor.getMarkdown());
+    },
+    onEmit: (nextMarkdown) => {
+        editorSnapshot.value = nextMarkdown;
+        if (props.readonly || !props.visible) {
+            return;
+        }
+        emit("change", nextMarkdown);
+    },
+});
+
+/**
+ * 立即序列化当前文档并向外 emit change；评论增删改等低频操作也直接走这里。
+ */
+function emitChangeNow(): void {
+    changeDebounce.emitNow();
+}
+
+/**
+ * 有未结算的输入时立即结算；没有则不动。
+ */
+function flushPendingChange(): void {
+    changeDebounce.flush();
+}
+
 const editor = useEditor({
-    content: splitMarkdownFrontmatter(props.initialValue).body,
+    content: normalizeMarkdownDialectBlocks(splitMarkdownFrontmatter(props.initialValue).body),
     contentType: "markdown",
     extensions: [
         ...createMarkdownEditorExtensions({
@@ -221,11 +229,19 @@ const editor = useEditor({
             },
             openReference: props.openReference,
             onInlineCommentSelect: handleInlineCommentSelect,
+            onCommentsChange: (comments) => {
+                emit("inline-comments-change", comments);
+            },
+            resolveHtmlEmbedLabels: () => ({
+                render: t("markdownStudio.editor.htmlBlockRender"),
+                viewSource: t("markdownStudio.editor.htmlBlockViewSource"),
+                caption: t("markdownStudio.editor.htmlBlockCaption"),
+            }),
             sourcePath: props.activePath,
             resolveReference: props.resolveReference,
             enableQuickTriggers: props.enableQuickTriggers,
         }),
-        inlineAiReferenceHighlightExtension,
+        InlineAiReferenceHighlight,
     ],
     editable: !props.readonly,
     editorProps: {
@@ -241,6 +257,7 @@ const editor = useEditor({
             },
             blur: () => {
                 focused.value = false;
+                flushPendingChange();
                 emit("blur");
                 return false;
             },
@@ -252,6 +269,7 @@ const editor = useEditor({
                 }
                 if (props.submitOnEnter && event.key === "Enter" && !event.shiftKey && !menuVisible.value) {
                     event.preventDefault();
+                    flushPendingChange();
                     emit("submit", {ctrlKey: event.ctrlKey, metaKey: event.metaKey});
                     return true;
                 }
@@ -259,6 +277,7 @@ const editor = useEditor({
                     return false;
                 }
                 event.preventDefault();
+                flushPendingChange();
                 emit("save-request");
                 return true;
             },
@@ -277,23 +296,14 @@ const editor = useEditor({
         },
     },
     onCreate: ({editor: currentEditor}) => {
-        syncInlineComments(currentEditor);
+        emit("inline-comments-change", COMMENT_PLUGIN_KEY.getState(currentEditor.state)?.comments ?? []);
         refreshInlineAiReferenceHighlight(currentEditor);
     },
-    onSelectionUpdate: ({editor: currentEditor}) => {
-        syncInlineComments(currentEditor);
-    },
-    onTransaction: ({editor: currentEditor}) => {
-        syncInlineComments(currentEditor);
-    },
-    onUpdate: ({editor: currentEditor}) => {
-        const nextMarkdown = composeMarkdown(currentEditor.getMarkdown());
-        editorSnapshot.value = nextMarkdown;
-        syncInlineComments(currentEditor);
+    onUpdate: () => {
         if (syncingFromOutside.value || props.readonly || !props.visible || !focused.value) {
             return;
         }
-        emit("change", nextMarkdown);
+        changeDebounce.schedule();
     },
 });
 
@@ -369,17 +379,19 @@ function update(markdown: string): void {
         return;
     }
 
+    // 外部权威内容覆盖本地状态，未结算的防抖输入作废
+    changeDebounce.cancel();
     const split = splitMarkdownFrontmatter(markdown);
     frontmatterText.value = split.frontmatterText;
     hasFrontmatter.value = split.hasFrontmatter;
     editorSnapshot.value = markdown;
     syncingFromOutside.value = true;
-    editor.value?.commands.setContent(split.body, {
+    // 读时规范化宽容形态（快照仍存原始串：改写在用户下次编辑时才随防抖上报实化为 dirty）
+    editor.value?.commands.setContent(normalizeMarkdownDialectBlocks(split.body), {
         contentType: "markdown",
         emitUpdate: false,
     });
     nextTick(() => {
-        syncInlineComments(editor.value);
         refreshInlineAiReferenceHighlight();
     });
     queueMicrotask(() => {
@@ -518,14 +530,31 @@ function selectMenuItem(itemId: string): void {
 }
 
 /**
- * 在当前光标插入 Markdown。
+ * 在当前光标插入 Markdown（粘贴与外部插入共用）。
+ * 纯空白内容不能走 markdown parse（会产生空 doc 导致 insertContent 抛 RangeError），
+ * 退化为原样插入文本。插入前做方言块规范化（判据自带无闭合守卫，句子片段安全）。
  */
 function insertMarkdown(markdown: string): void {
-    editor.value?.chain().focus().insertContent(markdown, {contentType: "markdown"}).run();
+    const currentEditor = editor.value;
+    if (!currentEditor) {
+        return;
+    }
+    if (!markdown.trim()) {
+        if (markdown) {
+            currentEditor.chain().focus().command(({tr}) => {
+                tr.insertText(markdown);
+                return true;
+            }).run();
+        }
+        return;
+    }
+    currentEditor.chain().focus().insertContent(normalizeMarkdownDialectBlocks(markdown), {contentType: "markdown"}).run();
 }
 
 /**
  * 用 Markdown 替换当前选区。
+ * ⚠️ 故意不做方言块规范化：本函数是 AI 流式写入的逐 chunk 路径（openStream），
+ * chunk 边界任意，规范化悬尾标签会抢拆；残片数据安全由行内兜底 chip 保证。
  */
 function replaceSelection(markdown: string): void {
     const currentEditor = editor.value;
@@ -540,6 +569,7 @@ function replaceSelection(markdown: string): void {
 
 /**
  * 将 Markdown 追加到正文末尾。
+ * ⚠️ 故意不做方言块规范化：与 replaceSelection 同为流式 chunk 语义路径。
  */
 function appendMarkdown(markdown: string): void {
     const currentEditor = editor.value;
@@ -550,38 +580,42 @@ function appendMarkdown(markdown: string): void {
 }
 
 /**
- * 给选区插入内联评论。
+ * 给选区添加评论：选区落在单个段落内用行内 comment mark，
+ * 跨多个段落时包成 commentBlock 块级评论（Markdown 里开闭标签独立成行）。
  */
 function addComment(body: string): void {
     const currentEditor = editor.value;
     if (!currentEditor) {
         return;
     }
-    const {state, view} = currentEditor;
-    const {from, to} = state.selection;
+    const {from, to} = currentEditor.state.selection;
     if (from === to) {
         return;
     }
-    const inlineComment = state.schema.marks.inlineComment;
-    if (!inlineComment) {
-        return;
+    if (countSelectionTextblocks(currentEditor.state.doc, from, to) > 1) {
+        currentEditor.chain().focus().setCommentBlock(body).run();
+    } else {
+        currentEditor.chain().focus().setComment(body).run();
     }
-    const id = nextInlineCommentId();
-    const ranges = collectInlineRangesInSelection(state.doc, from, to);
-    if (ranges.length === 0) {
-        return;
-    }
-    const tr = state.tr.removeMark(from, to, inlineComment);
-    ranges.forEach((range, index) => {
-        tr.addMark(range.from, range.to, inlineComment.create({
-            id,
-            body: index === 0 ? body : "",
-        }));
+    emitChangeNow();
+}
+
+/**
+ * 统计选区实际覆盖的文本块数量，用于决定行内/块级评论形态。
+ */
+function countSelectionTextblocks(doc: Editor["state"]["doc"], from: number, to: number): number {
+    let count = 0;
+    doc.nodesBetween(from, to, (node, position) => {
+        if (!node.isTextblock) {
+            return;
+        }
+        const blockFrom = position + 1;
+        const blockTo = position + node.nodeSize - 1;
+        if (Math.max(blockFrom, from) < Math.min(blockTo, to)) {
+            count += 1;
+        }
     });
-    tr.scrollIntoView();
-    view.dispatch(tr);
-    view.focus();
-    emitCurrentMarkdownChange(currentEditor);
+    return count;
 }
 
 /**
@@ -740,29 +774,6 @@ function locateSelectionRangeFromEditor(currentEditor: Editor): SelectionRangeLo
 }
 
 /**
- * 序列化从文档开头到指定 ProseMirror 位置的 Markdown 前缀。
- */
-function serializeEditorPrefix(currentEditor: Editor, position: number): string {
-    const manager = currentEditor.markdown;
-    if (!manager) {
-        return "";
-    }
-    const safePosition = Math.floor(clampNumber(position, 0, currentEditor.state.doc.content.size, 0));
-    const prefixDoc = currentEditor.state.doc.cut(0, safePosition);
-    return manager.serialize(prefixDoc.toJSON() as JSONContent);
-}
-
-/**
- * 统计 Markdown 片段占用的行数；空前缀仍位于第 1 行。
- */
-function countMarkdownLines(markdown: string): number {
-    if (!markdown) {
-        return 1;
-    }
-    return markdown.replace(/\r\n/g, "\n").split("\n").length;
-}
-
-/**
  * 根据 PromptBar 当前 hover 的 Inline AI 引用刷新编辑器里的临时高亮。
  */
 function refreshInlineAiReferenceHighlight(targetEditor?: Editor): void {
@@ -770,286 +781,12 @@ function refreshInlineAiReferenceHighlight(targetEditor?: Editor): void {
     if (!currentEditor) {
         return;
     }
-    const decorations = buildInlineAiReferenceDecorations(
-        currentEditor,
-        props.inlineAiReferences,
-        props.inlineAiHighlightReference,
-    );
-    currentEditor.view.dispatch(currentEditor.state.tr
-        .setMeta(INLINE_AI_REFERENCE_HIGHLIGHT_PLUGIN_KEY, decorations)
-        .setMeta("addToHistory", false));
-}
-
-/**
- * 将所有 PromptBar 引用映射成正文标记；hover 中的引用额外叠加背景高亮。
- */
-function buildInlineAiReferenceDecorations(currentEditor: Editor, references: InlineEditReference[], highlightedReference: InlineEditReference | null | undefined): DecorationSet {
-    const decorations: Decoration[] = [];
-
-    for (const reference of references) {
-        if (!inlineAiReferencePathMatches(reference.path, props.activePath)) {
-            continue;
-        }
-        const highlighted = inlineAiReferenceEquals(reference, highlightedReference);
-        const textRange = locateInlineAiReferenceText(currentEditor, reference);
-        if (textRange) {
-            decorations.push(Decoration.inline(textRange.from, textRange.to, {
-                class: highlighted
-                    ? "nb-inline-ai-reference-mark nb-inline-ai-reference-highlight"
-                    : "nb-inline-ai-reference-mark",
-            }));
-            continue;
-        }
-        decorations.push(...buildInlineAiReferenceLineDecorations(currentEditor, reference, highlighted));
-    }
-
-    return DecorationSet.create(currentEditor.state.doc, decorations);
-}
-
-/**
- * 优先用 reference.text 定位具体字符范围；chip 行号只用于缩小搜索范围。
- */
-function locateInlineAiReferenceText(currentEditor: Editor, reference: InlineEditReference): {from: number; to: number} | null {
-    const needle = normalizeInlineAiReferenceText(reference.text);
-    if (!needle) {
-        return null;
-    }
-
-    const mappedText = buildInlineAiReferenceTextMap(currentEditor);
-    const searchBounds = inlineAiReferenceSearchBounds(mappedText.text, reference);
-    const globalIndex = bestInlineAiReferenceTextIndex(mappedText.text, needle, searchBounds, reference.textRange);
-    if (globalIndex < 0) {
-        return null;
-    }
-
-    const from = firstMappedPosition(mappedText.positions, globalIndex, globalIndex + needle.length);
-    const to = lastMappedPosition(mappedText.positions, globalIndex, globalIndex + needle.length);
-    if (from === null || to === null || from >= to) {
-        return null;
-    }
-    return {from, to};
-}
-
-/**
- * 在重复文本中优先选择离原始选区 offset 最近的候选。
- */
-function bestInlineAiReferenceTextIndex(text: string, needle: string, bounds: {from: number; to: number}, preferredRange?: InlineEditReferenceTextRange): number {
-    const boundedCandidates = collectInlineAiReferenceTextIndexes(text, needle, bounds.from, bounds.to);
-    if (boundedCandidates.length > 0) {
-        return nearestInlineAiReferenceTextIndex(boundedCandidates, preferredRange);
-    }
-    const globalCandidates = collectInlineAiReferenceTextIndexes(text, needle, 0, text.length);
-    if (globalCandidates.length === 0) {
-        return -1;
-    }
-    return nearestInlineAiReferenceTextIndex(globalCandidates, preferredRange);
-}
-
-function collectInlineAiReferenceTextIndexes(text: string, needle: string, from: number, to: number): number[] {
-    const indexes: number[] = [];
-    const safeFrom = Math.max(0, Math.min(from, text.length));
-    const safeTo = Math.max(safeFrom, Math.min(to, text.length));
-    let index = text.indexOf(needle, safeFrom);
-    while (index >= 0 && index + needle.length <= safeTo) {
-        indexes.push(index);
-        index = text.indexOf(needle, index + Math.max(1, needle.length));
-    }
-    return indexes;
-}
-
-function nearestInlineAiReferenceTextIndex(indexes: number[], preferredRange?: InlineEditReferenceTextRange): number {
-    if (!preferredRange) {
-        return indexes[0] ?? -1;
-    }
-    const targetOffset = Math.max(0, Math.floor(preferredRange.startOffset));
-    return indexes.reduce((nearest, candidate) => {
-        return Math.abs(candidate - targetOffset) < Math.abs(nearest - targetOffset)
-            ? candidate
-            : nearest;
-    }, indexes[0] ?? -1);
-}
-
-/**
- * 生成“正文纯文本 offset -> ProseMirror position”的映射，供精确 inline decoration 使用。
- */
-function buildInlineAiReferenceTextMap(currentEditor: Editor): {text: string; positions: Array<number | null>} {
-    const textParts: string[] = [];
-    const positions: Array<number | null> = [];
-    let firstBlock = true;
-
-    currentEditor.state.doc.descendants((node, position) => {
-        if (!node.isTextblock) {
-            return;
-        }
-        if (!firstBlock) {
-            textParts.push("\n");
-            positions.push(null);
-        }
-        firstBlock = false;
-        node.descendants((child, childPosition) => {
-            if (!child.isText) {
-                return;
-            }
-            const text = child.text ?? "";
-            const absoluteStart = position + 1 + childPosition;
-            for (let index = 0; index < text.length; index += 1) {
-                textParts.push(text[index] ?? "");
-                positions.push(absoluteStart + index);
-            }
-        });
+    applyInlineAiReferenceHighlight(currentEditor, {
+        references: props.inlineAiReferences,
+        highlightedReference: props.inlineAiHighlightReference,
+        activePath: props.activePath,
+        frontmatterLineOffset: frontmatterLineOffset(),
     });
-
-    return {text: textParts.join(""), positions};
-}
-
-function inlineAiReferenceSearchBounds(text: string, reference: InlineEditReference): {from: number; to: number} {
-    if (!reference.range) {
-        return {from: 0, to: text.length};
-    }
-    const bodyStartLine = Math.max(1, Math.floor(reference.range.startLine) - frontmatterLineOffset());
-    const bodyEndLine = Math.max(bodyStartLine, Math.floor(reference.range.endLine) - frontmatterLineOffset());
-    return {
-        from: textOffsetAtLine(text, bodyStartLine),
-        to: textOffsetAtLine(text, bodyEndLine + 1),
-    };
-}
-
-function textOffsetAtLine(text: string, line: number): number {
-    if (line <= 1) {
-        return 0;
-    }
-    let currentLine = 1;
-    for (let index = 0; index < text.length; index += 1) {
-        if (text[index] !== "\n") {
-            continue;
-        }
-        currentLine += 1;
-        if (currentLine === line) {
-            return index + 1;
-        }
-    }
-    return text.length;
-}
-
-function firstMappedPosition(positions: Array<number | null>, from: number, to: number): number | null {
-    for (let index = from; index < to; index += 1) {
-        const position = positions[index] ?? null;
-        if (position !== null) {
-            return position;
-        }
-    }
-    return null;
-}
-
-function lastMappedPosition(positions: Array<number | null>, from: number, to: number): number | null {
-    for (let index = to - 1; index >= from; index -= 1) {
-        const position = positions[index] ?? null;
-        if (position !== null) {
-            return position + 1;
-        }
-    }
-    return null;
-}
-
-/**
- * 记录选区在正文纯文本中的 offset，解决同一行重复文本的高亮歧义。
- */
-function locateInlineAiSelectionTextRange(currentEditor: Editor): InlineEditReferenceTextRange | undefined {
-    const {from, to} = currentEditor.state.selection;
-    if (from === to) {
-        return undefined;
-    }
-    const mappedText = buildInlineAiReferenceTextMap(currentEditor);
-    const startOffset = firstTextOffsetAtOrAfter(mappedText.positions, from, to);
-    const endOffset = lastTextOffsetBefore(mappedText.positions, from, to);
-    if (startOffset === null || endOffset === null || startOffset >= endOffset) {
-        return undefined;
-    }
-    return {startOffset, endOffset};
-}
-
-function firstTextOffsetAtOrAfter(positions: Array<number | null>, fromPosition: number, toPosition: number): number | null {
-    for (let index = 0; index < positions.length; index += 1) {
-        const position = positions[index] ?? null;
-        if (position !== null && position >= fromPosition && position < toPosition) {
-            return index;
-        }
-    }
-    return null;
-}
-
-function lastTextOffsetBefore(positions: Array<number | null>, fromPosition: number, toPosition: number): number | null {
-    for (let index = positions.length - 1; index >= 0; index -= 1) {
-        const position = positions[index] ?? null;
-        if (position !== null && position >= fromPosition && position < toPosition) {
-            return index + 1;
-        }
-    }
-    return null;
-}
-
-/**
- * 精确文本无法匹配时，退回到行号文本块标记，避免引用提示完全消失。
- */
-function buildInlineAiReferenceLineDecorations(currentEditor: Editor, reference: InlineEditReference, highlighted: boolean): Decoration[] {
-    if (!reference.range) {
-        return [];
-    }
-    const targetStartLine = Math.max(1, Math.floor(reference.range.startLine));
-    const targetEndLine = Math.max(targetStartLine, Math.floor(reference.range.endLine));
-    const lineOffset = frontmatterLineOffset();
-    const decorations: Decoration[] = [];
-
-    currentEditor.state.doc.descendants((node, position) => {
-        if (!node.isTextblock) {
-            return;
-        }
-        const blockFrom = position + 1;
-        const blockTo = position + node.nodeSize - 1;
-        const blockStartLine = lineOffset + countMarkdownLines(serializeEditorPrefix(currentEditor, blockFrom));
-        const blockEndLine = lineOffset + countMarkdownLines(serializeEditorPrefix(currentEditor, blockTo));
-        if (blockEndLine < targetStartLine || blockStartLine > targetEndLine) {
-            return;
-        }
-        decorations.push(Decoration.node(position, position + node.nodeSize, {
-            class: highlighted
-                ? "nb-inline-ai-reference-mark nb-inline-ai-reference-highlight"
-                : "nb-inline-ai-reference-mark",
-        }));
-    });
-
-    return decorations;
-}
-
-/**
- * 比较 PromptBar 引用路径和当前打开路径，兼容 Project Workspace 前缀差异。
- */
-function inlineAiReferencePathMatches(referencePath: string, currentPath: string): boolean {
-    const normalizedReferencePath = normalizeInlineAiReferencePath(referencePath);
-    const normalizedCurrentPath = normalizeInlineAiReferencePath(currentPath);
-    if (!normalizedReferencePath || !normalizedCurrentPath) {
-        return false;
-    }
-    return normalizedReferencePath === normalizedCurrentPath
-        || normalizedReferencePath.endsWith(`/${normalizedCurrentPath}`)
-        || normalizedCurrentPath.endsWith(`/${normalizedReferencePath}`);
-}
-
-function normalizeInlineAiReferencePath(path: string): string {
-    return path.trim().replace(/\\/g, "/").replace(/^\.\//u, "").replace(/^\/+/u, "");
-}
-
-function normalizeInlineAiReferenceText(text: string): string {
-    return text.replace(/\r\n/g, "\n").trim();
-}
-
-function inlineAiReferenceEquals(reference: InlineEditReference, other: InlineEditReference | null | undefined): boolean {
-    if (!other) {
-        return false;
-    }
-    return reference.ref === other.ref
-        && reference.path === other.path
-        && reference.text === other.text;
 }
 
 /**
@@ -1189,6 +926,55 @@ async function addCommentFromMenu(): Promise<void> {
 }
 
 /**
+ * 给选区添加/编辑注音（ruby）；输入留空则移除注音。
+ */
+async function addRubyFromMenu(): Promise<void> {
+    const currentEditor = editor.value;
+    if (props.readonly || !currentEditor || !hasSelection()) {
+        return;
+    }
+    const previous = String(currentEditor.getAttributes("markdownRuby").text ?? "");
+    const text = await prompt(t("markdownStudio.editor.rubyText"), previous, t("markdownStudio.editor.addRuby"));
+    if (text === null) {
+        return;
+    }
+    const trimmed = text.trim();
+    if (trimmed) {
+        currentEditor.chain().focus().setMarkdownRuby(trimmed).run();
+    } else {
+        currentEditor.chain().focus().unsetMarkdownRuby().run();
+    }
+    emitChangeNow();
+}
+
+/**
+ * 给当前段落添加/编辑双语对照译文；已在对照块内时输入留空则解除对照。
+ */
+async function addBilingualFromMenu(): Promise<void> {
+    const currentEditor = editor.value;
+    if (props.readonly || !currentEditor) {
+        return;
+    }
+    const active = currentEditor.isActive("markdownBilingual");
+    const previous = active ? String(currentEditor.getAttributes("markdownBilingual").text ?? "") : "";
+    const text = await prompt(t("markdownStudio.editor.bilingualText"), previous, t("markdownStudio.editor.addBilingual"));
+    if (text === null) {
+        return;
+    }
+    const trimmed = text.trim();
+    if (active) {
+        if (trimmed) {
+            currentEditor.chain().focus().updateMarkdownBilingual(trimmed).run();
+        } else {
+            currentEditor.chain().focus().unsetMarkdownBilingual().run();
+        }
+    } else if (trimmed) {
+        currentEditor.chain().focus().setMarkdownBilingual(trimmed).run();
+    }
+    emitChangeNow();
+}
+
+/**
  * 插入 @ 触发引用菜单。
  */
 function openReferenceMenuFromContext(): void {
@@ -1219,6 +1005,8 @@ function buildContextMenuItems(): ContextMenuItem[] {
         {label: t("markdownStudio.editor.menuInsertLink"), iconClass: "i-lucide-link", disabled: writeDisabled, action: () => void insertLinkFromMenu()},
         {label: t("markdownStudio.editor.menuInsertImage"), iconClass: "i-lucide-image", disabled: writeDisabled, action: () => void insertImageFromMenu()},
         {label: t("markdownStudio.editor.menuAddComment"), iconClass: "i-lucide-message-square-plus", disabled: writeDisabled || selectionDisabled, action: () => void addCommentFromMenu()},
+        {label: t("markdownStudio.editor.menuAddRuby"), iconClass: "i-lucide-languages", disabled: writeDisabled || selectionDisabled, action: () => void addRubyFromMenu()},
+        {label: t("markdownStudio.editor.menuAddBilingual"), iconClass: "i-lucide-letter-text", disabled: writeDisabled, action: () => void addBilingualFromMenu()},
         ...(activeComment ? [
             {label: t("markdownStudio.editor.menuEditComment"), iconClass: "i-lucide-message-square-text", disabled: writeDisabled, action: () => void editActiveComment()},
             {label: t("markdownStudio.editor.menuDeleteComment"), iconClass: "i-lucide-message-square-x", disabled: writeDisabled, action: deleteActiveComment},
@@ -1260,6 +1048,12 @@ onMounted(() => {
     }
 });
 
+onBeforeUnmount(() => {
+    // 卸载时 store 的活动文件可能已切换，emit change 会把内容写进别的文件（串位）。
+    // 切换文件的入口统一由 store 的 activeEditorFlush 钩子在切换前 flush，这里只丢弃残余。
+    changeDebounce.cancel();
+});
+
 defineExpose<MarkdownStudioEditorHandle>({
     update,
     focus,
@@ -1279,15 +1073,14 @@ defineExpose<MarkdownStudioEditorHandle>({
     deleteInlineComment,
     setAlign,
     applyMarkdownFormat,
+    flushPendingChange,
     getValue: getMarkdown,
 });
 
-function findActiveInlineComment(currentEditor: Editor | null | undefined): {
-    index: number;
-    from: number;
-    to: number;
-    body: string;
-} | null {
+/**
+ * 查找当前激活（选区所在）的评论；行内与块级评论统一返回。
+ */
+function findActiveInlineComment(currentEditor: Editor | null | undefined): CommentItem | null {
     if (!currentEditor) {
         return null;
     }
@@ -1299,26 +1092,29 @@ function findActiveInlineComment(currentEditor: Editor | null | undefined): {
         ?? null;
 }
 
+/**
+ * 读取评论列表；直接消费 Comment 插件的缓存状态，不做全文遍历。
+ */
 function getInlineComments(): MarkdownInlineCommentItem[] {
     const currentEditor = editor.value;
     if (!currentEditor) {
         return [];
     }
-    const {selection} = currentEditor.state;
-    return collectInlineComments(currentEditor.state.doc, selection.from, selection.to);
-}
-
-function syncInlineComments(currentEditor: Editor | null | undefined): void {
-    if (!currentEditor) {
-        emit("inline-comments-change", []);
-        return;
-    }
-    const {selection} = currentEditor.state;
-    emit("inline-comments-change", collectInlineComments(currentEditor.state.doc, selection.from, selection.to));
+    return COMMENT_PLUGIN_KEY.getState(currentEditor.state)?.comments ?? [];
 }
 
 function findInlineCommentByIndex(index: number): MarkdownInlineCommentItem | null {
     return getInlineComments().find((comment) => comment.index === index) ?? null;
+}
+
+/**
+ * 块级评论滚动定位到节点内部第一个子块，行内评论定位到首个 range。
+ */
+function commentScrollPosition(comment: MarkdownInlineCommentItem): number {
+    if (comment.kind === "block") {
+        return comment.from + 1;
+    }
+    return comment.ranges[0]?.from ?? comment.from;
 }
 
 function selectInlineComment(index: number): void {
@@ -1328,13 +1124,12 @@ function selectInlineComment(index: number): void {
         return;
     }
     currentEditor.view.dispatch(currentEditor.state.tr
-        .setMeta(INLINE_COMMENT_PLUGIN_KEY, {activeIndex: index})
+        .setMeta(COMMENT_PLUGIN_KEY, {activeIndex: index})
         .setMeta("addToHistory", false));
     currentEditor.view.focus();
     requestAnimationFrame(() => {
-        scrollInlineCommentIntoView(currentEditor, comment.ranges[0]?.from ?? comment.from);
+        scrollInlineCommentIntoView(currentEditor, commentScrollPosition(comment));
     });
-    syncInlineComments(currentEditor);
 }
 
 function activateInlineComment(index: number): void {
@@ -1344,10 +1139,9 @@ function activateInlineComment(index: number): void {
         return;
     }
     currentEditor.view.dispatch(currentEditor.state.tr
-        .setMeta(INLINE_COMMENT_PLUGIN_KEY, {activeIndex: index})
+        .setMeta(COMMENT_PLUGIN_KEY, {activeIndex: index})
         .setMeta("addToHistory", false));
-    scrollInlineCommentIntoView(currentEditor, comment.ranges[0]?.from ?? comment.from);
-    syncInlineComments(currentEditor);
+    scrollInlineCommentIntoView(currentEditor, commentScrollPosition(comment));
 }
 
 function updateInlineComment(index: number, body: string): void {
@@ -1356,23 +1150,35 @@ function updateInlineComment(index: number, body: string): void {
     if (!currentEditor || !comment || props.readonly) {
         return;
     }
+    if (comment.kind === "block") {
+        currentEditor.chain().focus().command(({state, tr}) => {
+            const node = state.doc.nodeAt(comment.from);
+            if (!node || node.type.name !== "commentBlock") {
+                return false;
+            }
+            tr.setNodeMarkup(comment.from, undefined, {...node.attrs, body});
+            return true;
+        }).run();
+        emitChangeNow();
+        return;
+    }
     currentEditor.chain().focus().command(({state, tr}) => {
-        const inlineComment = state.schema.marks.inlineComment;
-        if (!inlineComment) {
+        const commentMark = state.schema.marks.comment;
+        if (!commentMark) {
             return false;
         }
         for (const range of comment.ranges) {
-            tr.removeMark(range.from, range.to, inlineComment);
+            tr.removeMark(range.from, range.to, commentMark);
         }
         comment.ranges.forEach((range, rangeIndex) => {
-            tr.addMark(range.from, range.to, inlineComment.create({
+            tr.addMark(range.from, range.to, commentMark.create({
                 id: comment.id,
                 body: rangeIndex === 0 ? body : "",
             }));
         });
         return true;
     }).run();
-    emitCurrentMarkdownChange(currentEditor);
+    emitChangeNow();
 }
 
 function deleteInlineComment(index: number): void {
@@ -1381,31 +1187,34 @@ function deleteInlineComment(index: number): void {
     if (!currentEditor || !comment || props.readonly) {
         return;
     }
+    if (comment.kind === "block") {
+        // 删除块级评论标签，内部段落原样保留
+        currentEditor.chain().focus().command(({state, tr}) => {
+            const node = state.doc.nodeAt(comment.from);
+            if (!node || node.type.name !== "commentBlock") {
+                return false;
+            }
+            tr.replaceWith(comment.from, comment.from + node.nodeSize, node.content);
+            return true;
+        }).run();
+        emitChangeNow();
+        return;
+    }
     currentEditor.chain().focus().command(({state, tr}) => {
-        const inlineComment = state.schema.marks.inlineComment;
-        if (!inlineComment) {
+        const commentMark = state.schema.marks.comment;
+        if (!commentMark) {
             return false;
         }
         for (const range of comment.ranges) {
-            tr.removeMark(range.from, range.to, inlineComment);
+            tr.removeMark(range.from, range.to, commentMark);
         }
         return true;
     }).run();
-    emitCurrentMarkdownChange(currentEditor);
+    emitChangeNow();
 }
 
 function handleInlineCommentSelect(index: number): void {
     emit("inline-comment-select", index);
-}
-
-function emitCurrentMarkdownChange(currentEditor: Editor | null | undefined): void {
-    if (!currentEditor || props.readonly || !props.visible) {
-        return;
-    }
-    const nextMarkdown = composeMarkdown(currentEditor.getMarkdown());
-    editorSnapshot.value = nextMarkdown;
-    emit("change", nextMarkdown);
-    syncInlineComments(currentEditor);
 }
 
 function scrollInlineCommentIntoView(currentEditor: Editor, position: number): void {
@@ -1414,38 +1223,6 @@ function scrollInlineCommentIntoView(currentEditor: Editor, position: number): v
         ? domAtPos.node
         : domAtPos.node.parentElement;
     element?.scrollIntoView({block: "center", inline: "nearest", behavior: "smooth"});
-}
-
-function nextInlineCommentId(): string {
-    const comments = getInlineComments();
-    const maxNumericId = comments.reduce((max, comment) => {
-        const id = comment.id ?? "";
-        return /^\d+$/.test(id) ? Math.max(max, Number(id)) : max;
-    }, 0);
-    return String(maxNumericId + 1);
-}
-
-function collectInlineRangesInSelection(doc: Editor["state"]["doc"], from: number, to: number): InlineCommentRange[] {
-    const ranges: InlineCommentRange[] = [];
-    doc.nodesBetween(from, to, (node, position) => {
-        if (!node.isTextblock) {
-            return;
-        }
-        const blockFrom = position + 1;
-        const blockTo = position + node.nodeSize - 1;
-        const rangeFrom = Math.max(blockFrom, from);
-        const rangeTo = Math.min(blockTo, to);
-        if (rangeFrom >= rangeTo) {
-            return;
-        }
-        ranges.push({
-            from: rangeFrom,
-            to: rangeTo,
-            body: "",
-            text: doc.textBetween(rangeFrom, rangeTo, "\n"),
-        });
-    });
-    return ranges;
 }
 
 /**
@@ -1496,6 +1273,8 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
             @insert-reference="openReferenceMenuFromContext"
             @insert-image="void insertImageFromMenu()"
             @add-comment="void addCommentFromMenu()"
+            @add-ruby="void addRubyFromMenu()"
+            @add-bilingual="void addBilingualFromMenu()"
             @add-ai-reference="addAiReferenceFromSelection"
         />
 
@@ -1796,6 +1575,204 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
 :deep(.nb-inline-comment-mark.is-active[data-inline-comment-index])::after {
     background: var(--status-warning);
     color: var(--text-inverse);
+}
+
+/* 跨段落评论块：左侧批注色竖线 + 顶部批注正文行 */
+:deep(.nb-comment-block) {
+    position: relative;
+    margin: 0 0 1rem;
+    border-left: 3px solid var(--status-warning);
+    border-radius: 0 8px 8px 0;
+    background: color-mix(in srgb, var(--status-warning-bg) 46%, transparent);
+    padding: 0.55rem 0.8rem 0.35rem;
+}
+
+:deep(.nb-comment-block)::before {
+    content: attr(data-comment-body);
+    display: block;
+    margin-bottom: 0.4rem;
+    color: var(--status-warning);
+    font-size: 0.78em;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+:deep(.nb-comment-block[data-comment-body=""])::before {
+    display: none;
+}
+
+:deep(.nb-comment-block.is-active) {
+    background: var(--status-warning-bg);
+    box-shadow: inset 0 0 0 1px var(--status-warning-border);
+}
+
+/* 段落级双语对照块：原文上方的弱色对照译文行 */
+:deep(.nb-bilingual-block) {
+    margin: 0 0 1rem;
+    border-left: 2px solid color-mix(in srgb, var(--status-info) 55%, transparent);
+    padding: 0.2rem 0 0.1rem 0.8rem;
+}
+
+:deep(.nb-bilingual-block)::before {
+    content: attr(data-bilingual-text);
+    display: block;
+    margin-bottom: 0.35rem;
+    color: var(--status-info);
+    font-size: 0.82em;
+    line-height: 1.5;
+    opacity: 0.88;
+}
+
+:deep(.nb-bilingual-block[data-bilingual-text=""])::before {
+    display: none;
+}
+
+/* 注音（ruby）：正文上方小字标注 */
+:deep(ruby.nb-ruby) {
+    ruby-position: over;
+    ruby-align: center;
+}
+
+:deep(ruby.nb-ruby rt.nb-ruby-text) {
+    color: var(--text-secondary);
+    font-size: 0.56em;
+    line-height: 1.1;
+    letter-spacing: 0.02em;
+    user-select: none;
+}
+
+/* 显式 <html> 嵌入卡片：默认源码态，点击后 sandbox iframe 渲染 */
+:deep(.nb-html-embed) {
+    margin: 0 0 1rem;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--source-bg);
+}
+
+:deep(.nb-html-embed__header) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+    background: color-mix(in srgb, var(--bg-panel) 60%, transparent);
+    padding: 0.3rem 0.4rem 0.3rem 0.65rem;
+}
+
+:deep(.nb-html-embed__caption) {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--text-muted);
+    font-size: 0.74em;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    user-select: none;
+}
+
+:deep(.nb-html-embed__icon) {
+    width: 0.9em;
+    height: 0.9em;
+}
+
+:deep(.nb-html-embed__toggle) {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-panel);
+    padding: 0.14rem 0.6rem;
+    color: var(--text-secondary);
+    font-size: 0.72em;
+    line-height: 1.4;
+    cursor: pointer;
+    transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+:deep(.nb-html-embed__toggle-icon) {
+    width: 0.95em;
+    height: 0.95em;
+    flex: none;
+}
+
+/* 源码态的「渲染」是主操作，accent 提高可供性 */
+:deep(.nb-html-embed__toggle.is-idle) {
+    border-color: color-mix(in srgb, var(--accent-main) 45%, var(--border-color));
+    color: var(--accent-main);
+}
+
+:deep(.nb-html-embed__toggle.is-idle:hover) {
+    border-color: var(--accent-main);
+    background: var(--accent-bg);
+}
+
+:deep(.nb-html-embed__toggle.is-rendered:hover) {
+    background: var(--bg-hover);
+    color: var(--text-main);
+}
+
+:deep(.nb-html-embed__source) {
+    margin: 0;
+    overflow: auto;
+    /* 超长 HTML 源码限高滚动，避免源码态卡片占满整屏 */
+    max-height: 280px;
+    min-height: 1.6em;
+    padding: 0.6rem 0.75rem;
+    color: var(--source-text);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 0.82em;
+    line-height: 1.5;
+    white-space: pre;
+}
+
+:deep(.nb-html-embed__frame) {
+    display: block;
+    width: 100%;
+    min-height: 40px;
+    border: 0;
+    background: var(--editor-bg);
+    opacity: 0;
+    transition: opacity 0.16s ease;
+}
+
+:deep(.nb-html-embed__frame.is-loaded) {
+    opacity: 1;
+}
+
+:deep(.nb-html-embed.ProseMirror-selectednode) {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-main) 45%, transparent);
+}
+
+/* 块级未知 HTML 兜底：低调源码块，只保数据不渲染 */
+:deep(pre.nb-html-block) {
+    margin: 0 0 1rem;
+    overflow-x: auto;
+    border: 1px dashed color-mix(in srgb, var(--border-color) 85%, transparent);
+    border-radius: 8px;
+    background: var(--source-bg);
+    padding: 0.55rem 0.75rem;
+    color: var(--source-text);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 0.82em;
+    line-height: 1.5;
+    white-space: pre;
+}
+
+:deep(pre.nb-html-block.ProseMirror-selectednode) {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-main) 45%, transparent);
+}
+
+/* 行内未知标签兜底 chip：code 风格原样保留 */
+:deep(.nb-raw-inline-html) {
+    border: 1px dashed color-mix(in srgb, var(--border-color) 85%, transparent);
+    border-radius: 6px;
+    background: var(--source-bg);
+    padding: 0.02rem 0.3rem;
+    color: var(--source-text);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 0.82em;
+    line-height: 1.3;
 }
 
 :deep(.nb-workspace-reference-node) {

@@ -5,7 +5,8 @@ import {globSync} from "tinyglobby";
 import {loadConfig} from "./config";
 import {loadRules} from "./rules";
 import {computeMaskedRanges} from "./markdown-mask";
-import {ensureGlobalFlags, scanText} from "./scanner";
+import {scanText} from "./scanner";
+import {applyAutoFix} from "./fix";
 import {createCheckJsonReport, createFixJsonReport, createLLMRulesJsonReport, createMultiCheckJsonReport, formatCheckAggregate, formatCheckReport, formatFixReport, formatJsonReport, formatLLMRules, hasHighLevelIssue, summarizeIssues} from "./reporter";
 import {LLMLINT_VERSION} from "./version";
 import type {CheckFileEntry, CheckFilterInfo, FixFileResult, Issue, LlmlintOutput, MaskedRange, RegexRuleRecord, Review, RuleLevel} from "./types";
@@ -251,41 +252,6 @@ async function fixFiles(inputs: string[], options: GlobalOptions): Promise<void>
     if (!write && results.some((result) => result.changed)) {
         process.exitCode = 1;
     }
-}
-
-/** 在非遮罩区段内应用 auto 规则替换；遮罩区段（代码块/frontmatter）原样保留。 */
-function applyAutoFix(content: string, autoRules: RegexRuleRecord[], maskedRanges: MaskedRange[]): string {
-    if (maskedRanges.length === 0) {
-        return applyRulesToText(content, autoRules);
-    }
-    let result = "";
-    let cursor = 0;
-    for (const [start, end] of maskedRanges) {
-        if (start > cursor) {
-            result += applyRulesToText(content.slice(cursor, start), autoRules);
-        }
-        result += content.slice(start, end);
-        cursor = end;
-    }
-    if (cursor < content.length) {
-        result += applyRulesToText(content.slice(cursor), autoRules);
-    }
-    return result;
-}
-
-/** 顺序应用各 auto 规则的确定性替换；原生 String.replace 支持 $1 反向引用与 lookbehind。 */
-function applyRulesToText(text: string, rules: RegexRuleRecord[]): string {
-    let result = text;
-    for (const rule of rules) {
-        if (rule.action.type !== "replace") {
-            continue;
-        }
-        const replacement = rule.action.replacements[0] ?? "";
-        for (const target of rule.detector.targets) {
-            result = result.replace(new RegExp(target, ensureGlobalFlags(rule.detector.flags)), replacement);
-        }
-    }
-    return result;
 }
 
 async function showLLMRules(options: GlobalOptions): Promise<void> {

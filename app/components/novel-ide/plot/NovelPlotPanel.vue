@@ -75,6 +75,9 @@ const loadingTree = ref(false);
 const loadingDetail = ref(false);
 const savingQuickScene = ref(false);
 const savingEditor = ref(false);
+// Thread/Scene 编辑器对话框的保存错误(模态内展示);为空表示无待展示错误。
+// 独立于 treeError(面板级)与 detailError(底部详情面板),避免模态打开时错误被遮挡看不见。
+const editorError = ref("");
 const reorderingScenes = ref(false);
 const contextMenuVisible = ref(false);
 const contextMenuX = ref(0);
@@ -369,6 +372,19 @@ function focusPromiseFromScene(promiseId: string): void {
     plotPlanningFocusId.value = promiseId;
     plotWorkbenchTab.value = "promises";
     plotWorkbenchOpen.value = true;
+}
+
+/**
+ * 账本 tab(承诺/决策)UI 写操作成功:刷新剧情树(侧栏计数与账本入口徽标)并强刷受影响 Scene 的详情缓存(promiseBeats 芯片)。
+ */
+async function handlePlanningMutated(payload: {sceneIds?: string[]}): Promise<void> {
+    for (const sceneId of payload.sceneIds ?? []) {
+        void ensureSceneDetail(sceneId, true);
+    }
+    await loadPlotTree({
+        preferredThreadId: selectedThreadId.value,
+        preferredSceneId: selectedSceneId.value,
+    });
 }
 
 /**
@@ -1037,6 +1053,7 @@ function openThreadEditor(mode: "create" | "edit"): void {
     editorTarget.value = "thread";
     editingThreadId.value = mode === "edit" ? selectedThreadId.value : null;
     editingSceneId.value = null;
+    editorError.value = "";
     editorVisible.value = true;
 }
 
@@ -1053,6 +1070,7 @@ async function openSceneEditor(mode: "create" | "edit", sceneId?: string): Promi
     editorTarget.value = "scene";
     editingThreadId.value = selectedThreadId.value;
     editingSceneId.value = mode === "edit" ? (sceneId ?? selectedSceneId.value) : null;
+    editorError.value = "";
 
     if (editingSceneId.value) {
         await ensureSceneDetail(editingSceneId.value);
@@ -1321,7 +1339,7 @@ async function saveThread(payload: PlotThreadEditorSave): Promise<void> {
     }
 
     savingEditor.value = true;
-    treeError.value = "";
+    editorError.value = "";
     detailDiagnostics.value = "";
 
     try {
@@ -1375,7 +1393,7 @@ async function saveThread(payload: PlotThreadEditorSave): Promise<void> {
         });
         await loadPlotWorkbench(true);
     } catch (error) {
-        treeError.value = resolveErrorMessage(error, "保存 Thread 失败");
+        editorError.value = resolveErrorMessage(error, "保存 Thread 失败");
         throw error;
     } finally {
         savingEditor.value = false;
@@ -1391,7 +1409,7 @@ async function saveScene(payload: PlotThreadEditorSave): Promise<void> {
     }
 
     savingEditor.value = true;
-    detailError.value = "";
+    editorError.value = "";
     detailDiagnostics.value = "";
 
     try {
@@ -1449,7 +1467,7 @@ async function saveScene(payload: PlotThreadEditorSave): Promise<void> {
             await ensureSceneDetail(sceneId, true);
         }
     } catch (error) {
-        detailError.value = resolveErrorMessage(error, "保存 Scene 失败");
+        editorError.value = resolveErrorMessage(error, "保存 Scene 失败");
         throw error;
     } finally {
         savingEditor.value = false;
@@ -1839,6 +1857,7 @@ watch(plotRefreshVersion, async (version, previousVersion) => {
             :threads="workbenchThreads"
             :scenes="workbenchScenes"
             :chapters="chapters"
+            :acts="actNodes"
             :selected-thread-id="selectedThreadId"
             :selected-scene-id="selectedSceneId"
             :scene-promise-beats="selectedScenePromiseBeats"
@@ -1847,6 +1866,7 @@ watch(plotRefreshVersion, async (version, previousVersion) => {
             :error="workbenchError"
             @select-thread="selectThread"
             @select-scene="selectScene"
+            @planning-mutated="handlePlanningMutated"
             @create-thread="openThreadEditor('create')"
             @toggle-thread-pin="toggleWorkbenchThreadPin"
             @toggle-thread-main="(threadId) => void updateWorkbenchThread(threadId, {isMainThread: !workbenchThreads.find((thread) => thread.id === threadId)?.isMainThread})"
@@ -1868,7 +1888,7 @@ watch(plotRefreshVersion, async (version, previousVersion) => {
             :chapters="chapters"
             :scene-refs="editingSceneRefs"
             :saving="savingEditor"
-            :error="detailError"
+            :error="editorError"
             @update:visible="editorVisible = $event"
             @save="handleEditorSave"
         />

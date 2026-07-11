@@ -10,14 +10,14 @@ For Plot System, read `reference/plot/system.md` and `reference/plot/agent-spec.
 
 Agent cwd is the Workspace Root, usually `workspace/`. The Workspace Root is a data container, not a single novel.
 
-The Current Project Workspace is usually `workspace/{project}/`. Runtime reminders may show it as `workspace/{project}`. When file tools or bash operate from the Workspace Root, prefer cwd-relative project paths:
+The Project Slug is a single directory name such as `my-novel`. The Project Path used by project-level APIs is `workspace/{project-slug}`. The Current Project Workspace is only the default focus for ambiguous project work, not an access boundary. All managed Project Workspaces remain accessible from the Workspace Root; cross-project work must name the target Project Slug explicitly. When file tools or bash operate from the Workspace Root, prefer cwd-relative project paths:
 
-- Use `{project}/lorebook/...`.
-- Use `{project}/manual/...`.
-- Use `{project}/manuscript/...`.
-- Use `{project}/simulation/...`.
-- Use `{project}/reference/...`.
-- Do not default to `workspace/{project}/...` unless a tool explicitly asks for a Project Workspace path.
+- Use `{project-slug}/lorebook/...`.
+- Use `{project-slug}/manual/...`.
+- Use `{project-slug}/manuscript/...`.
+- Use `{project-slug}/simulation/...`.
+- Use `{project-slug}/reference/...`.
+- Do not default to `workspace/{project-slug}/...` unless a tool explicitly asks for `projectPath`.
 
 Tool inputs and profile initial values often need different path shapes:
 

@@ -39,7 +39,6 @@ function buildGlobalConfig(oldBootText: string | null, existingGlobal: StoredGlo
     const legacy = oldBootText ? parseAppConfigText(oldBootText) : parseAppConfigText("");
     const existing = normalizeGlobalConfig(existingGlobal);
     const fromLegacy = normalizeGlobalConfig({
-        auth: legacy.auth,
         models: {
             default: legacy.models.defaultModelKey,
             providers: Object.entries(legacy.models.providers).map(([providerId, provider]) => ({
@@ -60,7 +59,6 @@ function buildGlobalConfig(oldBootText: string | null, existingGlobal: StoredGlo
     return normalizeGlobalConfig({
         ...fromLegacy,
         ...existingGlobal,
-        auth: existingGlobal?.auth ?? fromLegacy.auth,
         models: {
             default: existingGlobal?.models?.default ?? fromLegacy.models?.default ?? null,
             providers: mergeProviders(fromLegacy.models?.providers ?? [], existing.models?.providers ?? []),
@@ -112,7 +110,11 @@ function mergeProviders(legacyProviders: StoredProviderConfig[], existingProvide
 
 function buildBootConfig(oldBootText: string | null): Record<string, unknown> {
     const oldConfig = oldBootText ? yaml.parse(oldBootText) as Record<string, unknown> : {};
+    const authEnabled = normalizeRecord(oldConfig.auth).enabled;
     return {
+        ...(typeof authEnabled === "boolean" ? {
+            auth: {enabled: authEnabled},
+        } : {}),
         server: normalizeRecord(oldConfig.server),
         database: {
             kind: "${DATABASE_KIND:-sqlite}",

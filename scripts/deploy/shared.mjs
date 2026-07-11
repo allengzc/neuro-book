@@ -24,7 +24,7 @@ import {
 import {run, runCapture, validatePort} from '../utils/process.mjs';
 import {askText, askSelect} from './prompts.mjs';
 import {localGitStartCommand, nativeStartScriptName, nativeAdminScriptName, renderNativeScript, dryRunCommand, nativeStartHelp} from './scripts-gen.mjs';
-import {renderEnv, renderBootConfig, renderGlobalConfig, parseEnv, randomSecret} from './config-render.mjs';
+import {renderEnv, renderGlobalConfig, parseEnv, randomSecret, readBootConfigAuth, resolveDeployBootConfig} from './config-render.mjs';
 import {
     defaultReleaseTag,
     fetchGhcrReleases,
@@ -242,18 +242,13 @@ export async function readConfig(options) {
     };
 }
 
-/** 读取部署目录已有 Global Config 的鉴权开关；无配置或不可解析时返回 null。 */
+/** 读取部署目录已有 Boot Config 鉴权开关；无配置或不可解析时返回 null。 */
 async function readExistingAuthEnabled(deployDir) {
-    const path = resolve(deployDir, GLOBAL_CONFIG_FILENAME);
+    const path = resolve(deployDir, CONFIG_FILENAME);
     if (!existsSync(path)) {
         return null;
     }
-    try {
-        const parsed = JSON.parse(await readFile(path, 'utf-8'));
-        return typeof parsed?.auth?.enabled === 'boolean' ? parsed.auth.enabled : null;
-    } catch {
-        return null;
-    }
+    return readBootConfigAuth(await readFile(path, 'utf-8'));
 }
 
 /** 拉取或更新应用仓库。 */
@@ -480,19 +475,21 @@ export async function writeDeployFiles(config, mode) {
     }
 
     if (existsSync(configPath)) {
-        p.log.info(`Preserved ${configPath}`);
+        const nextBootConfig = resolveDeployBootConfig(await readFile(configPath, 'utf-8'), config);
+        if (nextBootConfig !== null) {
+            await writePrivateFile(configPath, nextBootConfig);
+            p.log.success(`Updated auth.enabled=${config.authEnabled} in ${configPath}`);
+        } else {
+            p.log.info(`Preserved ${configPath}`);
+        }
     } else {
-        await writePrivateFile(configPath, renderBootConfig(config, parseEnv(envText)));
+        await writePrivateFile(configPath, resolveDeployBootConfig(null, config));
         p.log.success(`Wrote ${configPath}`);
     }
 
     const legacyConfigText = existsSync(legacyConfigPath) ? await readFile(legacyConfigPath, 'utf-8') : null;
     if (existsSync(globalConfigPath)) {
-        if (config.authExplicit && await patchGlobalConfigAuth(globalConfigPath, config.authEnabled)) {
-            p.log.success(`Updated auth.enabled=${config.authEnabled} in ${globalConfigPath}`);
-        } else {
-            p.log.info(`Preserved ${globalConfigPath}`);
-        }
+        p.log.info(`Preserved ${globalConfigPath}`);
     } else {
         await mkdir(dirname(globalConfigPath), {recursive: true});
         await writePrivateFile(globalConfigPath, renderGlobalConfig(config, legacyConfigText));
@@ -537,23 +534,6 @@ export async function writeDeployFiles(config, mode) {
     await writeFile(readmePath, renderDeployReadme(config, mode), 'utf-8');
 
     return parseEnv(envText);
-}
-
-/** 按用户显式选择更新已有 Global Config 鉴权开关；其余字段保持不动。返回是否发生了修改。 */
-async function patchGlobalConfigAuth(path, enabled) {
-    let parsed;
-    try {
-        parsed = JSON.parse(await readFile(path, 'utf-8'));
-    } catch {
-        p.log.warn(`无法解析 ${path}，跳过鉴权开关更新。`);
-        return false;
-    }
-    if ((parsed?.auth?.enabled ?? true) === enabled) {
-        return false;
-    }
-    parsed.auth = {...parsed.auth, enabled};
-    await writePrivateFile(path, `${JSON.stringify(parsed, null, 4)}\n`);
-    return true;
 }
 
 /** Docker 模式启动 Compose。 */

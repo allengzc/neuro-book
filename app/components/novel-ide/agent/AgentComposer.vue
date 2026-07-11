@@ -3,6 +3,7 @@ import type {AgentPendingUserInputSession} from "nbook/app/components/novel-ide/
 import AgentComposerInput from "nbook/app/components/novel-ide/agent/AgentComposerInput.vue";
 import AgentSessionModelControls from "nbook/app/components/novel-ide/agent/AgentSessionModelControls.vue";
 import AgentUserInputPrompt from "nbook/app/components/novel-ide/agent/AgentUserInputPrompt.vue";
+import AgentWorkspaceChanges from "nbook/app/components/novel-ide/agent/AgentWorkspaceChanges.vue";
 import type {AgentSessionModelDraft} from "nbook/app/components/novel-ide/agent/agent-session-model-controls";
 import type {
     AgentTriggerMenuContext,
@@ -44,6 +45,9 @@ const props = defineProps<{
     connectionNeedsAction: boolean;
     queuedMessages: AgentQueuedMessageDto[];
     menuRefreshKey: string | number;
+    projectPath: string | null;
+    historyInboxRefreshKey: string | number;
+    historyInboxActive: boolean;
     resolveMenu: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
     onSkillTriggerStart?: () => void;
 }>();
@@ -83,6 +87,8 @@ const emit = defineEmits<{
     (e: "reset-session-model-settings"): void;
     (e: "reconnect-events"): void;
     (e: "refresh-history"): void;
+    (e: "open-history-inbox"): void;
+    (e: "open-workspace-file", path: string): void;
 }>();
 
 const inputRef = ref<InstanceType<typeof AgentComposerInput> | null>(null);
@@ -347,6 +353,8 @@ defineExpose({focus});
                 <span class="max-w-[18rem] truncate text-[var(--text-muted)]">{{ queuedMessageText(item) }}</span>
             </div>
         </div>
+
+        <AgentWorkspaceChanges :project-path="props.projectPath" :refresh-key="props.historyInboxRefreshKey" :active="props.historyInboxActive" @open-full="emit('open-history-inbox')" @open-file="emit('open-workspace-file', $event)" />
 
         <!-- 消息输入栏 -->
         <div class="flex flex-col rounded-xl border border-[var(--border-color)] bg-[var(--bg-input)] shadow-sm transition-all focus-within:border-[var(--accent-main)] focus-within:ring-1 focus-within:ring-[var(--accent-main)]" style="--composer-radius: 0.75rem;">

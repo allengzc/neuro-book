@@ -4,10 +4,6 @@
 
 `leader.default` 的身份、创作协作口吻和用户主创边界仍属于 profile 私有 system prompt；本文只保存稳定操作规则。
 
-## Variables
-
-- 需要读写变量时，先用 `variable_schema` 查询局部 schema，再用 `variable_read` 读取当前值，最后用 `variable_patch` 提交 JSON Patch；重要修改后再次读取验证。
-
 ## Task Management
 
 Task tools are for execution tracking, not for storing novel facts. Stable world facts belong in Lorebook; dynamic world state and timeline belong in World Engine.
@@ -113,7 +109,7 @@ ORDER BY "threadSortOrder";
 
 - Agent 有三种工作模式：`normal`（可读可写，默认）、`discuss`（只读讨论）、`plan`（只读计划）。
 - `switch_mode` 用于发起一次模式切换审批；切换只在用户批准后生效。`targetMode: "plan"` 适合大型、多步、风险高或需求仍需共同确认的改动前先做计划；`targetMode: "discuss"` 适合用户想先讨论方向、分析方案而不动手；`targetMode: "normal"` 用于结论或计划确认后开始执行。
-- discuss / plan 都是只读模式：仍可读文件、搜索、运行只读命令；文件写工具会挂起等待用户审批，bash 只做只读查询。改状态的非文件工具（`execute_sql` 的 INSERT/UPDATE/DELETE、`execute_world` 的切面写入/patch、plot 的 `save_*`、`variable_patch`）也一律保持只读，只做查询（SELECT、world 读取、`get_*`、`variable_read`），需要写入时用 `switch_mode` 切回 normal 再操作。两者的区别是导向：discuss 面向回答与方案对比，plan 面向产出可执行计划。
+- discuss / plan 都是只读模式：仍可读文件、搜索、运行只读命令；文件写工具会挂起等待用户审批，bash 只做只读查询。改状态的非文件工具（`execute_sql` 的 INSERT/UPDATE/DELETE、`execute_world` 的切面写入/patch、plot 的 `save_*`）也一律保持只读，只做查询（SELECT、world 读取、`get_*`），需要写入时用 `switch_mode` 切回 normal 再操作。两者的区别是导向：discuss 面向回答与方案对比，plan 面向产出可执行计划。
 - 计划模式里的计划应足够具体，可直接执行，但不要把当前对话里的临时口癖写进长期提示词。
 - 需要开始实现时，用 `switch_mode`（`targetMode: "normal"`）请求用户批准。不要用普通文本或 `request_user_input` 代替 `switch_mode` 请求计划批准。
 - Plan Mode 工作目录会在 system-reminder 中给出，固定为当前 Project Workspace 的 `.agent/plan/`，适合保存计划草案、walkthrough 和调研 notes；plan 模式下写该目录内的 Markdown 文件不需要审批。

@@ -12,20 +12,20 @@
 ### 1. Windows Portable 密码保护默认关闭
 
 - `scripts/deploy/windows-portable/launcher/launcher.mjs`
-  - `renderGlobalConfig()` 初始 `auth.enabled: false`。
+  - 独立 Boot Config 纯函数模块初始生成 `auth.enabled: false`，并随 Launcher 一起打包。
   - `ensureAdminUser()`：鉴权关闭时不再强制创建管理员，改为提示"运行 Create Admin.cmd 可开启密码保护"；鉴权开启且无用户时仍强制创建（避免锁死）。
   - `createAdmin()`（Create Admin 命令）：创建成功后自动把 `auth.enabled` 翻回 `true`。
-  - 新增 `readAuthEnabled()` / `writeAuthEnabled()`；config 缺失或损坏时按服务端默认 `true` 处理，避免误把已上锁部署当成未开启。
+  - `readAuthEnabled()` / `writeAuthEnabled()` 严格解析 Boot Config；损坏 YAML 或非法字段直接报错，不再伪装成默认开启继续执行。
 - 已有 portable 安装（config 里 `enabled: true`）行为不变。
 
 ### 2. neuro-book-deploy 鉴权引导
 
 - `scripts/deploy/neuro-book-deploy.mjs`：新增 `--auth <enabled|disabled>`（env `NEURO_BOOK_AUTH`）；部署完成后按选择输出"创建管理员命令"或"如何再开启"提示。
 - `scripts/deploy/shared.mjs`：
-  - `readConfig()` 交互询问「密码保护（全站登录）」，initialValue 读取部署目录已有 Global Config；非交互默认开启。
-  - `config.authExplicit`（交互确认或 `--auth` 传参）为真时，redeploy 会用 `patchGlobalConfigAuth()` 更新已有 `workspace/.nbook/config.json` 的 `auth.enabled`，其余字段不动；非显式选择保持原值。
+  - `readConfig()` 交互询问「密码保护（全站登录）」，initialValue 读取部署目录已有 Boot Config；非交互默认开启。
+  - `config.authExplicit`（交互确认或 `--auth` 传参）为真时，redeploy 会更新已有 `config.yaml` 的 `auth.enabled`，其余字段不动；非显式选择保持原值。
   - `adminCommand()` 导出供部署入口复用。
-- `scripts/deploy/config-render.mjs`：`renderGlobalConfig()` 显式选择优先于旧配置迁移值。
+- `scripts/deploy/config-render.mjs`：Boot Config 鉴权读取/更新收敛为纯函数；Global Config 渲染结果不再包含 auth。
 
 ### 3. arch Docker 部署验证
 
@@ -54,8 +54,17 @@
 - `bun run package:windows-portable --skip-git-check` 打包通过，zip 内含 `app/source/`（含 `package.json`、`app/` 前端源码）。
 - arch ghcr 全新部署 + 端口修复实测通过。
 
+### Boot Config 鉴权迁移收口
+
+- 管理员 API 统一调用 `requireAdminAccess()`，避免新路由遗漏“鉴权关闭时本地放行”的契约。
+- 管理员测试改为显式 mock Boot Config，不再依赖开发机 `config.yaml` 或 `NODE_ENV`。
+- 普通部署和 Portable 分别使用所在运行边界内的 Boot Config 纯函数；更新 auth 保留其余字段，值不变时不重写，非法配置明确失败。
+- 配置中心 Boot Config 页面显示当前进程实际鉴权状态，并把 YAML 标成只读示例；仍不提供热更新或写入 API。
+- README、Portable README 和部署文档统一补充“创建管理员后重启生效”。
+- 聚焦验证：管理员守卫、部署/Portable Boot Config、设置 UI 契约等 7 个测试文件 36 个用例通过；`server/config/config-service.test.ts` 隔离运行 39 个用例通过；`bun run typecheck` 与四个部署/Launcher 模块的 Node 语法检查通过。
+- 组合并跑时 `config-service.test.ts` 仍可能触发既有 Windows Project SQLite `SQLITE_BUSY/EBUSY` 文件占用；隔离重跑全绿，未修改业务代码或增加重试掩盖该基线问题。
+
 ## 后续 TODO
 
 - 用 `arch_pass` 可用后同步 arch 旧部署到最新版（`bun run deploy`，需 sudo）。
 - ghcr 容器以 root 运行，会把 root 属主文件写进宿主机 `workspace/`；宿主机普通用户删不掉，可考虑 ghcr compose override 也加 `user: "${HOST_UID}:${HOST_GID}"`。
-- Portable 首启提示目前只在启动终端输出；可考虑在前端设置页加"开启密码保护"入口。

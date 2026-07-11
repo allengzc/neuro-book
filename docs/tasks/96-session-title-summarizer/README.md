@@ -11,7 +11,7 @@
 
 - **解锁语义**：UI 改名和 `/rename` 都锁定标题；专门的 `/summarize` 命令把命名权交还给 AI 并立即重新生成（用户选定的方案）。
 - **空闲触发暂缓**：不做"离开一段时间后台自动 summary"，保留现有 16 轮（sourceInvocation interval）机制；idle 触发记入 PROJECT-STATUS TODO。
-- **配置位置**：`agent.profiles[profileKey].summarizer.enabled`（Global/Project Config），project 覆盖 global；缺省沿用 profile 源码默认（开启）。
+- **配置位置**：`agent.profiles[profileKey].summarizer.enabled`（Global/Project Config），Project 覆盖 Global；当前规则见文末 2026-07-11 收口：声明策略默认开启，未声明策略默认关闭。
 
 ## 实现
 
@@ -58,7 +58,7 @@
 
 high effort code review 确认 10 个问题（9 CONFIRMED + 1 PLAUSIBLE），本轮系统性修复，不打补丁。两个新拍板：
 
-- **D1**：配置禁用某 profile 的自动摘要时，用户手动 `/summarize` **绕过禁用**照常执行（禁用只针对后台自动跑）；只有 profile 源码没声明 `summarizer` 才报错，且报错发生在写任何状态之前——标题所有权不会被误解锁。
+- **D1（已由 2026-07-11 新决策取代）**：配置禁用只约束后台自动摘要；手动 `/summarize` 继续绕过禁用。现在未声明专用策略的普通 Profile 也可手动摘要，并使用系统默认策略。
 - **D2**：`hasExitedPlan` 规格补充——途经 plan 后任何路径回到 normal（含 plan→discuss→normal 间接路径）都算一个计划周期结束，之后再进 plan 走 reentry；plan↔discuss 互切仍不算。已同步 Task 90 README。
 
 ### 修复内容
@@ -91,4 +91,13 @@ high effort code review 确认 10 个问题（9 CONFIRMED + 1 PLAUSIBLE），本
 
 - 空闲一段时间后台自动 summary（idle debounce 触发），替代/补充现有 16 轮间隔机制。
 - 浏览器验收：改名按钮、/rename、/summarize、设置面板开关（可让 agent 进行浏览器验证）。
+
+## 2026-07-11 Profile 通用开关收口
+
+- 所有普通 Profile 都可在 Global/Project 设置中配置 `summarizer.enabled`，设置卡不再由 `hasSummarizer` 控制可见性。
+- `hasSummarizer` 只表示 Profile 是否声明专用执行策略：声明策略且无用户覆盖时默认开启；未声明策略时默认关闭。
+- 用户显式开启未声明策略的 Profile，或手动执行 `/summarize` 时，使用系统默认策略：`summarizer` profile、16 个 source invocation 间隔、80,000 dialogue token 上限。
+- Profile `summarizer` 声明只定义 profileKey、interval 和 token 上限等执行策略，不再包含静态 `enabled` 开关。
+- hidden summarizer 的结果由 Harness 统一写回 source session：标题遵守 `session.titleOwner`，summary 始终更新；source leaf 在运行中变化时只标 dirty 并基于新 leaf 重跑。`systemRole=summarizer` session 不递归调度自身摘要。
+- 验证覆盖默认开关 resolver、普通 Profile 手动 summarize、interval、失败重试、leaf stale 重跑和标题所有权；摘要聚焦 7 tests、相关组合回归 11 files / 167 tests 与全仓 typecheck 通过。
 - 等 Task 94 会话收敛后确认 "Plan Mode exit preview" harness 测试恢复绿。

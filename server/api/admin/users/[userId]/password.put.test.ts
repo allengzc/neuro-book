@@ -14,10 +14,8 @@ vi.mock("nbook/server/utils/prisma", () => ({
     prisma: prismaMock,
 }));
 
-vi.mock("nbook/server/config/config-service", () => ({
-    loadGlobalEffectiveConfigSync: () => ({
-        auth: {enabled: false},
-    }),
+vi.mock("nbook/server/config/boot-config", () => ({
+    loadBootAuthEnabledSync: () => false,
 }));
 
 describe("PUT /api/admin/users/:userId/password", () => {

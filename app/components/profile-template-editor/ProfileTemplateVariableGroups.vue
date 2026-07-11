@@ -10,7 +10,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
     (e: "toggle-group", group: string): void;
-    (e: "insert-variable", value: string): void;
 }>();
 </script>
 
@@ -24,10 +23,10 @@ const emit = defineEmits<{
             <span class="ml-auto text-[10px] text-[var(--text-muted)]">{{ group.items.length }}</span>
         </button>
         <div v-if="!props.isCollapsed(group.group)" class="mt-2 flex flex-wrap gap-2">
-            <button v-for="item in group.items" :key="item.path" class="variable-chip" :title="item.description ?? item.path" @click="emit('insert-variable', item.token)">
-                <span>{{ item.token }}</span>
+            <div v-for="item in group.items" :key="item.path" class="variable-chip" :title="item.description ?? item.path">
+                <span>{{ item.path }}</span>
                 <span v-if="!props.compact" class="variable-chip-value">{{ props.formatValue(item.currentValue) }}</span>
-            </button>
+            </div>
         </div>
     </section>
 </template>
@@ -47,11 +46,6 @@ const emit = defineEmits<{
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 11px;
     line-height: 1.4;
-}
-
-.variable-chip:hover {
-    border-color: var(--accent-main);
-    background: color-mix(in srgb, var(--accent-bg) 65%, var(--bg-hover));
 }
 
 .variable-chip-value {

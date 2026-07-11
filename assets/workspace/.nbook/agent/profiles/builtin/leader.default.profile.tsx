@@ -7,6 +7,7 @@ import {LeaderDefaultInitialSchema, LeaderDefaultOutputSchema} from "nbook/serve
 import {
     AgentCatalog,
     AppendingSet,
+    FileChangeNotice,
     HistorySet,
     Import,
     LinkedAgentsReminder,
@@ -21,7 +22,6 @@ import {
     SqlSchemaSummary,
     System,
     TaskReminder,
-    VariableSchema,
     WorkspaceFocusReminder,
 } from "nbook/server/agent/profiles/profile-dsl";
 import {defineProfileHome, type ProfileHomeFacade} from "nbook/server/agent/profiles/profile-home";
@@ -194,9 +194,6 @@ export default defineAgentProfile({
         ...plotReadBindings,
         ...plotWriteBindings,
         builtin.sql.execute,
-        builtin.variable.schema,
-        builtin.variable.read,
-        builtin.variable.patch,
     ),
     summarizer: {
         profileKey: "summarizer",
@@ -309,11 +306,11 @@ export default defineAgentProfile({
                     <Message>
                         <SqlSchemaSummary />
                     </Message>
-                    <VariableSchema paths={["client.currentProjectWorkspace", "client.studio.selectedFilePath"]} includeToolGuide />
                 </ModelContext>
                 <AppendingSet>
                     <RuntimeLocationReminder />
                     <WorkspaceFocusReminder />
+                    <FileChangeNotice mode={ctx.settings.fileChangeAwareness} />
                     <ModeAvailabilityReminder />
                     <LinkedAgentsReminder />
                     <TaskReminder stateKey="agent.tasks" repeatEveryTurns={8} />

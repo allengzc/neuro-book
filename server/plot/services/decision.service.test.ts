@@ -198,6 +198,15 @@ describe("DecisionService", () => {
         expect(repository.updateDecision).not.toHaveBeenCalled();
     });
 
+    it("options 候选文本重复(trim 后同名)被拒绝:拍板按候选文本识别被选项,重复会让否决骨架错乱", async () => {
+        const {service, repository} = createService({decision: decisionEntity()});
+
+        await expect(service.updateStoryDecision("workspace/novel-1", 8, {
+            options: [{option: "第15章揭示", note: null}, {option: " 第15章揭示 ", note: "trim 后同名"}],
+        })).rejects.toThrow("候选文本重复");
+        expect(repository.updateDecision).not.toHaveBeenCalled();
+    });
+
     it("anchor.kind=content 的 path 复用引用卫生规则:拒绝目录穿越/绝对路径/URI 形态", async () => {
         const {service} = createService({decision: decisionEntity()});
 

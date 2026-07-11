@@ -3,6 +3,7 @@ import {assertProjectOpenForRoot} from "nbook/server/workspace-files/project-ope
 import {normalizeProjectPath} from "nbook/server/workspace-files/project-workspace";
 import {ensureProjectHistory, LOCAL_USER_ID} from "nbook/server/workspace-history/project-history";
 import {toWorkspaceHistoryInboxGroupDto} from "nbook/server/workspace-history/history-dto";
+import {workspaceHistoryInboxRevision} from "nbook/server/workspace-history/history-inbox";
 import type {WorkspaceHistoryInboxDto} from "nbook/shared/dto/workspace-history.dto";
 
 /**
@@ -18,8 +19,11 @@ export default defineEventHandler(async (event): Promise<WorkspaceHistoryInboxDt
     assertProjectOpenForRoot(projectPath);
     const history = await ensureProjectHistory(projectPath);
     if (!history) {
-        return {groups: []};
+        return {revision: 0, groups: []};
     }
     const groups = await history.inbox(LOCAL_USER_ID);
-    return {groups: groups.map(toWorkspaceHistoryInboxGroupDto)};
+    return {
+        revision: workspaceHistoryInboxRevision(groups),
+        groups: groups.map(toWorkspaceHistoryInboxGroupDto),
+    };
 });

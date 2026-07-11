@@ -231,7 +231,9 @@ function submit(): void {
     }
 
     // 候选行:整行全空的行静默丢弃;只填了补充说明的行视为漏填必填项。
+    // 候选文本必须唯一(trim 后比较):拍板按候选文本识别被选项,重复会让否决记录错乱(服务层同样拒绝)。
     const options: Array<{option: string; note: string | null}> = [];
+    const seenOptions = new Set<string>();
     for (const row of optionRows.value) {
         const option = row.option.trim();
         const note = row.note.trim();
@@ -242,6 +244,11 @@ function submit(): void {
             validationError.value = "候选方案的内容不能为空(该行只填了补充说明)";
             return;
         }
+        if (seenOptions.has(option)) {
+            validationError.value = `候选方案重复:「${option}」;拍板按候选文本识别被选项,请修改为不同表述`;
+            return;
+        }
+        seenOptions.add(option);
         options.push({option, note: note || null});
     }
 

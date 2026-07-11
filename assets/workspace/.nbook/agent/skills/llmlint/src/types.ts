@@ -176,6 +176,14 @@ export type LoadedRules = {
     summary: RegistrySummary;
 };
 
+/**
+ * 规则目录条目：保留默认启停状态，供浏览器端按用户覆盖重新生成 active registry。
+ */
+export type RuleRegistryCatalogItem = {
+    rule: ActiveRuleRecord;
+    defaultEnabled: boolean;
+};
+
 /** Markdown 遮罩区间：半开 `[start, end)`，字符索引空间与 scanner 的 `match.index` 一致。 */
 export type MaskedRange = [number, number];
 

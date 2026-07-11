@@ -1,4 +1,5 @@
 import type {InboxGroup, OperationActor, OperationLogEntry} from "nbook/server/vendor/nb-history/index";
+import {workspaceHistoryGroupRevision} from "nbook/server/workspace-history/history-inbox";
 import type {WorkspaceHistoryEntryDto, WorkspaceHistoryInboxGroupDto} from "nbook/shared/dto/workspace-history.dto";
 
 /**
@@ -7,6 +8,7 @@ import type {WorkspaceHistoryEntryDto, WorkspaceHistoryInboxGroupDto} from "nboo
 export function toWorkspaceHistoryInboxGroupDto(group: InboxGroup): WorkspaceHistoryInboxGroupDto {
     return {
         path: group.path,
+        revision: workspaceHistoryGroupRevision(group),
         baseHash: group.baseHash,
         endHash: group.endHash,
         entries: group.entries.map(toWorkspaceHistoryEntryDto),

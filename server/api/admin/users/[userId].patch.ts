@@ -1,5 +1,5 @@
 import {UpdateUserRequestDtoSchema, type AdminUserListItemDto} from "nbook/shared/dto/auth.dto";
-import {assertCanChangeAdminState, isAuthEnabled, lockAdminStateChanges, requireAdmin, requireUserId, toAdminUserListItem} from "nbook/server/utils/auth";
+import {assertCanChangeAdminState, lockAdminStateChanges, requireAdminAccess, requireUserId, toAdminUserListItem} from "nbook/server/utils/auth";
 import {prisma} from "nbook/server/utils/prisma";
 import {validateBody} from "nbook/server/utils/novel-chapter";
 
@@ -7,9 +7,7 @@ import {validateBody} from "nbook/server/utils/novel-chapter";
  * 管理员更新用户资料、角色和状态。
  */
 export default defineEventHandler(async (event): Promise<AdminUserListItemDto> => {
-    if (isAuthEnabled()) {
-        await requireAdmin(event);
-    }
+    await requireAdminAccess(event);
     const userId = requireUserId(event);
     const body = await validateBody(event, UpdateUserRequestDtoSchema);
     const revokesCurrentSession = body.role !== undefined || body.status !== undefined;

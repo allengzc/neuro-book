@@ -93,14 +93,9 @@ export function createVariableTools(): NeuroAgentTool[] {
                 if (!context.vars) {
                     throw new Error("当前工具上下文没有变量访问器。");
                 }
-                const result = await context.vars.read(`${query.namespace}.${query.path}`, {
-                    maxBytes: query.maxBytes,
-                });
+                const result = await context.vars.read(`${query.namespace}.${query.path}`, {maxBytes: query.maxBytes});
                 const text = result.issue ? result.issue.message : JSON.stringify(result, null, 2);
-                return {
-                    content: [{type: "text", text}],
-                    details: result as never,
-                };
+                return {content: [{type: "text", text}], details: result as never};
             },
         },
         {
@@ -122,10 +117,7 @@ export function createVariableTools(): NeuroAgentTool[] {
                 if (result.issue) {
                     throw new Error(result.issue.message);
                 }
-                return {
-                    content: [{type: "text", text: `patched ${query.namespace}.${query.path}`}],
-                    details: result as never,
-                };
+                return {content: [{type: "text", text: `patched ${query.namespace}.${query.path}`}], details: result as never};
             },
         },
     ];

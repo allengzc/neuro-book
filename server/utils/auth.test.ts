@@ -1,5 +1,11 @@
 import {beforeEach, describe, expect, it, vi} from "vitest";
 
+const bootConfigMock = vi.hoisted(() => ({enabled: false}));
+
+vi.mock("nbook/server/config/boot-config", () => ({
+    loadBootAuthEnabledSync: () => bootConfigMock.enabled,
+}));
+
 const prismaMock = {
     user: {
         findUnique: vi.fn(),
@@ -22,6 +28,7 @@ describe("auth utils", () => {
             clearUserSession?: unknown;
         };
         vi.clearAllMocks();
+        bootConfigMock.enabled = false;
         globals.createError = ((input: {statusCode?: number; message?: string}) => {
             const error = new Error(input.message ?? "未知错误") as Error & {statusCode?: number};
             error.statusCode = input.statusCode;
@@ -30,6 +37,45 @@ describe("auth utils", () => {
         globals.getUserSession = vi.fn();
         globals.setUserSession = vi.fn();
         globals.clearUserSession = vi.fn();
+    });
+
+    it("鉴权关闭时管理员访问守卫不会读取 session", async () => {
+        const {requireAdminAccess} = await import("nbook/server/utils/auth");
+
+        await expect(requireAdminAccess({} as never)).resolves.toBeUndefined();
+        expect((globalThis as typeof globalThis & {getUserSession: ReturnType<typeof vi.fn>}).getUserSession).not.toHaveBeenCalled();
+    });
+
+    it("鉴权开启时管理员访问守卫拒绝匿名用户", async () => {
+        bootConfigMock.enabled = true;
+        (globalThis as typeof globalThis & {getUserSession: ReturnType<typeof vi.fn>}).getUserSession.mockResolvedValue({});
+        const {requireAdminAccess} = await import("nbook/server/utils/auth");
+
+        await expect(requireAdminAccess({} as never)).rejects.toMatchObject({statusCode: 401});
+    });
+
+    it("鉴权开启时管理员访问守卫拒绝普通用户并允许管理员", async () => {
+        bootConfigMock.enabled = true;
+        const getUserSessionMock = (globalThis as typeof globalThis & {getUserSession: ReturnType<typeof vi.fn>}).getUserSession;
+        getUserSessionMock.mockResolvedValue({user: {id: "1", sessionVersion: 1}});
+        prismaMock.user.findUnique.mockResolvedValueOnce({
+            id: 1,
+            role: "user",
+            status: "active",
+            sessionVersion: 1,
+            lastSeenAt: new Date(),
+        });
+        const {requireAdminAccess} = await import("nbook/server/utils/auth");
+        await expect(requireAdminAccess({} as never)).rejects.toMatchObject({statusCode: 403});
+
+        prismaMock.user.findUnique.mockResolvedValueOnce({
+            id: 1,
+            role: "admin",
+            status: "active",
+            sessionVersion: 1,
+            lastSeenAt: new Date(),
+        });
+        await expect(requireAdminAccess({} as never)).resolves.toBeUndefined();
     });
 
     it("密码哈希可以正确校验", async () => {

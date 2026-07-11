@@ -64,7 +64,6 @@ export const AgentProfileVariableItemDtoSchema = z.object({
     label: z.string().trim().min(1),
     value: z.string(),
     path: z.string().trim().min(1),
-    token: z.string().trim().min(1),
     editable: z.boolean().default(false),
     valueType: z.string().trim().min(1).nullable().default(null),
     source: z.string().trim().min(1).nullable().default(null),

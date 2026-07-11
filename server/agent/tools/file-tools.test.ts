@@ -206,6 +206,21 @@ describe("v3 file tools", () => {
         )).toBe(resolve(workspaceRoot));
     });
 
+    it("Workspace Root cwd 支持显式跨 Project Workspace 与仓库绝对路径", () => {
+        expect(resolveWorkspacePath(
+            "another-project/manuscript/chapter.md",
+            workspaceRoot,
+            "workspace/silver-dragon-hime",
+        )).toBe(resolve(workspaceRoot, "another-project", "manuscript", "chapter.md"));
+
+        const repositoryReference = resolve("reference", "workspace", "TERMS.md");
+        expect(resolveWorkspacePath(
+            repositoryReference,
+            workspaceRoot,
+            "workspace/silver-dragon-hime",
+        )).toBe(repositoryReference);
+    });
+
     it("resolveWorkspacePath 兼容旧 Project Workspace cwd 别名", () => {
         const projectWorkspaceRoot = join(root, "workspace", "silver-dragon-hime");
 

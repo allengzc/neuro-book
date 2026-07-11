@@ -42,6 +42,7 @@ describe("resolvePiModelFromConfig", () => {
                             stream: true,
                         },
                         settings: {},
+                        fileChangeNotice: {diffMaxChars: 512},
                     },
                 },
             },

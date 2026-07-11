@@ -3,6 +3,7 @@ import type { IdeTheme } from "nbook/app/utils/theme/theme-tokens";
 import { buildMonacoTheme } from "nbook/app/components/markdown-studio/monaco-theme";
 import { loadMonacoEditor } from "nbook/app/components/markdown-studio/load-monaco-editor";
 import type { MonacoEditorApi } from "nbook/app/components/markdown-studio/load-monaco-editor";
+import {useEditorChangeDebounce} from "nbook/app/composables/useEditorChangeDebounce";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {resolveTheme} from "nbook/app/utils/theme/resolve-theme";
 import type * as Monaco from "monaco-editor/esm/vs/editor/editor.api.js";
@@ -243,6 +244,8 @@ const update = (markdown: string): void => {
         return;
     }
 
+    // 外部权威内容覆盖本地状态，未结算的防抖输入作废
+    changeDebounce.cancel();
     runOutsideSync(() => {
         modelInstance?.pushEditOperations(
             [],
@@ -357,18 +360,30 @@ const appendMarkdown = (markdown: string): void => {
 };
 
 /**
- * 向父层回传源码编辑器的最新值。
+ * 变更上报防抖：Monaco 每键 getValue() 是 O(全文) 拼接，且 emit 会触发
+ * store 的全文 dirty 对比与 tab 数组重建，大文档下每键传播是 CPU 激增主因。
+ * 打字期间只 schedule；失焦、保存快捷键、store flush 钩子结算；外部覆盖丢弃。
  */
-const emitModelValue = (): void => {
-    if (suppressModelSync || props.readonly) {
-        return;
-    }
+const changeDebounce = useEditorChangeDebounce({
+    readValue: () => modelInstance?.getValue() ?? null,
+    onEmit: (value) => {
+        if (props.readonly) {
+            return;
+        }
+        // emit 后父层可能同步回写，同一微任务内的模型变更是回环，不再上报
+        suppressModelSync = true;
+        emit("change", value);
+        queueMicrotask(() => {
+            suppressModelSync = false;
+        });
+    },
+});
 
-    suppressModelSync = true;
-    emit("change", modelInstance?.getValue() ?? "");
-    queueMicrotask(() => {
-        suppressModelSync = false;
-    });
+/**
+ * 有未结算的输入时立即上报最新源码。
+ */
+const flushPendingChange = (): void => {
+    changeDebounce.flush();
 };
 
 watch(() => props.readonly, (readonly) => {
@@ -460,6 +475,8 @@ onMounted(async () => {
     applyModelOptions();
 
     editorInstance.addCommand(monacoApi.KeyMod.CtrlCmd | monacoApi.KeyCode.KeyS, () => {
+        // 保存前结算防抖，保证 store 拿到的是最新输入
+        flushPendingChange();
         emit("save-request");
     });
 
@@ -468,7 +485,10 @@ onMounted(async () => {
     wheelListenerRoot.addEventListener("wheel", wheelListener, {passive: false});
 
     contentListener = modelInstance.onDidChangeContent(() => {
-        emitModelValue();
+        if (suppressModelSync || props.readonly) {
+            return;
+        }
+        changeDebounce.schedule();
     });
 
     focusListener = editorInstance.onDidFocusEditorText(() => {
@@ -476,6 +496,7 @@ onMounted(async () => {
     });
 
     blurListener = editorInstance.onDidBlurEditorText(() => {
+        flushPendingChange();
         emit("blur");
     });
 
@@ -487,6 +508,7 @@ onMounted(async () => {
         }
         if (props.submitOnEnter && event.browserEvent.key === "Enter" && !event.browserEvent.shiftKey) {
             event.preventDefault();
+            flushPendingChange();
             emit("submit", {ctrlKey: event.browserEvent.ctrlKey, metaKey: event.browserEvent.metaKey});
         }
     });
@@ -501,6 +523,9 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
     editorDisposed = true;
+    // 卸载时 store 活动文件可能已切换，此刻 emit 会把内容写进新文件；
+    // 切换入口统一由 store 的 activeEditorFlush 钩子在切换前结算，这里只丢弃
+    changeDebounce.cancel();
     if (wheelListener && wheelListenerRoot) {
         wheelListenerRoot.removeEventListener("wheel", wheelListener);
     }
@@ -533,6 +558,7 @@ defineExpose<MarkdownStudioEditorHandle>({
     replaceSelection,
     appendMarkdown,
     getValue,
+    flushPendingChange,
 });
 
 /**

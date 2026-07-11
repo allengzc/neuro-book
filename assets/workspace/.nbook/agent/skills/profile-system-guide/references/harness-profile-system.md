@@ -27,7 +27,7 @@ Read this reference when a user asks how Neuro Book's agent harness, TSX profile
 - Session: the append-only record. It stores chat messages, visible profile messages, state changes, custom state, compaction, and the current active branch.
 - Skill: a workflow note that the agent may read from the skill catalog. A skill is not a profile and does not start an agent by itself.
 - user-assets: the editable user overlay under `workspace/.nbook/...`. System baselines live under `assets/workspace/.nbook/...`.
-- Workspace Root `.nbook`: `workspace/.nbook/`. It stores Global Config, user agent assets, global variable values, and user overrides.
+- Workspace Root `.nbook`: `workspace/.nbook/`. It stores Global Config, user agent assets, and user overrides.
 - Project Workspace: `workspace/{project}/`. It stores manuscript, lorebook, Project Config, and Project SQLite for one project.
 
 Useful ordinary-user explanation:
@@ -60,8 +60,6 @@ Important entry kinds:
 - `custom`: reduced into `ctx.session.customState`, for example `agent.tasks`, `agent.mode`, `plot.selection`, and `profileState.<profileKey>`.
 - `session_update`: title and summary changes.
 - `model_change`, `thinking_level_change`, `profile_change`: per-session runtime configuration.
-- `variable_patch`: variable changes. `global.*` and `project.*` also write their variable files; `session.*` lives in the session JSONL.
-- `client_variable_patch_ack`: frontend acknowledgement for a requested `client.*` patch.
 - `compaction`: summarized history and retained tail boundary.
 - `invocation_lifecycle`: start/end/error/aborted markers.
 - `leaf`: current active branch pointer.
@@ -146,14 +144,12 @@ Rules:
 
 `ctx.runtime.pendingUserMessage` may be available during prompt mode. It lets the profile inspect the current user input before it is written to session. The harness still writes the user message after profile pre-loop writes.
 
-Variable context:
+Invocation context:
 
-- `ctx.initial` is profile creation input. It is not the every-turn user prompt and it no longer carries browser state.
+- `ctx.initial` is profile creation input. It is not the every-turn user prompt and it does not carry browser state.
 - `ctx.invocation` may carry one-turn invocation data such as `payload` and current frontend client state.
 - `ctx.settings` is the merged settings-form value (defaults -> Global Config -> Project Config). Empty object when the profile has no `settingsForm`.
 - `ctx.home` is the profile home facade when a home is declared; project sessions read project-first with global fallback.
-- `ctx.vars` is the variable accessor for `client.*`, `global.*`, `project.*`, and `session.*`.
-- `project.*` requires a current Project Workspace from `client.currentProjectWorkspace`; it does not fall back to old `novelId` state.
 
 ## Settings Resolution
 
@@ -225,8 +221,6 @@ Active core nodes:
 - `<ActivatedSkills>`: string fragment for explicitly mentioned skills.
 - `<AgentCatalog>`: string fragment with available agent profiles and schema summaries.
 - `<SqlSchemaSummary>`: string fragment with database schema summary for SQL guidance.
-- `<Variable>`: renders selected variable values into model context.
-- `<VariableSchema>`: renders selected variable schema and read/write capability notes into model context.
 
 Convenience string/reminder nodes also exist in the runtime, including `SystemReminder`, `Import`, `LinkedAgentsSummary`, `LinkedAgentsReminder`, `RuntimeLocationReminder`, `WorkspaceFocusReminder`, `TaskReminder`, `ModeReminder`, `ModeAvailabilityReminder`, `ModeSlot`, and `MentionedSkillsReminder`. `<SkillCatalog mode="userAssets" />` switches the default catalog text to the Workspace Root `.nbook` cwd wording for user-assets profiles.
 
@@ -240,7 +234,6 @@ Placement guidance:
 - Put initial examples/background in `<HistorySet>`.
 - Put user-visible runtime reminders in `<AppendingSet>`.
 - Put one-run-only model context in `<ModelContext>`.
-- Put `<Variable>` and `<VariableSchema>` directly under `<ModelContext>` in the current version.
 - Put catalog fragments inside `<Message>`, `<System>`, or another node that accepts string children.
 - Do not use `<Message role="system">`.
 
@@ -357,14 +350,6 @@ Planned `.compiled` artifact layout:
 - user artifacts are generated at runtime by Workbench or `profile compile`
 - `.agent/workspace/profile-module-cache` is not the runtime contract
 
-Variable definition artifacts:
-
-- Workspace Root/global definition source: `workspace/.nbook/agent/variables/definitions.ts`
-- Workspace Root/global artifact: `workspace/.nbook/agent/variables/.compiled/`
-- Project definition source: `workspace/{project}/.nbook/agent/variables/definitions.ts`
-- Project artifact: `workspace/{project}/.nbook/agent/variables/.compiled/`
-- Runtime only loads fresh compiled artifacts. It does not compile definition source during catalog, profile prepare, variable read, or variable patch.
-
 Type artifacts:
 
 - Hash or fixed `.types.d.ts` outputs are authoring aids for profile TSX autocomplete.
@@ -380,11 +365,6 @@ Saved file but agent still fails:
 - Use Workbench compile, `profile compile`, or `profile status`.
 - Use `profile preview` when the user wants to inspect prepared context without changing runtime artifacts.
 
-Variable definition changed but variable schema is old:
-
-- Saving `definitions.ts` is not enough.
-- Run `variable definition status/check/compile`.
-- Make sure project-specific checks pass the right `--project <projectWorkspace>` or use the Project Workspace definition command.
 - Use `--strict-variables` in profile checks when literal path mistakes should fail fast.
 
 Content does not show in frontend history:

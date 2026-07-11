@@ -4,7 +4,7 @@ import type {
     ProfileTemplatePropValue,
 } from "nbook/shared/dto/profile-template.dto";
 
-export type ComponentLibraryGroup = "all" | "sets" | "messages" | "flow" | "variables" | "privileged";
+export type ComponentLibraryGroup = "all" | "sets" | "messages" | "flow" | "privileged";
 
 export type ComponentLibraryItem = {
     type: ProfileTemplateNodeType;
@@ -29,18 +29,10 @@ export type SelectOption = {
     meta?: AgentProfileCatalogItemDto;
 };
 
-export type LibraryVariableItem = {
-    label: string;
-    description: string;
-    value: string;
-    iconClass: string;
-};
-
 export type PreviewVariableItem = {
     label: string;
     value: string;
     path: string;
-    token: string;
     currentValue?: unknown;
     editable: boolean;
     description?: string;

@@ -123,6 +123,41 @@ describe("config normalizer profile summarizer", () => {
     });
 });
 
+describe("config normalizer profile file-change notice", () => {
+    it("默认使用 512，Project 可继承或覆盖 Global", () => {
+        const global = normalizeGlobalConfig({
+            agent: {profiles: {writer: {model: {}, fileChangeNotice: {diffMaxChars: 1024}}}},
+        });
+        expect(resolveEffectiveConfig(global, null).agent.profiles.writer?.fileChangeNotice.diffMaxChars).toBe(1024);
+
+        const inherited = resolveEffectiveConfig(global, {agent: {profiles: {writer: {model: {}}}}} as StoredProjectConfig);
+        expect(inherited.agent.profiles.writer?.fileChangeNotice.diffMaxChars).toBe(1024);
+
+        const overridden = resolveEffectiveConfig(global, {agent: {profiles: {writer: {model: {}, fileChangeNotice: {diffMaxChars: 0}}}}} as StoredProjectConfig);
+        expect(overridden.agent.profiles.writer?.fileChangeNotice.diffMaxChars).toBe(0);
+
+        const defaults = resolveEffectiveConfig(normalizeGlobalConfig({agent: {profiles: {writer: {model: {}}}}}), null);
+        expect(defaults.agent.profiles.writer?.fileChangeNotice.diffMaxChars).toBe(512);
+    });
+
+    it("接受 0 与 8192，非法或越界值不参与遮蔽", () => {
+        const global = normalizeGlobalConfig({
+            agent: {profiles: {
+                min: {model: {}, fileChangeNotice: {diffMaxChars: 0}},
+                max: {model: {}, fileChangeNotice: {diffMaxChars: 8192}},
+                invalid: {model: {}, fileChangeNotice: {diffMaxChars: 9000}},
+            }},
+        });
+        const effective = resolveEffectiveConfig(global, {
+            agent: {profiles: {max: {model: {}, fileChangeNotice: {diffMaxChars: -1}}}},
+        } as StoredProjectConfig);
+
+        expect(effective.agent.profiles.min?.fileChangeNotice.diffMaxChars).toBe(0);
+        expect(effective.agent.profiles.max?.fileChangeNotice.diffMaxChars).toBe(8192);
+        expect(effective.agent.profiles.invalid?.fileChangeNotice.diffMaxChars).toBe(512);
+    });
+});
+
 describe("config normalizer workspace history", () => {
     it("默认值：enabled 开、90 天窗口、auto-accept 14 天", () => {
         const effective = resolveEffectiveConfig(normalizeGlobalConfig({}), null);

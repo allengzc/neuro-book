@@ -20,10 +20,10 @@ For harness/profile architecture explanations, read `references/harness-profile-
 - Harness is the runner. It creates sessions, calls the profile, writes visible messages into the session, streams model/tool events, and saves results.
 - Skill is a reusable workflow note. It teaches an agent how to do a kind of task, but it is not a profile and it does not run by itself.
 - Settings form is a profile's low-code preference panel. The profile source declares which fields exist (`settingsForm`); the user fills values in the settings UI, and the values are stored in config files, not in the profile source.
+- Common runtime settings are available for every profile and are not declared in `settingsForm`. Automatic summarization and the single-file change diff limit belong to this common layer.
 - Profile home is a profile's default resource folder (personas, writing style presets, and similar `.md` resources). The profile source declares how to initialize it (`home`); users and agents edit the files inside it.
 - User assets are the user's editable Workspace Root `.nbook` overlay. Prefer editing files under `workspace/.nbook/...`. System files under `assets/workspace/.nbook/...` are the built-in baseline.
 - Saving a profile source file does not make it runnable. Compile means "turn the saved `.profile.tsx` recipe into the runtime artifact the catalog can load." It does not start a chat session.
-- Variable definitions also compile. Editing `agent/variables/definitions.ts` changes source only; runtime uses `agent/variables/.compiled/`.
 
 ## Important Paths
 
@@ -36,9 +36,8 @@ For harness/profile architecture explanations, read `references/harness-profile-
 - Project profile home (per profile): `{Project Workspace}/agents/{profileKey}/`
 - Writer system preset sources: `assets/workspace/.nbook/agent/profiles/builtin/writer.home/{styles,references}/` (user same-path overrides under `workspace/.nbook/...` shadow them by file name)
 - Global Config with profile settings values: `workspace/.nbook/config.json` (`agent.profiles.<key>.settings`)
+- Global common runtime overrides: `workspace/.nbook/config.json` (`agent.profiles.<key>.summarizer.enabled` and `fileChangeNotice.diffMaxChars`)
 - Project Config with profile settings values: `workspace/{project}/.nbook/config.json`
-- User global variable definitions: `workspace/.nbook/agent/variables/definitions.ts`
-- Variable definition artifacts: `workspace/.nbook/agent/variables/.compiled/`
 - Profile templates: `assets/workspace/.nbook/agent/profile-templates/`
 - Content/project templates (not profile templates): `workspace/.nbook/templates/{content-node-templates,project-directory-templates}/`
 - TSX profile authoring docs: `docs/profile-tsx/`
@@ -58,7 +57,6 @@ Prefer guidance before automation:
 3. Read the current file before editing.
 4. Make the smallest TSX change that matches the user's request.
 5. Ask the user to use Workbench compile/preview, or use the `profile` CLI when it is available on the Agent runtime PATH.
-6. If variable definitions changed, run the `variable definition` CLI checks too.
 
 Use Agent runtime CLI only when it lives under `.nbook/agent/bin` and is on the bash PATH. Do not present repository-root `scripts/` as an Agent runtime contract.
 
@@ -78,28 +76,9 @@ Useful CLI commands:
 - `profile check <fileName-or-key>`: check saved source and profile contract without writing `.compiled`.
 - `profile compile <fileName-or-key>`: compile saved disk source and write `.compiled` artifact.
 - `profile preview <fileName-or-key>`: dry-run saved source through prepare and show context sections without writing `.compiled`.
-- Add `--project <projectPath>` when checking project variable types for a specific Project Workspace.
-- Add `--strict-variables` when literal variable paths should fail if they are not registered.
+- Add `--project <projectPath>` when the profile preview needs a specific Project Workspace context.
 
 Do not ask ordinary users to call the HTTP compile endpoint by hand. Mention it only when debugging the Workbench implementation.
-
-### Compile variable definitions
-
-Explain variable definitions in two layers:
-
-- `definitions.ts` declares which `global.*` or `project.*` variables exist and what schema they use.
-- `.compiled` is the runtime artifact. Runtime registry, profile prepare, and tools do not automatically compile definition source.
-
-Useful CLI commands:
-
-- `variable definition status --global`: show Workspace Root definition status.
-- `variable definition check --global`: check Workspace Root definitions without writing artifacts.
-- `variable definition compile --global`: compile Workspace Root definitions.
-- `variable definition status --project <projectWorkspace>`: show a Project Workspace definition status.
-- `variable definition check --project <projectWorkspace>`: check a Project Workspace definition.
-- `variable definition compile --project <projectWorkspace>`: compile a Project Workspace definition.
-
-Do not edit `.compiled` by hand. If a definition is `not_compiled`, `compile_stale`, or `compiled_load_failed`, fix the source first and compile again.
 
 ### Restore a user profile to the system version
 
@@ -136,7 +115,12 @@ Translate the error into user language:
 - `compile_stale`: "源码已经改过，但运行产物还是旧的。需要重新编译。"
 - `compiled_load_failed`: "编译产物存在，但加载失败。先看编译诊断，再重新编译。"
 - `builtin_schema_locked`: "这是系统内置 profile。你可以改提示词和工具权限，但不能把它的创建参数/输出协议改成另一个形状。"
-- Variable path warning: "这个变量路径没有注册。普通检查可能只是 warning，`--strict-variables` 会把它当成错误。"
+
+### Explain common settings vs profile settings
+
+- Automatic summarization and the single-file change diff limit appear for every profile. Configure them in the profile settings card; do not add them to a low-code `settingsForm`.
+- A profile-level `summarizer` declaration defines execution strategy only. It makes the default enabled, but users may still override the switch. Profiles without a declaration default off and use the system strategy when explicitly enabled.
+- `<FileChangeNotice>` only declares `mode`. Its diff budget comes from `agent.profiles.<key>.fileChangeNotice.diffMaxChars`.
 
 ## Current Profile Contract
 
@@ -198,17 +182,6 @@ Profile home is a per-profile default resource directory for personas, writing s
 - `DynamicSet` is an old name. Use `<ModelContext>`.
 - `.compiled` is the runtime artifact area, not the editing surface. Do not manually edit files under `.compiled`.
 
-## Variable Authoring Model
-
-- `ctx.initial` is profile creation input. It is not the user's every-turn message and it no longer carries browser state.
-- `ctx.vars` is the profile's variable access capability.
-- Variable namespaces are fixed: `client.*`, `global.*`, `project.*`, and `session.*`.
-- Use `<Variable>` to render variable values into current model context.
-- Use `<VariableSchema>` to render variable schema and read/write capability notes.
-- First version rule: place `<Variable>` and `<VariableSchema>` directly under `<ModelContext>`, not under `<System>`, `<HistorySet>`, or `<AppendingSet>`.
-- Agent variable edits should use `variable_schema`, `variable_read`, then `variable_patch`, and read again when the result matters.
-- Type artifacts and generated `.d.ts` files help TSX authors with autocomplete. Runtime truth remains the variable registry, schema validation, variable files, and session JSONL.
-
 ## Answering Users
 
 - Start with the user's goal: "你想让这个 agent 在每轮开始前看到什么、能用什么工具、最后怎么交付结果？"
@@ -219,7 +192,6 @@ Profile home is a per-profile default resource directory for personas, writing s
 - When a user asks "为什么前端看不到这段内容", check whether the content is in `System`, `ModelContext`, or `AppendingSet`.
 - When a user asks "为什么 agent 没有这个工具", check root `tools`, `toolKeys` / sidecar `toolKeys`, and the tool registry.
 - When a user asks "系统版本更新后为什么没有覆盖我的文件", explain the user-assets overlay and sync state before suggesting restore.
-- When a user asks "为什么变量读不到", check namespace, current Project Workspace, definition compile status, and whether the profile was checked with the right `--project`.
 
 ## Safety Rules
 

@@ -12,6 +12,7 @@ import NovelIdeObservabilitySettingsPanel from "nbook/app/components/novel-ide/s
 import NovelIdeWebSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeWebSettingsPanel.vue";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {useNotification} from "nbook/app/composables/useNotification";
+import {useAuthSessionState} from "nbook/app/composables/useAuthSessionState";
 import {useThemeManager} from "nbook/app/composables/useThemeManager";
 import {ideThemeIds, themeMeta, type ThemeVars} from "nbook/app/utils/theme/theme-tokens";
 import {resolveTheme, isBuiltInThemeId} from "nbook/app/utils/theme/resolve-theme";
@@ -21,8 +22,8 @@ import type {MarkdownStudioViewMode} from "nbook/app/composables/useMarkdownStud
 import type {CustomThemeDto, ThemeAppearance} from "nbook/shared/theme/theme-vars";
 import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, DEFAULT_MONACO_EDITOR_PREFERENCES, type MarkdownEditorPreferences, type MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 
-type SettingsSection = "frontend" | "editor" | "models" | "embedding" | "cost" | "web-tools" | "agent-profile-models" | "observability";
-type SettingsScope = "global" | "project" | "browser";
+type SettingsSection = "security" | "frontend" | "editor" | "models" | "embedding" | "cost" | "web-tools" | "agent-profile-models" | "observability";
+type SettingsScope = "boot" | "global" | "project" | "browser";
 type AppVersionKind = "release" | "tag" | "commit" | "package";
 type ThemeEditorMode = "create" | "edit" | "copy";
 
@@ -50,6 +51,7 @@ const emit = defineEmits<{
 
 const novelIdeStore = useNovelIdeStore();
 const notification = useNotification();
+const authSessionState = useAuthSessionState();
 const themeManager = useThemeManager();
 const {locale, setLocale, t} = useI18n();
 const {
@@ -79,6 +81,12 @@ const themeDeleteTarget = ref<CustomThemeDto | null>(null);
 const themeImportInputRef = ref<HTMLInputElement | null>(null);
 
 const frontendSectionItems = computed<Array<{value: SettingsSection; label: string; description: string; iconClass: string}>>(() => [
+    {
+        value: "security",
+        label: t("settings.section.security.label"),
+        description: t("settings.section.security.description"),
+        iconClass: "i-lucide-shield-check",
+    },
     {
         value: "frontend",
         label: t("settings.section.frontend.label"),
@@ -131,6 +139,12 @@ const frontendSectionItems = computed<Array<{value: SettingsSection; label: stri
 
 const scopeOptions = computed<Array<{value: SettingsScope; label: string; description: string; iconClass: string}>>(() => [
     {
+        value: "boot",
+        label: t("settings.scope.boot.label"),
+        description: t("settings.scope.boot.description"),
+        iconClass: "i-lucide-server-cog",
+    },
+    {
         value: "global",
         label: t("settings.scope.global.label"),
         description: t("settings.scope.global.description"),
@@ -153,6 +167,7 @@ const scopeOptions = computed<Array<{value: SettingsScope; label: string; descri
 const globalConfigSections: SettingsSection[] = ["models", "embedding", "cost", "web-tools", "agent-profile-models", "observability"];
 const projectConfigSections: SettingsSection[] = ["agent-profile-models"];
 const browserSections: SettingsSection[] = ["frontend", "editor"];
+const bootConfigSections: SettingsSection[] = ["security"];
 
 /** 主题卡片渲染数据：迷你预览用该主题自己的变量绘制 */
 type ThemeCard = {
@@ -180,6 +195,8 @@ const customThemeCards = computed<ThemeCard[]>(() => customThemes.value.map((cus
 })));
 const activeResolvedTheme = computed(() => resolveTheme(activeThemeId.value, customThemes.value));
 const activeThemeIsBuiltIn = computed(() => isBuiltInThemeId(activeResolvedTheme.value.id));
+const bootAuthEnabled = computed(() => authSessionState.session.value?.authEnabled ?? null);
+const bootAuthExample = computed(() => `auth:\n    enabled: ${bootAuthEnabled.value === null ? "<true|false>" : String(bootAuthEnabled.value)}`);
 
 const viewModeOptions = computed<SelectOption[]>(() => [
     {value: "rich", label: t("settings.frontend.viewModeRich")},
@@ -256,9 +273,11 @@ const targetQuery = computed(() => activeScope.value === "project" && targetNove
 const settingsPanelKey = computed(() => `${activeScope.value}:${targetQuery.value.workspaceKind}:${targetQuery.value.projectPath ?? "global"}`);
 const targetLabel = computed(() => activeScope.value === "project"
     ? targetNovel.value?.title || targetNovel.value?.workspaceSlug || targetNovelId.value || "Project Workspace"
-    : "Workspace Root");
+    : activeScope.value === "boot" ? "config.yaml" : "Workspace Root");
 const visibleSectionItems = computed(() => {
-    const allowed = activeScope.value === "browser"
+    const allowed = activeScope.value === "boot"
+        ? bootConfigSections
+        : activeScope.value === "browser"
         ? browserSections
         : activeScope.value === "project"
             ? projectConfigSections
@@ -298,6 +317,7 @@ const activeSavePanel = computed<SettingsSavePanelExpose | null>(() => {
             return observabilitySettingsPanelRef.value;
         case "frontend":
         case "editor":
+        case "security":
             return null;
     }
 });
@@ -312,6 +332,9 @@ const activeRestoreDisabled = computed(() => activeSaveLoading.value || activeSa
  * 读取当前配置目标允许显示的设置分区。
  */
 function sectionsForScope(scope: SettingsScope): SettingsSection[] {
+    if (scope === "boot") {
+        return bootConfigSections;
+    }
     if (scope === "browser") {
         return browserSections;
     }
@@ -380,7 +403,7 @@ function selectScope(scope: SettingsScope): void {
         return;
     }
     activeScope.value = scope;
-    activeSection.value = scope === "browser" ? "frontend" : "models";
+    activeSection.value = scope === "boot" ? "security" : scope === "browser" ? "frontend" : "models";
     alignActiveSectionToScope();
 }
 
@@ -848,8 +871,35 @@ watch(activeScope, alignActiveSectionToScope, {immediate: true});
                 <!-- 内部独立滚动 -->
                 <div class="flex-1 overflow-y-auto custom-scrollbar pr-2 pb-6">
                     <Transition name="fade-slide" mode="out-in">
+                        <!-- 启动期安全配置：只读说明，避免把安全边界误解为可热更新的 Global Config。 -->
+                        <div v-if="activeSection === 'security'" key="security" class="space-y-4 pt-1">
+                            <div class="rounded-2xl border border-[var(--status-info-border)] bg-[var(--status-info-bg)] px-5 py-4 text-[var(--text-main)]">
+                                <div class="flex items-start gap-3">
+                                    <span class="i-lucide-shield-check mt-0.5 h-5 w-5 shrink-0 text-[var(--status-info)]"></span>
+                                    <div>
+                                        <h3 class="text-sm font-semibold">{{ t("settings.security.title") }}</h3>
+                                        <p class="mt-1 text-xs leading-5 text-[var(--text-secondary)]">{{ t("settings.security.description") }}</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm">
+                                <div class="flex flex-wrap items-center justify-between gap-3">
+                                    <div>
+                                        <div class="text-sm font-medium text-[var(--text-main)]">auth.enabled</div>
+                                        <div class="mt-1 text-xs text-[var(--text-secondary)]">{{ t("settings.security.runtimeStatusDescription") }}</div>
+                                    </div>
+                                    <div class="rounded-full border px-3 py-1 text-xs font-medium" :class="bootAuthEnabled === null ? 'border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-muted)]' : bootAuthEnabled ? 'border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success)]' : 'border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[var(--status-warning)]'">
+                                        {{ bootAuthEnabled === null ? t("settings.security.statusUnknown") : bootAuthEnabled ? t("settings.security.statusEnabled") : t("settings.security.statusDisabled") }}
+                                    </div>
+                                </div>
+                                <div class="mt-4 text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.security.exampleTitle") }}</div>
+                                <pre class="mt-2 overflow-x-auto rounded-xl border border-[var(--border-color)] bg-[var(--bg-input)] p-4 text-xs text-[var(--text-secondary)]">{{ bootAuthExample }}</pre>
+                                <p class="mt-3 text-xs leading-5 text-[var(--status-warning)]">{{ t("settings.security.warning") }}</p>
+                            </div>
+                        </div>
+
                         <!-- 前端设定 -->
-                        <div v-if="activeSection === 'frontend'" key="frontend" class="space-y-4 pt-1">
+                        <div v-else-if="activeSection === 'frontend'" key="frontend" class="space-y-4 pt-1">
                             <div class="grid gap-3">
                                 <div class="group flex items-center gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm transition-all duration-300 hover:shadow-md">
                                     <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--bg-input)] text-[var(--text-secondary)] transition-colors group-hover:bg-[var(--accent-bg)] group-hover:text-[var(--accent-main)]">

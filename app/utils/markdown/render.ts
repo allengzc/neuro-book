@@ -231,10 +231,16 @@ function ensureMarked(): void {
                 name: "inlineComment",
                 level: "inline",
                 start(src: string) {
-                    return src.indexOf("<inline-comment");
+                    const commentIndex = src.indexOf("<comment");
+                    const legacyIndex = src.indexOf("<inline-comment");
+                    if (commentIndex < 0) {
+                        return legacyIndex;
+                    }
+                    return legacyIndex < 0 ? commentIndex : Math.min(commentIndex, legacyIndex);
                 },
                 tokenizer(src: string) {
-                    const matched = /^<inline-comment(?:\s+[^>]*)?>[\s\S]*?<\/inline-comment>/.exec(src);
+                    // canonical <comment>，兼容旧 <inline-comment>；开闭标签名一致（反向引用）
+                    const matched = /^<(comment|inline-comment)(?:\s+[^>]*)?>[\s\S]*?<\/\1>/.exec(src);
                     if (!matched) {
                         return undefined;
                     }

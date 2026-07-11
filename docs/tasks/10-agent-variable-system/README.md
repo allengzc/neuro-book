@@ -1,5 +1,7 @@
 # Agent Variable System Refactor
 
+> 2026-07-11 暂时收口 Profile 公开表面：全局 Agent registry 与 `variable_schema`、`variable_read`、`variable_patch` runtime/tools 继续保留；Profile DSL/JSX、`builtin.variable` 绑定、内置 Profile 提示与 Workbench 不再公开 `Variable`、`VariableSchema` 或变量插入能力。底层 storage、registry、`ctx.vars`、definition 编译和类型生成保持完整；本文后续章节保留原始设计与实现历史，不代表当前 Profile 作者界面。
+
 ## User Request
 
 - 系统性重构 Agent 变量系统，不用临时 hack 修 ProjectReminder。

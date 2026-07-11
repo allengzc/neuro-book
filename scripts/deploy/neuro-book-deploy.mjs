@@ -93,7 +93,7 @@ async function main() {
     } else {
         p.note([
             '密码保护已关闭，打开页面即可使用；仅建议在完全可信的本地环境这样部署。',
-            '如需开启：重新运行本命令选择「开启」，或把 workspace/.nbook/config.json 的 auth.enabled 改为 true，',
+            '如需开启：重新运行本命令选择「开启」，或把 config.yaml 的 auth.enabled 改为 true 后重启，',
             '再创建管理员账号并重启服务。',
         ].join('\n'), '密码保护');
     }

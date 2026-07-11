@@ -72,11 +72,6 @@ export const builtin = {
     sql: {
         execute: registeredTool("execute_sql"),
     },
-    variable: {
-        schema: registeredTool("variable_schema"),
-        read: registeredTool("variable_read"),
-        patch: registeredTool("variable_patch"),
-    },
     subject: {
         ragSearch: registeredTool("subject_rag_search"),
         eventAppend: registeredTool("subject_event_append"),

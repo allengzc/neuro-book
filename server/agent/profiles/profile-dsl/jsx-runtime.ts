@@ -11,6 +11,7 @@ const components = {
     HistorySet: dsl.HistorySet,
     ModelContext: dsl.ModelContext,
     AppendingSet: dsl.AppendingSet,
+    FileChangeNotice: dsl.FileChangeNotice,
     Message: dsl.Message,
     AIMessage: dsl.AIMessage,
     ToolCall: dsl.ToolCall,
@@ -33,8 +34,6 @@ const components = {
     ActivatedSkills: dsl.ActivatedSkills,
     SqlSchemaSummary: dsl.SqlSchemaSummary,
     Import: dsl.Import,
-    Variable: dsl.Variable,
-    VariableSchema: dsl.VariableSchema,
 };
 
 export const Fragment = dsl.Fragment;
@@ -67,6 +66,7 @@ export namespace JSX {
         HistorySet: Parameters<typeof dsl.HistorySet>[0];
         ModelContext: Parameters<typeof dsl.ModelContext>[0];
         AppendingSet: Parameters<typeof dsl.AppendingSet>[0];
+        FileChangeNotice: Parameters<typeof dsl.FileChangeNotice>[0];
         Message: Parameters<typeof dsl.Message>[0];
         AIMessage: Parameters<typeof dsl.AIMessage>[0];
         ToolCall: Parameters<typeof dsl.ToolCall>[0];
@@ -89,7 +89,5 @@ export namespace JSX {
         ActivatedSkills: Parameters<typeof dsl.ActivatedSkills>[0];
         SqlSchemaSummary: Parameters<typeof dsl.SqlSchemaSummary>[0];
         Import: Parameters<typeof dsl.Import>[0];
-        Variable: Parameters<typeof dsl.Variable>[0];
-        VariableSchema: Parameters<typeof dsl.VariableSchema>[0];
     }
 }

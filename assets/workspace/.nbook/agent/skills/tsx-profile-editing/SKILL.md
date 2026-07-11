@@ -81,16 +81,14 @@ export default defineAgentProfile({
 - `ModelContext`：本轮模型可见但不写入 session 的上下文。
 - `AppendingSet`：追加到当前轮附近的上下文。
 - `Message`：模型消息。
-- `Reminder`、`Watch`：运行时提醒与变量观察。
-- `Variable`：把变量值注入当前模型上下文。
-- `VariableSchema`：把变量 schema、可读/可写能力和变量工具提示注入当前模型上下文。
+- `Reminder`、`Watch`：运行时提醒与状态观察。
 - `AgentCatalog`：可创建/调用的 agent profile 索引和 schema 摘要。
 - `SkillCatalog`、`ActivatedSkills`：skill 目录与显式提到 skill 的提醒。当前没有独立 skill 工具，需要按 catalog location 用 `read` 打开 `SKILL.md`。
 - `If`：条件渲染。
 
-`Variable` / `VariableSchema` 第一版只放在 `ModelContext` 里，不放在 `System`、`HistorySet` 或 `AppendingSet`。
+`ctx.initial` 是 profile 创建输入，`ctx.invocation.payload` 是本轮结构化 payload；浏览器状态由需要它的 runtime reminder 直接读取 `ctx.invocation.clientState`。
 
-变量路径使用 `client.*`、`global.*`、`project.*`、`session.*`。`ctx.initial` 是 profile 创建输入，`ctx.invocation.payload` 是本轮结构化 payload；它们都不是浏览器状态。浏览器状态通过 `ctx.vars` / `client.*` 读取。
+自动摘要与单文件 diff 上限是所有 Profile 共用的运行设置，不属于 `settingsForm`。`summarizer` 顶层声明只定义执行策略；`<FileChangeNotice>` 只声明 `mode`，不要传 `diffMaxChars`。
 
 ## 工作流
 
@@ -99,18 +97,11 @@ export default defineAgentProfile({
 3. 保存文件。
 4. 修改单个 profile 后优先让用户在 Workbench 编译/预览，或用 Agent runtime `profile` CLI 验证；项目根 `scripts/` 是开发者脚本，不作为 Agent runtime 合同。
 5. 用 `profile check` 做契约检查，`profile preview` 查看 prepare 后的 context，`profile compile` 写入 `.compiled` runtime artifact。
-6. 如果涉及 Project Workspace 变量类型，给 `profile check/compile/preview` 传 `--project <projectPath>`；如果要把未注册 literal path 变成错误，传 `--strict-variables`。
+6. 需要 Project Workspace 上下文时，给 `profile check/compile/preview` 传 `--project <projectPath>`。
 7. 修改 `settingsForm` 字段定义或 `home` 生命周期后同样需要编译；之后在设置界面的 Agent Profile 面板确认表单渲染，或用首次 prepare / 设置面板验证 home init/upgrade 生效。
 8. 调坏 builtin 覆盖时，用工作台恢复系统版本。
 
 保存成功不代表 profile 可运行。`.profile.tsx` 是源码真相源，`.compiled` 是 runtime 真相源；runtime catalog、创建 session 和 invoke 不会自动编译源码。
-
-## 变量编辑补充
-
-- Workspace Root/global definition 源码：`workspace/.nbook/agent/variables/definitions.ts`。
-- Project definition 源码：`workspace/{project}/.nbook/agent/variables/definitions.ts`。
-- definition 修改后运行 `variable definition check/compile/status`。
-- 变量类型补全来自 generated `.d.ts`，只是 authoring aid；runtime 真相仍是 registry、schema 校验、variables.json 和 session JSONL。
 
 ## 安全边界
 

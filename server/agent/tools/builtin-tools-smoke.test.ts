@@ -11,6 +11,9 @@ describe("createBuiltinTools smoke test", () => {
         const keys = tools.map((t) => t.key);
 
         expect(keys).toContain("execute_world");
+        expect(keys).toContain("variable_schema");
+        expect(keys).toContain("variable_read");
+        expect(keys).toContain("variable_patch");
 
         // 确认旧的固定工具已移除。
         expect(keys).not.toContain("execute_world_query");

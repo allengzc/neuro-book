@@ -238,6 +238,14 @@ watch(() => props.modelValue, (nextValue) => {
     sourceEditorRef.value?.update(nextValue);
 });
 
+// 模式切换会 v-if 销毁当前编辑器，而编辑器 unmount 只 cancel 不上报（防 workspace 场景串位）；
+// 本组件数据宿主（modelValue）不变，必须在翻转前结算防抖输入，否则丢最后 300ms 内的输入。
+// sync 时机保证旧编辑器实例仍挂载；统一覆盖内部 setMode 与外部 :mode prop 两条切换路径。
+watch(effectiveMode, () => {
+    richEditorRef.value?.flushPendingChange?.();
+    sourceEditorRef.value?.flushPendingChange?.();
+}, {flush: "sync"});
+
 /**
  * 切换包装层当前展示的编辑模式。
  */

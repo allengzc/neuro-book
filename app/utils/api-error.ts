@@ -52,3 +52,22 @@ export function resolveApiErrorMessage(error: unknown, fallback?: string): strin
 
     return fallback ?? resolveDefaultApiErrorMessage();
 }
+
+/**
+ * 提取 `$fetch` / h3 错误中的 HTTP 状态码；无法识别时返回 null。
+ */
+export function resolveApiErrorStatus(error: unknown): number | null {
+    if (typeof error !== "object" || error === null) {
+        return null;
+    }
+    if ("status" in error && typeof error.status === "number") {
+        return error.status;
+    }
+    if ("statusCode" in error && typeof error.statusCode === "number") {
+        return error.statusCode;
+    }
+    if ("response" in error && typeof error.response === "object" && error.response !== null && "status" in error.response && typeof error.response.status === "number") {
+        return error.response.status;
+    }
+    return null;
+}

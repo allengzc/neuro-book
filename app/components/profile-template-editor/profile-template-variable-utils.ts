@@ -7,7 +7,6 @@ export type RawPreviewVariableItem = {
     label: string;
     value: string;
     path?: string;
-    token?: string;
     currentValue?: unknown;
     editable?: boolean;
     description?: string;
@@ -35,7 +34,6 @@ export function mapPreviewVariableItem(item: RawPreviewVariableItem): PreviewVar
     return {
         label: item.label,
         value: item.value,
-        token: item.token ?? item.value,
         path,
         currentValue: item.currentValue,
         editable: item.editable ?? false,
@@ -75,7 +73,6 @@ export function filterVariableItem(item: PreviewVariableItem, keyword: string): 
     const haystack = [
         item.label,
         item.path,
-        item.token,
         item.description ?? "",
         item.source,
         formatVariableValue(item.currentValue),

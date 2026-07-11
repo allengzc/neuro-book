@@ -66,8 +66,8 @@ NeuroBook 正式 release 主线采用 Product-first：构建机生成 Product Pa
 部署脚本生成的本地状态：
 
 - `.env`：容器运行环境变量，例如端口、session password、`DATABASE_KIND=sqlite`、`DATABASE_URL=file:./workspace/.nbook/neuro-book.sqlite`。
-- `config.yaml`：Boot Config，只保存启动/部署期配置，例如 server host/port 和 database kind/url；数据库字段通过 `${DATABASE_KIND}` / `${DATABASE_URL}` 镜像 `.env`。
-- `workspace/.nbook/config.json`：Global Config，保存 Provider key、模型白名单、baseURL、代理、profile 模型覆盖、`auth.enabled` 和长期 UI/editor 偏好。
+- `config.yaml`：Boot Config，只保存启动/部署期配置，例如 server host/port、database kind/url 与 `auth.enabled`；数据库字段通过 `${DATABASE_KIND}` / `${DATABASE_URL}` 镜像 `.env`。
+- `workspace/.nbook/config.json`：Global Config，保存 Provider key、模型白名单、baseURL、代理、profile 模型覆盖和长期 UI/editor 偏好。
 - `.deploy/docker-compose.generated.yml`：根据 `ghcr` 或 `source` 模式生成的 compose override；local-git 模式不使用该文件。
 - `.deploy/README.md`：当前部署目录的本地操作说明。
 
@@ -507,6 +507,7 @@ bun run release -- canary --next patch --push --yes --no-watch
 - `server.port`
 - `database.kind`
 - `database.url`
+- `auth.enabled`（修改后需要重启；关闭时管理员接口也无鉴权）
 
 `workspace/.nbook/config.json` 保存业务配置：
 
@@ -516,7 +517,6 @@ bun run release -- canary --next patch --push --yes --no-watch
 - Pi Model 字段覆盖，例如模型级 `api`、`input`、`reasoning`、`maxTokens`、`compat`
 - profile 模型覆盖
 - 代理配置
-- `auth.enabled`
 
 模型连接不再使用项目自有 provider adapter。运行时会把 `provider/model` 解析为 Pi `Model`：Pi 内置目录已有的模型继承 Pi registry 元数据；自定义模型需要在模型项上显式声明 Pi Model 字段。图片输入能力也来自 Pi `Model.input`，不要仅凭模型名称判断。
 

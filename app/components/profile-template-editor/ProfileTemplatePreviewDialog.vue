@@ -2,7 +2,6 @@
 import Dialog from "nbook/app/components/common/Dialog.vue";
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
-import StructuredTextEditor from "nbook/app/components/common/form/StructuredTextEditor.vue";
 import ProfilePromptMessageList from "nbook/app/components/profile-template-editor/ProfilePromptMessageList.vue";
 import type {
     PreviewVariableGroup,
@@ -33,7 +32,6 @@ const props = defineProps<{
     formatVariableSchema: (item: PreviewVariableItem) => string;
     formatVariableValue: (value: unknown) => string;
     shouldShowVariableValue: (item: PreviewVariableItem) => boolean;
-    previewVariableInputValue: (item: PreviewVariableItem) => string;
     issueDetail: (issue: ProfileTemplateIssueDto) => string;
 }>();
 
@@ -43,8 +41,6 @@ const emit = defineEmits<{
     (e: "update:variableSearch", value: string): void;
     (e: "refresh-preview"): void;
     (e: "toggle-variable-group", group: string): void;
-    (e: "insert-variable", value: string): void;
-    (e: "update-preview-variable", item: PreviewVariableItem, value: string): void;
 }>();
 </script>
 
@@ -130,29 +126,12 @@ const emit = defineEmits<{
                                                 <span class="rounded border border-[var(--border-color)] bg-[var(--bg-panel)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">{{ props.formatVariableSchema(item) }}</span>
                                                 <span class="rounded border border-[var(--border-color)] bg-[var(--bg-panel)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">{{ item.source }}</span>
                                             </div>
-                                            <button class="variable-chip mt-1" @click="emit('insert-variable', item.token)">{{ item.token }}</button>
+                                            <code class="mt-1 block text-[10px] text-[var(--text-muted)]">{{ item.path }}</code>
                                             <div v-if="item.description" class="mt-1 text-[11px] leading-5 text-[var(--text-muted)]">{{ item.description }}</div>
                                         </div>
-                                        <span v-if="item.editable" class="rounded border border-[var(--border-color)] bg-[var(--bg-panel)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--accent-text)]">可编辑</span>
+                                        <span v-if="item.editable" class="rounded border border-[var(--border-color)] bg-[var(--bg-panel)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--text-muted)]">只读预览</span>
                                     </div>
-                                    <StructuredTextEditor
-                                        v-if="item.editable"
-                                        class="mt-2"
-                                        :model-value="props.previewVariableInputValue(item)"
-                                        :min-rows="1"
-                                        :max-rows="5"
-                                        auto-height
-                                        :min-height="42"
-                                        :max-height="180"
-                                        size="sm"
-                                        default-mode="rich"
-                                        :show-toolbar="false"
-                                        :show-format-toolbar="false"
-                                        :theme="props.theme"
-                                        placeholder="输入本次预览使用的变量值"
-                                        @update:model-value="emit('update-preview-variable', item, $event)"
-                                    />
-                                    <pre v-else-if="props.shouldShowVariableValue(item)" class="preview-variable-value">{{ props.formatVariableValue(item.currentValue) }}</pre>
+                                    <pre v-if="props.shouldShowVariableValue(item)" class="preview-variable-value">{{ props.formatVariableValue(item.currentValue) }}</pre>
                                 </div>
                             </div>
                         </section>

@@ -41,8 +41,10 @@ type AgentProfileDraft = {
     loadStatus: ConfigAgentProfileSettingsDto["agentProfiles"][number]["loadStatus"];
     hasSettingsForm: boolean;
     hasSummarizer: boolean;
-    /** 后台自动摘要开关草稿；null 表示未覆盖（沿用上级或 profile 默认开启）。 */
+    /** 后台自动摘要开关草稿；null 表示未覆盖（沿用上级或 Profile 策略默认值）。 */
     summarizerEnabled: boolean | null;
+    /** 通用单文件 diff 上限草稿；空字符串表示沿用上级或系统默认 512。 */
+    fileChangeDiffMaxChars: string;
     issue: ConfigAgentProfileSettingsDto["agentProfiles"][number]["issue"];
     sourcePath: string | null;
     buildState: ConfigAgentProfileSettingsDto["agentProfiles"][number]["buildState"];
@@ -70,8 +72,9 @@ type AgentProfileConfigDraft = {
     model: Partial<AgentProfileModelConfigDto>;
     settings?: LowCodeJsonObject;
     resourceMutations?: LowCodeResourceMutationDto[];
-    /** 后台自动摘要覆盖；缺省表示不覆盖（沿用上级配置或 profile 默认开启）。 */
+    /** 后台自动摘要覆盖；缺省表示不覆盖（沿用上级配置或 Profile 策略默认值）。 */
     summarizer?: {enabled?: boolean};
+    fileChangeNotice?: {diffMaxChars?: number};
 };
 
 const loading = ref(false);
@@ -259,8 +262,8 @@ function setProfileStream(profile: AgentProfileDraft, value: string): void {
  */
 function summarizerOptionsForProfile(profile: AgentProfileDraft): SelectOption[] {
     const inheritedEnabled = isProjectScope.value
-        ? editorSnapshot.value?.global.agent?.profiles?.[profile.profileKey]?.summarizer?.enabled ?? true
-        : true;
+        ? editorSnapshot.value?.global.agent?.profiles?.[profile.profileKey]?.summarizer?.enabled ?? profile.hasSummarizer
+        : profile.hasSummarizer;
     const inheritedLabel = streamLabel(inheritedEnabled);
     return [
         {value: "inherit", label: isProjectScope.value ? t("settings.panels.profileModels.inheritGlobal", {value: inheritedLabel}) : t("settings.panels.profileModels.defaultValue", {value: inheritedLabel})},
@@ -359,7 +362,9 @@ function buildProfileConfig(profile: AgentProfileDraft): AgentProfileConfigDraft
     const resourceMutations = profile.settings?.resourceMutations ?? [];
     // 持久化只看草稿值：profile 临时 compiling/编译失败（hasSummarizer=false）时保存其它设置不丢已存覆盖。
     const summarizerPatch = profile.summarizerEnabled !== null ? {enabled: profile.summarizerEnabled} : undefined;
-    if (isEmptyObject(modelPatch) && (!profile.settings || isEmptyObject(settingsPatch)) && resourceMutations.length === 0 && !summarizerPatch) {
+    const diffMaxChars = parseNullableNumber(profile.fileChangeDiffMaxChars, true);
+    const fileChangeNoticePatch = diffMaxChars !== null ? {diffMaxChars} : undefined;
+    if (isEmptyObject(modelPatch) && (!profile.settings || isEmptyObject(settingsPatch)) && resourceMutations.length === 0 && !summarizerPatch && !fileChangeNoticePatch) {
         return null;
     }
     return {
@@ -367,6 +372,7 @@ function buildProfileConfig(profile: AgentProfileDraft): AgentProfileConfigDraft
         ...(profile.settings && !isEmptyObject(settingsPatch) ? {settings: settingsPatch} : {}),
         ...(resourceMutations.length > 0 ? {resourceMutations} : {}),
         ...(summarizerPatch ? {summarizer: summarizerPatch} : {}),
+        ...(fileChangeNoticePatch ? {fileChangeNotice: fileChangeNoticePatch} : {}),
     };
 }
 
@@ -397,6 +403,7 @@ function buildGlobalProfileConfigMap(): Record<string, AgentProfileConfigDraft> 
                 model: config.model ?? {},
                 ...(config.settings !== undefined ? {settings: cloneLowCodeObject(config.settings)} : {}),
                 ...(config.summarizer !== undefined ? {summarizer: config.summarizer} : {}),
+                ...(config.fileChangeNotice !== undefined ? {fileChangeNotice: config.fileChangeNotice} : {}),
             } satisfies AgentProfileConfigDraft]),
     );
     for (const profile of profiles.value) {
@@ -507,6 +514,7 @@ function applySettings(settings: ConfigAgentProfileSettingsDto): void {
         hasSettingsForm: profile.hasSettingsForm,
         hasSummarizer: profile.hasSummarizer,
         summarizerEnabled: editorSnapshot.value?.global.agent?.profiles?.[profile.profileKey]?.summarizer?.enabled ?? null,
+        fileChangeDiffMaxChars: stringifyNullableNumber(editorSnapshot.value?.global.agent?.profiles?.[profile.profileKey]?.fileChangeNotice?.diffMaxChars ?? null),
         issue: profile.issue,
         sourcePath: profile.sourcePath,
         buildState: profile.buildState,
@@ -534,6 +542,7 @@ function applyProjectSettings(settings: ConfigAgentProfileSettingsDto): void {
             hasSettingsForm: profile.hasSettingsForm,
             hasSummarizer: profile.hasSummarizer,
             summarizerEnabled: editorSnapshot.value?.project?.agent?.profiles?.[profile.profileKey]?.summarizer?.enabled ?? null,
+            fileChangeDiffMaxChars: stringifyNullableNumber(editorSnapshot.value?.project?.agent?.profiles?.[profile.profileKey]?.fileChangeNotice?.diffMaxChars ?? null),
             issue: profile.issue,
             sourcePath: profile.sourcePath,
             buildState: profile.buildState,
@@ -724,6 +733,7 @@ function resetProfile(profile: AgentProfileDraft): void {
         stream: null,
     };
     profile.summarizerEnabled = null;
+    profile.fileChangeDiffMaxChars = "";
     if (profile.settings) {
         profile.settings.values = isProjectScope.value
             ? {}
@@ -1003,10 +1013,14 @@ defineExpose({
                                 <FormSelect :model-value="streamSelectValue(profile.model.stream)" :options="streamOptionsForProfile(profile)" @update:model-value="setProfileStream(profile, $event)" />
                             </div>
 
-                            <!-- 后台自动摘要开关（仅声明了 summarizer 的 profile 展示） -->
-                            <div v-if="profile.hasSummarizer" class="space-y-1.5">
+                            <!-- Profile 通用运行设置 -->
+                            <div class="space-y-1.5">
                                 <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.summarizer") }}</label>
                                 <FormSelect :model-value="streamSelectValue(profile.summarizerEnabled)" :options="summarizerOptionsForProfile(profile)" @update:model-value="setProfileSummarizerEnabled(profile, $event)" />
+                            </div>
+                            <div class="space-y-1.5">
+                                <label class="text-xs font-medium text-[var(--text-secondary)]">单文件 diff 字符上限</label>
+                                <FormInput v-model="profile.fileChangeDiffMaxChars" type="number" step="64" min="0" max="8192" :placeholder="isProjectScope ? `继承 Global（${editorSnapshot?.global.agent?.profiles?.[profile.profileKey]?.fileChangeNotice?.diffMaxChars ?? 512}）` : '默认 512'" />
                             </div>
                         </div>
 

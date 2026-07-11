@@ -1,5 +1,5 @@
 import {CreateUserRequestDtoSchema, type AdminUserListItemDto} from "nbook/shared/dto/auth.dto";
-import {isAuthEnabled, requireAdmin, toAdminUserListItem} from "nbook/server/utils/auth";
+import {requireAdminAccess, toAdminUserListItem} from "nbook/server/utils/auth";
 import {hashUserPassword} from "nbook/server/utils/password";
 import {prisma} from "nbook/server/utils/prisma";
 import {validateBody} from "nbook/server/utils/novel-chapter";
@@ -8,9 +8,7 @@ import {validateBody} from "nbook/server/utils/novel-chapter";
  * 管理员创建用户。
  */
 export default defineEventHandler(async (event): Promise<AdminUserListItemDto> => {
-    if (isAuthEnabled()) {
-        await requireAdmin(event);
-    }
+    await requireAdminAccess(event);
     const body = await validateBody(event, CreateUserRequestDtoSchema);
     const existingUser = await prisma.user.findUnique({
         where: {username: body.username},

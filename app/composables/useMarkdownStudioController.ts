@@ -1,4 +1,5 @@
 import type { Ref } from "vue";
+import type { CommentItem } from "nbook/app/components/markdown-studio/tiptap/Comment";
 import { useTypewriterStream } from "nbook/app/composables/useTypewriterStream";
 
 export type ActiveEditor = "source" | "preview" | null;
@@ -18,21 +19,10 @@ export type MarkdownFormatCommand =
     | "blockquote"
     | "clear-format";
 
-export interface MarkdownInlineCommentItem {
-    index: number;
-    id: string | null;
-    from: number;
-    to: number;
-    body: string;
-    text: string;
-    active: boolean;
-    ranges: Array<{
-        from: number;
-        to: number;
-        body: string;
-        text: string;
-    }>;
-}
+/**
+ * 评论列表项：行内 mark 评论与块级 commentBlock 评论的统一视图，复用编辑器层定义（kind 区分形态）。
+ */
+export type MarkdownInlineCommentItem = CommentItem;
 
 export interface MarkdownStreamChannel {
     append: (chunk: string) => void;
@@ -62,6 +52,8 @@ export type MarkdownStudioEditorHandle = {
     undo?: () => void;
     redo?: () => void;
     getValue?: () => string;
+    /** 有未结算的防抖输入时立即上报（无 pending 则 no-op）；切文件 / 磁盘同步前由 store 钩子触发 */
+    flushPendingChange?: () => void;
     insertMarkdown?: (markdown: string) => void;
     replaceSelection?: (markdown: string) => void;
     appendMarkdown?: (markdown: string) => void;
@@ -397,6 +389,17 @@ export const useMarkdownStudioController = (options: UseMarkdownStudioController
     };
 
     /**
+     * 结算所有编辑器的防抖输入，把最新内容立即回传给 markdown ref。
+     * store 在切换文件 / 磁盘同步 / 保存前通过 activeEditorFlush 钩子调用，
+     * 保证 dirty 判定和 buffer 持久化建立在编辑器最新内容之上。
+     * flush 对无 pending 的编辑器是 no-op，两个句柄都调是安全的。
+     */
+    const flushActiveEditor = (): void => {
+        previewHandle.value?.flushPendingChange?.();
+        sourceHandle.value?.flushPendingChange?.();
+    };
+
+    /**
      * 将两个编辑器的滚动位置都重置到顶部。
      */
     const scrollToTop = (): void => {
@@ -657,6 +660,7 @@ export const useMarkdownStudioController = (options: UseMarkdownStudioController
         onPreviewBlur,
         focusSource,
         focusPreview,
+        flushActiveEditor,
         scrollToTop,
         resetScrollPositions,
         rememberCurrentScroll,

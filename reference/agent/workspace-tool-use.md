@@ -24,9 +24,10 @@
 ## Workspace CLI
 
 - 内容节点 CLI 的稳定入口是 `workspace node ...`。
-- 常规任务优先以 AppendingSet runtime reminder 的 Current Project Workspace 为边界，但 Agent cwd / Workspace Root 始终是 `workspace/`。
+- 常规任务把 AppendingSet runtime reminder 的 Current Project Workspace 作为默认焦点，但它不是访问边界；Agent cwd / Workspace Root 始终是 `workspace/`。
 - 访问当前小说时使用 `project-slug/lorebook/...`、`project-slug/manuscript/...`、`project-slug/simulation/...` 这类显式路径。
 - 允许跨 Project Workspace 写作和检查；跨项目时必须显式写出目标 Project Workspace 路径，避免把内容写到错误小说。
+- 仓库源码与仓库级 `reference/` 位于 Workspace Root 之外；runtime reminder 会给出它们的绝对路径，读取时使用该绝对路径。
 - 路径分隔优先使用 `/`。
 
 ## Parallel Calls

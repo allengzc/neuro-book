@@ -29,6 +29,7 @@ import type {
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import {ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
 import {builtInThemeIds, themeAppearanceValues, themeVarNames, type CustomThemeDto, type ThemeAppearance, type ThemeVarName} from "nbook/shared/theme/theme-vars";
+import {DEFAULT_AGENT_DIFF_MAX_CHARS, MAX_AGENT_DIFF_MAX_CHARS} from "nbook/shared/agent/file-change-policy";
 
 const DEFAULT_THEME: EffectiveConfig["ui"]["theme"] = "sepia";
 const DEFAULT_COST_CURRENCY: EffectiveConfig["ui"]["costCurrency"] = "USD";
@@ -154,9 +155,6 @@ function normalizeWorkspaceHistory(input: Partial<WorkspaceHistorySettingsConfig
  */
 export function createDefaultEffectiveConfig(): EffectiveConfig {
     return {
-        auth: {
-            enabled: true,
-        },
         models: {
             defaultModelKey: null,
             providers: {},
@@ -192,10 +190,7 @@ export function normalizeGlobalConfig(input: Partial<StoredGlobalConfig> | null 
     const raw = input && typeof input === "object" ? input : {};
     const customThemes = normalizeCustomThemes(raw.ui?.customThemes);
     return {
-        ...raw,
-        auth: {
-            enabled: raw.auth?.enabled ?? true,
-        },
+        ...withoutAuth(raw),
         models: {
             default: normalizeNullableModelKey(raw.models?.default),
             providers: normalizeStoredProviders(raw.models?.providers),
@@ -265,7 +260,6 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
     const effective = createDefaultEffectiveConfig();
     const globalProfilePatches = normalizeAgentProfiles(globalConfig.agent?.profiles);
 
-    effective.auth.enabled = globalConfig.auth?.enabled ?? effective.auth.enabled;
     effective.models = normalizeModelSettings(globalConfig.models);
     effective.embedding = normalizeEmbeddingService(globalConfig.embedding, readLegacyEmbedding(globalConfig.models));
     effective.agent.defaultProfileKey = {
@@ -316,6 +310,9 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
                     // summarizer 开关按 enabled 字段级合并：project 覆盖 global，非法/空配置不参与遮蔽。
                     const summarizerEnabled = normalizeAgentProfileSummarizer(projectProfiles[profileKey]?.summarizer)?.enabled
                         ?? normalizeAgentProfileSummarizer(globalProfilePatches[profileKey]?.summarizer)?.enabled;
+                    const fileChangeDiffMaxChars = normalizeAgentProfileFileChangeNotice(projectProfiles[profileKey]?.fileChangeNotice)?.diffMaxChars
+                        ?? normalizeAgentProfileFileChangeNotice(globalProfilePatches[profileKey]?.fileChangeNotice)?.diffMaxChars
+                        ?? DEFAULT_AGENT_DIFF_MAX_CHARS;
                     return [profileKey, {
                         model: mergeAgentProfileModelConfig(
                             mergeAgentProfileModelConfig(
@@ -329,6 +326,7 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
                             projectProfiles[profileKey]?.settings,
                         ),
                         ...(summarizerEnabled !== undefined ? {summarizer: {enabled: summarizerEnabled}} : {}),
+                        fileChangeNotice: {diffMaxChars: fileChangeDiffMaxChars},
                     } satisfies AgentProfileConfig];
                 }),
         );
@@ -433,10 +431,12 @@ export function normalizeAgentProfiles(input: Record<string, Partial<StoredAgent
             continue;
         }
         const summarizer = normalizeAgentProfileSummarizer(profile.summarizer);
+        const fileChangeNotice = normalizeAgentProfileFileChangeNotice(profile.fileChangeNotice);
         entries.push([key, {
             model: normalizeAgentProfileModelPatch(profile.model),
             settings: normalizeAgentProfileSettings(profile.settings),
             ...(summarizer !== undefined ? {summarizer} : {}),
+            ...(fileChangeNotice !== undefined ? {fileChangeNotice} : {}),
         }]);
     }
     return Object.fromEntries(entries.sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey)));
@@ -453,6 +453,7 @@ function normalizeCompleteAgentProfiles(
                 model: mergeAgentProfileModelConfig(defaults, profile.model),
                 settings: normalizeAgentProfileSettings(profile.settings),
                 ...(summarizer !== undefined ? {summarizer} : {}),
+                fileChangeNotice: normalizeAgentProfileFileChangeNotice(profile.fileChangeNotice) ?? {diffMaxChars: DEFAULT_AGENT_DIFF_MAX_CHARS},
             } satisfies AgentProfileConfig];
         }),
     );
@@ -502,6 +503,25 @@ function normalizeAgentProfileSummarizer(input: unknown): {enabled: boolean} | u
     }
     const enabled = (input as {enabled?: unknown}).enabled;
     return typeof enabled === "boolean" ? {enabled} : undefined;
+}
+
+/**
+ * 丢弃旧 Global Config 中残留的 auth，确保下一次保存只输出当前正式契约。
+ */
+function withoutAuth(input: Partial<StoredGlobalConfig> & {auth?: unknown}): Partial<StoredGlobalConfig> {
+    const {auth: _ignoredAuth, ...rest} = input;
+    return rest;
+}
+
+/** 规范化 Profile 通用文件变更提醒配置。 */
+function normalizeAgentProfileFileChangeNotice(input: unknown): {diffMaxChars: number} | undefined {
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+        return undefined;
+    }
+    const diffMaxChars = (input as {diffMaxChars?: unknown}).diffMaxChars;
+    return Number.isInteger(diffMaxChars) && Number(diffMaxChars) >= 0 && Number(diffMaxChars) <= MAX_AGENT_DIFF_MAX_CHARS
+        ? {diffMaxChars: Number(diffMaxChars)}
+        : undefined;
 }
 
 /**

@@ -172,6 +172,7 @@ export function convertAgentProfileModelSettingsRequestToConfig(
             request.agentProfiles.map((profile) => [profile.profileKey, {
                 model: normalizeAgentProfileModelConfig(profile.model),
                 settings: {},
+                fileChangeNotice: {diffMaxChars: 512},
             }]),
         ),
     };

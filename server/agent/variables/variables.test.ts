@@ -506,11 +506,7 @@ describe("Agent variable system", () => {
             workspaceKey: "test",
         });
         try {
-            const vars = createProfileVariableAccessor({
-                repo,
-                snapshot,
-                registry,
-            });
+            const vars = createProfileVariableAccessor({repo, snapshot, registry});
             const result = await schemaTool?.executeWithContext?.({
                 harness: null as never,
                 sessionId: snapshot.metadata.sessionId,
@@ -518,13 +514,8 @@ describe("Agent variable system", () => {
                 workspaceRoot: root,
                 workspaceKey: "test",
                 vars,
-            }, "tool-1", {
-                namespace: "session",
-            });
-
-            expect(result?.details).toEqual(expect.objectContaining({
-                issues: [],
-            }));
+            }, "tool-1", {namespace: "session"});
+            expect(result?.details).toEqual(expect.objectContaining({issues: []}));
         } finally {
             await rm(root, {recursive: true, force: true});
         }

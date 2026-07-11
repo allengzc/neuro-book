@@ -7,6 +7,7 @@ import {cp, lstat, mkdir, readFile, readdir, realpath, rename, rm, symlink, writ
 import {basename, dirname, join, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {unzipSync} from "fflate";
+import {readPortableBootAuth, renderPortableBootConfig, updatePortableBootAuth} from "./boot-config.mjs";
 
 const DEFAULT_PORT = "3000";
 const PORTABLE_ROOT = process.env.NEURO_BOOK_PORTABLE_ROOT
@@ -37,6 +38,7 @@ const LAUNCHER_ROOT_FILES = [
     "Update Neuro Book.ps1",
     "Create Admin.cmd",
     "Create Admin.ps1",
+    "boot-config.mjs",
     "README-Windows.md",
 ];
 
@@ -386,7 +388,7 @@ async function createAdmin() {
     await runProductTsScript("cli/create-admin.ts", {stdio: "inherit"});
     if (!await readAuthEnabled()) {
         await writeAuthEnabled(true);
-        p.note("已自动开启密码保护；下次访问需要用刚创建的管理员账号登录。", "密码保护");
+        p.note("已自动开启密码保护；请重启 NeuroBook，之后使用刚创建的管理员账号登录。", "密码保护");
     }
 }
 
@@ -417,7 +419,7 @@ async function ensurePortableConfig() {
 
     const configPath = join(DATA_DIR, "config.yaml");
     if (!existsSync(configPath)) {
-        await writeFile(configPath, renderBootConfig(DEFAULT_PORT), "utf8");
+        await writeFile(configPath, renderPortableBootConfig(DEFAULT_PORT), "utf8");
     }
 
     const globalConfigPath = join(DATA_WORKSPACE_DIR, ".nbook", "config.json");
@@ -496,26 +498,23 @@ async function ensureAdminUser() {
 }
 
 /**
- * 读取 Global Config 鉴权开关。
- * 文件缺失或损坏时按服务端默认值 true 处理，避免误把已上锁部署当成未开启。
+ * 读取 Boot Config 鉴权开关。
+ * 文件缺失或损坏时按生产环境默认值 true 处理，避免误把已上锁部署当成未开启。
  */
 async function readAuthEnabled() {
-    try {
-        const config = JSON.parse(await readFile(join(DATA_WORKSPACE_DIR, ".nbook", "config.json"), "utf8"));
-        return config?.auth?.enabled ?? true;
-    } catch {
-        return true;
-    }
+    return readPortableBootAuth(await readFile(join(DATA_DIR, "config.yaml"), "utf8"));
 }
 
 /**
- * 写回 Global Config 鉴权开关，保留其他配置字段。
+ * 写回 Boot Config 鉴权开关，保留其他配置字段。
  */
 async function writeAuthEnabled(enabled) {
-    const configPath = join(DATA_WORKSPACE_DIR, ".nbook", "config.json");
-    const config = existsSync(configPath) ? JSON.parse(await readFile(configPath, "utf8")) : {};
-    config.auth = {...config.auth, enabled};
-    await writeFile(configPath, `${JSON.stringify(config, null, 4)}\n`, "utf8");
+    const configPath = join(DATA_DIR, "config.yaml");
+    const currentText = existsSync(configPath) ? await readFile(configPath, "utf8") : renderPortableBootConfig(DEFAULT_PORT);
+    const nextText = updatePortableBootAuth(currentText, enabled);
+    if (nextText !== null) {
+        await writeFile(configPath, nextText, "utf8");
+    }
 }
 
 /**
@@ -826,7 +825,7 @@ async function writeEnvValue(name, value) {
  */
 async function writeConfigPort(port) {
     const configPath = join(DATA_DIR, "config.yaml");
-    const text = existsSync(configPath) ? await readFile(configPath, "utf8") : renderBootConfig(port);
+    const text = existsSync(configPath) ? await readFile(configPath, "utf8") : renderPortableBootConfig(port);
     await writeFile(configPath, text.replace(/port:\s*\d+/u, `port: ${port}`), "utf8");
 }
 
@@ -844,21 +843,8 @@ function renderEnv(port, sessionPassword) {
     ].join("\n");
 }
 
-function renderBootConfig(port) {
-    return `# neuro-book Boot Config.
-server:
-  host: '0.0.0.0'
-  port: ${port}
-database:
-  kind: \${DATABASE_KIND:-sqlite}
-  url: \${DATABASE_URL:-file:../data/workspace/.nbook/neuro-book.sqlite}
-`;
-}
-
 function renderGlobalConfig() {
     return `${JSON.stringify({
-        // Windows portable 是本机单人场景，默认不上锁；Create Admin 会把它翻回 true。
-        auth: {enabled: false},
         models: {
             default: null,
             providers: [],
