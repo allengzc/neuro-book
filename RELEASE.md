@@ -19,6 +19,7 @@
 - Manager正确入口是 `bunx --bun @notnotype/neuro-book-manager@canary <command>`；`bunx run @notnotype/neuro-book-manager` 会被Bun按本地脚本或路径解析，不能启动Manager。
 - Manager无参数启动现在进入完整Clack安装向导，并在安装成功后把实例注册到`~/.neuro-book-manager/config.json`。新增`neuro-book manage` blessed多实例TUI、`instances`索引命令，以及跨目录操作的`--root`/`--instance`选择；用户级配置只保存偏好和目录索引，不复制实例部署状态。
 - Manager npm发布改用GitHub Actions Trusted Publisher：workflow申请`id-token: write`并执行带provenance的无token发布，不再读取`NPM_TOKEN`。npm dist-tag修正不混入OIDC publish job，避免包已发布后因额外registry写操作让workflow误报失败。
+- 首次OIDC实测发现`actions/setup-node`的`registry-url`会生成临时npmrc并注入占位`NODE_AUTH_TOKEN`，覆盖Trusted Publisher认证；provenance已成功签名但registry写入返回隐藏权限的404。workflow现只用setup-node准备Node，不再生成token配置，让npm直接交换GitHub OIDC凭据。
 - Docker实机验证发现服务器默认鉴权会让Manager版本健康检查收到401；`/api/app/version`现作为只读公共部署探针，不开放日志、配置或业务数据接口，Source Docker与GHCR可在启用鉴权时完成安装和更新健康检查。
 - 本轮已通过完整应用与Manager typecheck、23项Manager测试、npm tarball空目录审计、Windows Portable组装，以及Release/Portable脚本和workflow YAML校验。SSH Arch进一步通过Stage 0 managed Bun 1.3.14的Source Dev安装/启动、Linux Product无根依赖运行、Source Docker容器内install/build/start和既有公开GHCR digest smoke。应用`0.7.4`因鉴权健康探针401在正式资产发布前主动取消且保持零资产；修复后的`0.7.5` Source、Linux Product和GHCR镜像CI已通过，Windows Product、assemble、verify和最终publish仍以Actions结果为准，不能提前视为完整Release。
 
