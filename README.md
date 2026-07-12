@@ -99,9 +99,12 @@ AI 已经是一匹好马，NeuroBook 是那副鞍（NeuroAgentHarness——Harne
 **服务器 / Docker：**
 
 ```bash
-bunx --bun @notnotype/neuro-book-manager@canary install --profile ghcr
+bunx --bun @notnotype/neuro-book-manager@canary
 ```
 
+不传参数会进入安装向导，说明部署方式并引导选择目录、更新通道、端口和鉴权。安装后运行`neuro-book manage`可在TUI中管理多个实例；实例索引保存在`~/.neuro-book-manager/config.json`，真实部署状态仍位于各实例的`.deploy/installation.json`。自动化部署使用`install --profile ghcr --yes`。
+
+Canary阶段固定使用`@canary`。不要写成`bunx run @notnotype/neuro-book-manager`：`bunx run`会把包名按本地脚本或路径解析，Manager不会启动。只有GitHub Release出现正式`release-manifest.json`后才可安装；仍在构建或已取消的Release会被Manager安全跳过。
 
 | 方式                     | 适合                                           |
 | ------------------------ | ---------------------------------------------- |

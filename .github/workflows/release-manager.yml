@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   publish:
@@ -23,6 +24,9 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+
+      - name: Set up npm Trusted Publishing client
+        run: npm install --global npm@11.5.1
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -42,8 +46,6 @@ jobs:
 
       - name: Publish package
         shell: bash
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           package_version="$(bun -e 'console.log(require("./packages/neuro-book-manager/package.json").version)')"
           if [[ "${package_version}" == *-* ]]; then
@@ -51,10 +53,4 @@ jobs:
           else
             dist_tag=latest
           fi
-          npm publish --workspace packages/neuro-book-manager --access public --tag "${dist_tag}"
-          if [[ "${dist_tag}" == "canary" ]]; then
-            published_latest="$(npm view @notnotype/neuro-book-manager dist-tags.latest --json 2>/dev/null | tr -d '"' || true)"
-            if [[ "${published_latest}" == "${package_version}" ]]; then
-              npm dist-tag rm @notnotype/neuro-book-manager latest
-            fi
-          fi
+          npm publish --workspace packages/neuro-book-manager --access public --tag "${dist_tag}" --provenance

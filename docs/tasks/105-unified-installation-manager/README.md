@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中。Manager canary 已公开发布；Manifest v2、双 Runtime、统一 Operation Journal、Stage 0、PortableGit/bash和Product隔离已完成，SSH Arch 已通过 Linux Product Bun、Source Docker和公开 GHCR runtime smoke。新的完整 GitHub Release资产、公开 verify、Manager GHCR回滚和Windows Portable交互终验尚未完成，因此 Task 105 不归档。
+> 当前状态：实现中。Manager `0.1.0-canary.5` 已公开发布；应用 `v0.7.5-canary.20260712.122532Z.ee84760d` 正在通过 [Release workflow 29192621638](https://github.com/notnotype/neuro-book/actions/runs/29192621638) 装配候选资产。Source、Linux Product和GHCR镜像job已通过，Windows Product、assemble、verify和最终publish尚未得出结论；Manager GHCR回滚和Windows Portable交互终验也未完成，因此 Task 105 不归档。
 
 ## Relative documents refs
 
@@ -314,21 +314,23 @@ uninstall
 - Source archive smoke 通过：只打包当前存在的 Git tracked 文件，不含 `.git`、`node_modules`、`.output` 和用户状态。
 - Windows Portable 使用本轮新 `.output` 完成真实组装：Manifest v2、managed Bun、rg、PortableGit、bash 和 Manager wrapper 均通过版本执行检查，生成 `dist/neuro-book-windows-x64.zip`。
 - Portable 打包会显式跳过“已从 worktree 删除但仍在索引中”的文件，避免 dirty 重构期间重新混入旧部署实现。
-- Release workflow YAML 解析通过；`release-assets.ts` 与 Portable packager Bun bundle 通过。最终 verify jobs 会从公开 Release 重下资产，复算 SHA256，检查 Windows/Linux native 包、GHCR revision、公开 npm Product Bun 安装和 Portable 四工具。
+- Release workflow YAML解析通过；`release-assets.ts`与Portable packager bundle通过。候选Source/Product/Portable/Manifest先作为Actions artifact进入verify，只有Linux/Windows验证成功后才由最终publish job上传正式Manifest和SHA256；失败或取消的Release不会被Resolver当作完整版本。
 - 全新 `bun run nuxt:build` 通过。无根 `node_modules` 的 Product 隔离 smoke 已覆盖 migration、管理员、system profile、variable CLI、workspace project create、State Root 映射与 HTTP 版本接口。
 - Product system profiles 改为 Nitro vendor 完成后以 Product 模式重新编译，避免源码环境 artifact 在无根 `node_modules` 下出现 `compile_stale`。
 - Task 105 收口聚焦回归通过：`workspace-assets-product-root`、Profile Catalog、Profile CLI path 与 installation paths 共 4 个测试文件、51 项测试。期间发现 Profile Catalog 测试仍写死 compiler version 6；实现实际已使用公开常量 version 7，现已让测试直接消费 `PROFILE_ARTIFACT_COMPILER_VERSION`，避免后续 compiler contract 升级再次产生同类假失败。
 - 首次 Manager canary CI 暴露 `paths.test.ts` 写死 Windows 盘符，Linux runner 会把它解析为相对路径；测试已改用当前平台的 `resolve/join` 表达同一目录合同，本地 Manager 23 项测试复跑通过。
 - 第二次 Manager canary CI 的验证已全绿，但 `bun publish` 未消费 `actions/setup-node` 生成的 npm 认证配置；workflow 已切换到标准 `npm publish --workspace`，继续复用 `NODE_AUTH_TOKEN` 和 npm registry 配置。
 - 第三次 Manager canary CI 已进入 npm publish，registry 因 token 未启用 bypass 2FA 返回 403；同时 npm 严格校验会移除带 `./` 前缀的 bin 路径，包元数据已改为 `dist/neuro-book.mjs`。继续发布前需要更新具备 package write 权限且允许绕过 2FA 的 granular token。
-- Manager `0.1.0-canary.4` 已公开发布并可从 npm `canary` 安装。npm 首次发布同时创建了指向 prerelease 的 `latest`；Manager workflow 已增加保护，仅当 canary 发布后 `latest` 恰好指向本次 prerelease 时删除该 tag，stable 发布仍正常写入 `latest`。
+- Manager `0.1.0-canary.5` 已公开发布并可从npm `canary`安装；typecheck、8个测试文件/23项测试和空目录pack审计通过。npm首次发布遗留的`latest → 0.1.0-canary.4`仍需带OTP删除；canary文档继续使用`@canary`，stable发布前不推荐`@latest`。
 - 应用 canary run `29185683743` 的 GHCR 与 Source job 成功，但 Windows/Linux Product 都因源码直接导入却未声明 `h3` 而失败，assemble/verify 随后跳过。根依赖已补 `h3 ^1.15.5`，Product CI 明确统一 hoisted linker；Nitro vendor 复制会解引用 Bun package symlink，并补齐 Product 动态源码所需的 `proper-lockfile`、`pinyin-pro` seeds。
 - SSH Arch 实机验证通过：Bun 1.3.14 hoisted 干净安装与 Linux Product build、移走根 `node_modules` 后 migration/start/HTTP、Source Docker 容器内 build/start、公开 GHCR digest pull/revision label/migration/HTTP。Prisma CLI 相对 SQLite URL 曾错误落到 Application Root，现已规范化为 State Root 绝对 URL并增加聚焦测试。
+- Manager `0.1.0-canary.5`的Stage 0实机安装使用managed Bun 1.3.14完成Source Dev依赖安装和Nuxt启动；Source Docker也从公开Manager完成容器内frozen install、Product build和容器启动。
+- 应用`0.7.4`的Arch验证发现服务器默认鉴权会使Manager版本探针收到HTTP 401，因此主动取消 [workflow 29192059375](https://github.com/notnotype/neuro-book/actions/runs/29192059375)。该Release保持零资产、没有正式Manifest，Resolver会安全跳过。`/api/app/version`现作为只读公共部署探针，其他日志、配置和业务接口仍受鉴权；聚焦middleware测试和完整typecheck通过。修复进入`0.7.5`，仍需公开资产复验。
 
 当前未完成的环境级验收：
 
-- Manager canary 已公开发布；仍需把 npm 当前误指 prerelease 的 `latest` dist-tag 清理，并在稳定版发布时重新建立正确 `latest`。
-- SSH Arch 已通过 Linux Product Bun、Source Docker 和公开 GHCR 镜像运行 smoke；仍需新应用 canary 完成 assemble/公开资产 verify，并通过 Manager GHCR 无宿主 checkout 安装与 digest 回滚终验。
+- Manager `0.1.0-canary.5`已公开发布；仍需把npm当前误指prerelease的`latest` dist-tag清理，并在稳定版发布时重新建立正确`latest`。
+- `0.7.5` Source、Linux Product与GHCR镜像CI已通过，Windows Product、assemble、verify和publish仍在运行；正式Manifest公开后再执行Product Bun、Manager GHCR无宿主checkout安装、admin/update和digest回滚终验。
 - Windows Portable 尚未完成交互式 start → 浏览器 → create-admin → restart → update → data 保留终验；本轮不自动执行浏览器验收。
 
 ## Implementation Walkthrough
@@ -394,6 +396,23 @@ uninstall
 - Windows/POSIX Stage 0固定Bun 1.3.14官方archive与executable checksum，每次复用缓存时同时校验checksum和版本，损坏缓存会整版本重建。
 - npm入口文档明确禁止`bunx run @notnotype/neuro-book-manager`，标准形式保持`bunx --bun @notnotype/neuro-book-manager@<tag> <command>`；该错误发生在Manager启动前，只能通过正确入口和发布smoke防止复发。
 - 发布后Arch Source Docker实机build/start成功，但默认启用鉴权使Manager访问`/api/app/version`得到401并误判失败。版本接口现作为只读公共部署探针，其他App/日志/配置接口仍受鉴权；新增middleware聚焦测试约束该边界。
+- 有缺陷的`0.7.4` workflow在正式Manifest发布前主动取消，GitHub Release保持零资产；随后发布`0.7.5`承载健康探针修复。实际计划差异是紧急patch从一次应用发布扩展为两次canary，目的是保证Resolver永远看不到已知不可用的完整Release。
+
+### 2026-07-12：首次安装引导与多实例 Manager
+
+- `bunx --bun @notnotype/neuro-book-manager@<tag>`无参数入口硬切为Clack安装向导，不再只显示Commander帮助或静默选择Profile。向导解释部署方式，并依次收集Installation Root、实例名称、channel、端口和鉴权，最后展示摘要和下一步命令。
+- 新增用户级`~/.neuro-book-manager/config.json`严格schema，只保存安装偏好、实例名称、绝对Installation Root和默认实例。应用版本、组件provider、checksum、Runtime和更新状态不复制到用户配置，仍由每个实例的`.deploy/installation.json`唯一负责。
+- 新增`neuro-book manage` blessed TUI以及`instances list/add/forget/default/config`命令。TUI覆盖实例状态、doctor、start、update、新安装、注册、默认选择和忘记索引；忘记操作不会删除Installation Root或用户数据。
+- `update/start/status/doctor/runtime/tools/admin`新增全局`--root`与`--instance`选择。未显式指定时先解析当前目录实例，再回退用户配置的默认实例，Manager由此真正具备跨目录管理多个NeuroBook实例的能力。
+- blessed顶层入口会动态require全部widgets，Bun表面构建成功但单文件bundle运行时缺失`./widgets/node`。实现没有复制node_modules或外置运行时依赖，而是增加静态widget适配层，只打包TUI真实使用的Screen/Box/List/Question/Prompt，保持`.runtime/manager/<version>/neuro-book.mjs`单文件运行合同。
+- 验证结果：Manager typecheck通过；9个测试文件/25项测试通过；npm pack audit生成5文件、约0.33MB压缩包，并在空目录真实安装后运行`--version`、`status --help`、用户配置路径和GHCR安装dry-run。直接执行打包后的CLI也已验证非TTY环境会明确拒绝TUI且不会挂起。
+- 实际结果与计划差异：最初只计划增加无参数引导和一个TUI入口；实现审查后补齐了实例索引严格schema、命令级实例选择和配置恢复命令，否则TUI会成为无法被普通CLI复用的第二套实例状态。没有实现后台进程管理、自动发现全盘实例或把installation manifest镜像到用户配置，避免扩大v1范围。
+
+### 2026-07-12：npm Trusted Publisher 实测准备
+
+- 用户已在npm为Manager配置GitHub Trusted Publisher。Manager workflow从`NPM_TOKEN`硬切到GitHub OIDC：job增加`id-token: write`，固定使用支持Trusted Publishing的npm 11.5.1，并通过`npm publish --provenance`发布。
+- canary publish job不再尝试删除错误的`latest` dist-tag。Trusted Publisher负责包发布，dist-tag修正属于独立registry管理操作；把两者串在同一job会造成包已成功发布但workflow最终失败的假象。
+- 本轮将发布新的Manager canary patch验证OIDC链。成功标准是GitHub Actions无需`NPM_TOKEN`即可发布、npm `canary`指向新版本且包带provenance；历史`latest → 0.1.0-canary.4`仍单独处理，不用它判断Trusted Publisher是否成功。
 
 ## TODO / Follow-ups
 
@@ -406,7 +425,8 @@ uninstall
 - [x] 删除旧部署入口并同步当前部署文档。
 - [x] 停止现有服务后重建根 `node_modules`，完成全新 Product build和无根 `node_modules` Product 隔离运行。
 - [ ] 使用本轮新 `.output` 完成 Windows Portable start/create-admin/update/data 保留 smoke。
-- [ ] Linux Product Bun、Source Docker 容器内 build 和公开 GHCR runtime smoke 已在 SSH Arch 通过；仍需新 Release 的公开资产 verify、Manager GHCR 无宿主 checkout安装和 digest 回滚。
+- [ ] Linux Product Bun、Source Docker容器内build和既有公开GHCR runtime smoke已在SSH Arch通过；仍需`0.7.5`完整公开资产verify、Product Bun、Manager GHCR无宿主checkout安装和digest回滚。
 - [ ] 增加下载中断、checksum、manifest mismatch、migration、文件占用和健康检查失败的完整故障注入矩阵。
 - [x] 实现统一 installation Operation Journal，覆盖 Product、Release Source、Compose、数据库、created paths 与 Git commit point 恢复。
-- [x] 配置 GitHub `NPM_TOKEN` 并公开发布 Manager canary；应用 canary 已触发但 Product jobs失败，需发布修复后的新 canary完成闭环。
+- [x] 公开发布Manager `0.1.0-canary.5`并触发应用`0.7.5` canary；Release资产闭环仍由上方未完成项跟踪。
+- [x] 实现无参数Clack安装向导、用户级实例索引、`--root`/`--instance`选择和blessed多实例TUI；仍需随下一Manager版本公开后做真实bunx交互smoke。

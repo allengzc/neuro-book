@@ -98,8 +98,12 @@ The package bundles Bun, rg, PortableGit with Bash, a prebuilt `.output`, and th
 **Server / Docker:**
 
 ```bash
-bunx --bun @notnotype/neuro-book-manager@canary install --profile ghcr
+bunx --bun @notnotype/neuro-book-manager@canary
 ```
+
+With no arguments, Manager opens a guided installer that explains deployment profiles and asks for the directory, update channel, port, and authentication policy. After installation, `neuro-book manage` opens a multi-instance TUI. The instance index lives at `~/.neuro-book-manager/config.json`; deployment truth remains in each instance's `.deploy/installation.json`. Automation should use `install --profile ghcr --yes`.
+
+Use `@canary` during the canary phase. Do not use `bunx run @notnotype/neuro-book-manager`: `bunx run` resolves the package name as a local script or path, so Manager never starts. A GitHub Release is installable only after its final `release-manifest.json` is published; Manager safely skips releases that are still assembling or were cancelled.
 
 | Option | Best for |
 | --- | --- |

@@ -17,8 +17,10 @@
 - 紧急发布补丁进一步修复 Product 更新失败时重复回滚可能删除已恢复 `.output` 的问题；回滚所有权现在只属于 Operation Journal。Source Dev 启动使用 Manifest 中的 Application Runtime，更新完成后执行 frozen依赖安装，失败时保留可恢复journal。
 - Release资产先作为候选Actions artifact完成Linux/Windows验证，只有验证全绿后才把正式 `release-manifest.json` 和校验文件上传到GitHub Release，避免失败Release被Manager识别为可安装版本。Stage 0每次复用缓存Bun都会校验固定官方checksum和版本，损坏缓存会重新下载。
 - Manager正确入口是 `bunx --bun @notnotype/neuro-book-manager@canary <command>`；`bunx run @notnotype/neuro-book-manager` 会被Bun按本地脚本或路径解析，不能启动Manager。
+- Manager无参数启动现在进入完整Clack安装向导，并在安装成功后把实例注册到`~/.neuro-book-manager/config.json`。新增`neuro-book manage` blessed多实例TUI、`instances`索引命令，以及跨目录操作的`--root`/`--instance`选择；用户级配置只保存偏好和目录索引，不复制实例部署状态。
+- Manager npm发布改用GitHub Actions Trusted Publisher：workflow申请`id-token: write`并执行带provenance的无token发布，不再读取`NPM_TOKEN`。npm dist-tag修正不混入OIDC publish job，避免包已发布后因额外registry写操作让workflow误报失败。
 - Docker实机验证发现服务器默认鉴权会让Manager版本健康检查收到401；`/api/app/version`现作为只读公共部署探针，不开放日志、配置或业务数据接口，Source Docker与GHCR可在启用鉴权时完成安装和更新健康检查。
-- 本轮已通过完整应用与 Manager typecheck、23 项 Manager 测试、Pi/runtime/harness 聚焦组合 8 files / 229 tests、Config/model settings/shared DTO 138 tests、npm tarball空目录审计、Windows Portable真实组装，以及 Release/Portable脚本 bundle和 workflow YAML校验。SSH Arch 进一步通过 Bun 1.3.14 Linux Product build、无根 `node_modules` migration/start/HTTP、Source Docker容器内 build/start和公开 GHCR digest运行 smoke；新的完整 Release assemble/verify与浏览器验收尚未执行。
+- 本轮已通过完整应用与Manager typecheck、23项Manager测试、npm tarball空目录审计、Windows Portable组装，以及Release/Portable脚本和workflow YAML校验。SSH Arch进一步通过Stage 0 managed Bun 1.3.14的Source Dev安装/启动、Linux Product无根依赖运行、Source Docker容器内install/build/start和既有公开GHCR digest smoke。应用`0.7.4`因鉴权健康探针401在正式资产发布前主动取消且保持零资产；修复后的`0.7.5` Source、Linux Product和GHCR镜像CI已通过，Windows Product、assemble、verify和最终publish仍以Actions结果为准，不能提前视为完整Release。
 
 ## 0.7.2-canary - 2026-07-11
 

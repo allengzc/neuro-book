@@ -30,12 +30,35 @@ try {
         "status",
         "--help",
     ], temporaryRoot);
+    await run([
+        "bun",
+        join(temporaryRoot, "node_modules", "@notnotype", "neuro-book-manager", "dist", "neuro-book.mjs"),
+        "instances",
+        "config",
+    ], temporaryRoot, {
+        ...process.env,
+        NEURO_BOOK_MANAGER_CONFIG: join(temporaryRoot, "manager-home", "config.json"),
+    });
+    await run([
+        "bun",
+        join(temporaryRoot, "node_modules", "@notnotype", "neuro-book-manager", "dist", "neuro-book.mjs"),
+        "install",
+        "--profile",
+        "ghcr",
+        "--dir",
+        join(temporaryRoot, "dry-run-instance"),
+        "--yes",
+        "--dry-run",
+    ], temporaryRoot, {
+        ...process.env,
+        NEURO_BOOK_MANAGER_CONFIG: join(temporaryRoot, "manager-home", "config.json"),
+    });
 } finally {
     await rm(temporaryRoot, {recursive: true, force: true});
 }
 
-async function run(command, cwd) {
-    const process = Bun.spawn(command, {cwd, stdout: "inherit", stderr: "inherit"});
-    const exitCode = await process.exited;
+async function run(command, cwd, env = process.env) {
+    const child = Bun.spawn(command, {cwd, env, stdout: "inherit", stderr: "inherit"});
+    const exitCode = await child.exited;
     if (exitCode !== 0) throw new Error(`${command.join(" ")} 退出码 ${exitCode}`);
 }

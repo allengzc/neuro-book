@@ -10,6 +10,29 @@ export type InstallProfile =
 /** Release channel。canary 表示全部受支持 prerelease。 */
 export type ReleaseChannel = "stable" | "canary";
 
+/** 用户级 Manager 配置中的安装偏好。 */
+export type ManagerPreferences = {
+    channel: ReleaseChannel;
+    installDirectory: string;
+};
+
+/** 用户注册的 NeuroBook 实例索引；实例自身状态仍以 installation.json 为准。 */
+export type ManagerInstance = {
+    id: string;
+    name: string;
+    root: string;
+    registeredAt: string;
+    lastUsedAt: string;
+};
+
+/** 位于用户主目录的 Manager 配置。 */
+export type ManagerConfig = {
+    schemaVersion: 1;
+    defaultInstanceId: string | null;
+    preferences: ManagerPreferences;
+    instances: ManagerInstance[];
+};
+
 /** 当前支持的 Product 平台。 */
 export type ProductPlatform = "windows-x64" | "linux-x64-glibc";
 

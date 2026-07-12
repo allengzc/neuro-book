@@ -52,6 +52,10 @@ bunx --bun @notnotype/neuro-book-manager@canary install --profile ghcr
 
 Canary 使用 `@canary`。没有 Bun 时，Stage 0 会把固定 Bun 放入用户 cache 并校验 SHA256，再调用同一个 Manager。Stage 0 不应把临时 Bun 写入目标 Installation Root。
 
+不要生成或建议`bunx run @notnotype/neuro-book-manager`。`bunx run`会把包名当作本地脚本或路径，无法启动Manager。stable和正确npm `latest`建立前，所有canary操作显式使用`@canary`。
+
+Release只有在正式`release-manifest.json`公开后才算装配完成。候选资产只存在于Actions artifact期间不可安装；构建中、验证失败或取消的Release应由Resolver安全跳过。
+
 安装后的稳定入口：
 
 ```powershell
@@ -61,6 +65,8 @@ Canary 使用 `@canary`。没有 Bun 时，Stage 0 会把固定 Bun 放入用户
 ```bash
 ./.runtime/bin/neuro-book status --json
 ```
+
+面向真人的首次安装可以省略子命令进入Clack向导；Agent和CI应继续显式传入Profile并使用`--yes`，避免等待交互输入。Manager的用户级实例索引位于`~/.neuro-book-manager/config.json`，只保存目录与偏好，不替代每个实例的`.deploy/installation.json`。跨目录排障可使用`--root <path>`或`--instance <name-or-id>`；多实例人工管理入口是`neuro-book manage`。
 
 ## Profile 语义
 
