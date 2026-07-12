@@ -5,7 +5,7 @@
     "license": "AGPL-3.0-only",
     "type": "module",
     "bin": {
-        "neuro-book": "./dist/neuro-book.mjs"
+        "neuro-book": "dist/neuro-book.mjs"
     },
     "exports": {
         ".": "./dist/neuro-book.mjs",
