@@ -126,7 +126,7 @@ curl -fsSL https://raw.githubusercontent.com/notnotype/neuro-book/master/scripts
 bunx --bun @notnotype/neuro-book-manager@canary
 ```
 
-Stage 0只把固定版本 Bun下载到用户缓存并校验SHA256，然后进入同一个Manager安装向导。`install.ps1`、`install.cmd`和`install.sh`也随完整Release发布，可配合`SHA256SUMS`审计或离线分发。
+Stage 0是可审计的联网引导脚本：它只把固定版本 Bun下载到用户缓存并校验SHA256，然后运行Manager `@canary`。Manager默认选择最新一个已经完整发布Manifest的应用canary，而不是把Stage 0绑定到某个应用版本。`install.ps1`、`install.cmd`和`install.sh`也随完整Release发布，可配合`SHA256SUMS`审计后再联网执行。
 
 Manager不传参数会说明部署方式并引导选择目录、更新通道、端口和鉴权。安装后运行`neuro-book manage`可在TUI中管理多个实例；实例索引保存在`~/.neuro-book-manager/config.json`，真实部署状态仍位于各实例的`.deploy/installation.json`。自动化部署使用`install --profile ghcr --yes`。
 

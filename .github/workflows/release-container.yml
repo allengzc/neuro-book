@@ -362,24 +362,25 @@ jobs:
         run: |
           $portableRoot = (Resolve-Path portable).Path
           $manifest = Get-Content -Raw (Join-Path $portableRoot ".deploy/installation.json") | ConvertFrom-Json
-          $bun = Join-Path $portableRoot $manifest.components.applicationRuntime.path
-          $migration = Join-Path $portableRoot ".output/server/scripts/db/prisma-migrate.mjs"
-          $productStart = Join-Path $portableRoot ".output/server/scripts/deploy/product-start.mjs"
           $port = 39123
-          $env:NODE_ENV = "production"
-          $env:NUXT_PORT = "$port"
-          $env:PORT = "$port"
-          $env:NEURO_BOOK_APPLICATION_ROOT = $portableRoot
-          $env:NEURO_BOOK_STATE_ROOT = Join-Path $portableRoot "data"
-          & $bun $migration --deploy
-          if ($LASTEXITCODE -ne 0) { throw "Portable migration failed: $LASTEXITCODE" }
+          $stateRoot = Join-Path $portableRoot "data"
+          $envPath = Join-Path $stateRoot ".env"
+          $configPath = Join-Path $stateRoot "config.yaml"
+          $envContent = Get-Content -Raw -LiteralPath $envPath
+          $envContent = $envContent -replace '(?m)^NUXT_PORT=.*$', "NUXT_PORT=$port"
+          $envContent = $envContent -replace '(?m)^PORT=.*$', "PORT=$port"
+          Set-Content -LiteralPath $envPath -Value $envContent -Encoding utf8NoBOM
+          $configContent = Get-Content -Raw -LiteralPath $configPath
+          $configContent = $configContent -replace '(?m)^(\s*port:\s*)\d+\s*$', "`${1}$port"
+          Set-Content -LiteralPath $configPath -Value $configContent -Encoding utf8NoBOM
           $stdout = Join-Path $portableRoot "data/logs/release-browser-smoke.stdout.log"
           $stderr = Join-Path $portableRoot "data/logs/release-browser-smoke.stderr.log"
-          $product = Start-Process -FilePath $bun -ArgumentList @($productStart) -WorkingDirectory $portableRoot -RedirectStandardOutput $stdout -RedirectStandardError $stderr -WindowStyle Hidden -PassThru
+          $launcher = Join-Path $portableRoot "Start Neuro Book.cmd"
+          $launcherProcess = Start-Process -FilePath $env:ComSpec -ArgumentList @("/d", "/c", "`"$launcher`"") -WorkingDirectory $env:RUNNER_TEMP -RedirectStandardOutput $stdout -RedirectStandardError $stderr -WindowStyle Hidden -PassThru
           try {
             $ready = $false
             for ($attempt = 0; $attempt -lt 120; $attempt++) {
-              if ($product.HasExited) { break }
+              if ($launcherProcess.HasExited) { break }
               try {
                 $response = Invoke-WebRequest -Uri "http://127.0.0.1:$port/api/app/version" -TimeoutSec 1
                 if ($response.StatusCode -eq 200) { $ready = $true; break }
@@ -389,8 +390,9 @@ jobs:
             if (-not $ready) {
               Get-Content -Raw $stdout -ErrorAction SilentlyContinue | Write-Host
               Get-Content -Raw $stderr -ErrorAction SilentlyContinue | Write-Host
-              throw "Portable Product did not become ready"
+              throw "Start Neuro Book.cmd did not make Portable ready"
             }
+            if ($launcherProcess.HasExited) { throw "Start Neuro Book.cmd exited before browser smoke" }
             $chrome = Join-Path $env:ProgramFiles "Google/Chrome/Application/chrome.exe"
             if (-not (Test-Path -LiteralPath $chrome)) {
               $chrome = Join-Path ${env:ProgramFiles(x86)} "Microsoft/Edge/Application/msedge.exe"
@@ -405,9 +407,9 @@ jobs:
               Get-Content -Raw $stderr -ErrorAction SilentlyContinue | Write-Host
               throw "Portable browser smoke failed: $LASTEXITCODE"
             }
+            if ($launcherProcess.HasExited) { throw "Start Neuro Book.cmd did not keep the Product in the foreground" }
           } finally {
-            if (-not $product.HasExited) { taskkill /PID $product.Id /T /F | Out-Null }
-            Remove-Item Env:NEURO_BOOK_APPLICATION_ROOT, Env:NEURO_BOOK_STATE_ROOT, Env:NUXT_PORT, Env:PORT -ErrorAction SilentlyContinue
+            if (-not $launcherProcess.HasExited) { taskkill /PID $launcherProcess.Id /T /F | Out-Null }
           }
       - name: Verify Windows Stage 0 syntax
         shell: pwsh
@@ -436,7 +438,7 @@ jobs:
     steps:
       - run: echo "Release verification completed."
 
-  publish:
+  publish-payload:
     needs: [verify]
     runs-on: ubuntu-latest
     permissions:
@@ -446,7 +448,7 @@ jobs:
         with:
           name: release-candidate
           path: dist
-      - name: Publish verified release assets
+      - name: Publish verified payload assets
         uses: softprops/action-gh-release@v2
         with:
           files: |
@@ -454,8 +456,66 @@ jobs:
             dist/neuro-book-product-windows-x64.zip
             dist/neuro-book-product-linux-x64-glibc.tar.gz
             dist/neuro-book-windows-x64.zip
-            dist/release-manifest.json
-            dist/SHA256SUMS
             dist/install.ps1
             dist/install.cmd
             dist/install.sh
+
+  verify-public-payload:
+    needs: [publish-payload, build-and-push]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile --linker hoisted
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-candidate
+          path: candidate-assets
+      - name: Download public payload assets
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          mkdir public-assets
+          cp candidate-assets/release-manifest.json candidate-assets/SHA256SUMS public-assets/
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}"
+          for asset in \
+            neuro-book-source.zip \
+            neuro-book-product-windows-x64.zip \
+            neuro-book-product-linux-x64-glibc.tar.gz \
+            neuro-book-windows-x64.zip \
+            install.ps1 \
+            install.cmd \
+            install.sh; do
+            curl --fail --location --retry 8 --retry-all-errors --retry-delay 3 \
+              --output "public-assets/${asset}" "${base}/${asset}"
+          done
+      - name: Verify public payload bytes and checksums
+        run: bun scripts/release/release-assets.ts verify --dir public-assets --tag "${{ github.event.release.tag_name }}" --revision "${{ github.sha }}"
+      - name: Verify public GHCR digest
+        env:
+          IMAGE: ${{ env.APP_IMAGE_NAME }}@${{ needs.build-and-push.outputs.app-digest }}
+        run: |
+          docker pull "${IMAGE}"
+          test "$(docker image inspect "${IMAGE}" --format '{{ index .RepoDigests 0 }}')" = "${APP_IMAGE_NAME}@${{ needs.build-and-push.outputs.app-digest }}"
+
+  publish-index:
+    needs: [verify-public-payload]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-candidate
+          path: dist
+      - name: Publish release index last
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/release-manifest.json
+            dist/SHA256SUMS

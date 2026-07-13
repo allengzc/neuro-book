@@ -275,6 +275,14 @@ export type OperationJournal = {
     databaseBackup?: string;
     databasePath?: string;
     previousCompose?: string;
+    /** Compose 已切换；回滚前必须先停止当前容器。 */
+    composeChanged?: boolean;
+    /** 本次操作前不存在受管 Compose，回滚时应删除新文件。 */
+    composeCreated?: boolean;
+    /** Source Docker 本次创建的本地镜像；失败时删除。 */
+    dockerImageCreated?: string;
+    /** 镜像删除失败时保留给 doctor/人工清理。 */
+    dockerImageCleanupError?: string;
     wrapperBackup?: string;
     wrappersChanged?: boolean;
     outcome?: "success" | "rolled-back";

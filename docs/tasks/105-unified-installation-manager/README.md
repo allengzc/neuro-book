@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中。Manager [`0.1.0-canary.13`](https://github.com/notnotype/neuro-book/actions/runs/29252645123)已通过Trusted Publisher公开，npm `canary`与真实bunx均已验证。公开`0.7.8`存在CMD闪退和生产Chunk循环依赖白屏，不再作为推荐测试版；[`v0.7.9-canary.20260713.131204Z.3b064b83`](https://github.com/notnotype/neuro-book/releases/tag/v0.7.9-canary.20260713.131204Z.3b064b83)已按`--no-watch`创建，Windows/Linux真实浏览器门禁正在后台运行。公开Portable/Product Bun与GHCR A→B终验仍未完成，因此Task 105不归档。
+> 当前状态：实现中。Manager [`0.1.0-canary.13`](https://github.com/notnotype/neuro-book/actions/runs/29252645123)已通过Trusted Publisher公开，npm `canary`与真实bunx均已验证。[`v0.7.9-canary.20260713.131204Z.3b064b83`](https://github.com/notnotype/neuro-book/releases/tag/v0.7.9-canary.20260713.131204Z.3b064b83)的Release workflow `29252852294`全绿，九个资产已公开，Windows Portable与Linux Product真实浏览器门禁通过。公开Portable/Product Bun与GHCR A→B终验仍未完成，因此Task 105不归档。
 
 ## Relative documents refs
 
@@ -524,6 +524,15 @@ uninstall
 - 本地完整验证为：应用/Manager typecheck、Manager 14文件42测试、Release/路径聚焦5文件8测试、全新Nuxt Product build、57,787条目Windows Portable组装、Portable doctor和真实Chrome首页挂载均通过。安装根特意放在名为`workspace`的祖先目录下，日志无State Root越界和ESM初始化异常。
 - Manager `0.1.0-canary.13`发布workflow `29252645123`全绿，npm与公开bunx均返回`.13`。随后创建应用`v0.7.9-canary.20260713.131204Z.3b064b83`；按发布约定不等待Release Actions，公开资产仍需后续验证。
 
+### 2026-07-13：Docker事务与公开资产最后提交协议
+
+- `0.7.9` Release workflow `29252852294`最终全绿，Source、Windows/Linux Product、Portable、三个Stage 0、Manifest与SHA256SUMS共九个资产已公开；Windows/Linux生产浏览器Smoke均通过，删除“后台构建中”的过期状态。
+- Docker更新把Compose切换、容器生命周期、App SQLite备份和Source Docker本地镜像纳入同一Operation Journal。失败与进程中断共用同一回滚实现：停止失败容器、恢复SQLite/WAL、恢复或删除Compose、重启旧digest，并清理未提交镜像。
+- Windows Release门禁保留Launcher参数stub测试，同时直接从Portable目录外执行真实`Start Neuro Book.cmd`，由Manager承担migration、前台Product进程和健康启动，再运行Chromium页面Smoke。
+- Release发布拆成`publish-payload → verify-public-payload → publish-index`。Source/Product/Portable/Stage 0先公开并从GitHub公开URL重新下载校验；正式Manifest与SHA256SUMS最后上传，因此任一公开Payload损坏都不会形成Manager可安装Release。
+- Stage 0文档统一为“可审计的联网引导脚本”：固定Bun资产并运行Manager `@canary`，应用版本由Manager选择最新完整Release；不再承诺离线安装或固定应用Release。
+- 实际计划差异：Docker镜像必须在build成功后立即写入Journal，不能等`prepareUpdate()`整体返回，否则后续Manager/Compose准备失败会留下孤儿镜像；实现因此把Journal更新推进到build完成点，并让catch统一重新读取持久化Journal恢复。
+
 ## TODO / Follow-ups
 
 - [x] Windows Portable 使用 `data/` State Root，不使用 junction。
@@ -535,7 +544,7 @@ uninstall
 - [x] 删除旧部署入口并同步当前部署文档。
 - [x] 停止现有服务后重建根 `node_modules`，完成全新 Product build和无根 `node_modules` Product 隔离运行。
 - [ ] 使用本轮新 `.output` 完成 Windows Portable start/create-admin/update/data 保留 smoke。
-- [ ] Linux Product Bun、Source Docker容器内build和既有公开GHCR runtime smoke已在SSH Arch通过；仍需`0.7.5`完整公开资产verify、Product Bun、Manager GHCR无宿主checkout安装和digest回滚。
+- [ ] Linux Product Bun、Source Docker容器内build和既有公开GHCR runtime smoke已在SSH Arch通过；`0.7.9`完整公开资产verify已通过，仍需下一patch完成Product Bun、Manager GHCR无宿主checkout安装和公开A→B数据保留验收。
 - [ ] 增加下载中断、checksum、manifest mismatch、migration、文件占用和健康检查失败的完整故障注入矩阵。
 - [x] 实现统一 installation Operation Journal，覆盖 Product、Release Source、Compose、数据库、created paths 与 Git commit point 恢复。
 - [x] 公开发布Manager `0.1.0-canary.5`并触发应用`0.7.5` canary；Release资产闭环仍由上方未完成项跟踪。

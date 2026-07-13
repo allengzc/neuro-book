@@ -1,5 +1,5 @@
 import {randomUUID} from "node:crypto";
-import {readFile, readdir, rename} from "node:fs/promises";
+import {copyFile, readFile, readdir, rename} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join, relative, resolve} from "node:path";
 
@@ -13,7 +13,7 @@ import {
     type StagedReleaseSource,
 } from "#manager/component";
 import {ensureStateFiles} from "#manager/config";
-import {buildSourceDockerImage, startDocker, verifyDockerApplication, writeDockerCompose} from "#manager/docker";
+import {buildSourceDockerImage, startDocker, stopDocker, verifyDockerApplication, writeDockerCompose} from "#manager/docker";
 import {ensureDirectory, pathExists, removePath} from "#manager/files";
 import {assertCleanWorktree, createStagedWorktree, materializeRepository, removeStagedWorktree, repositoryRevision} from "#manager/git";
 import {assertNativeProductStopped, backupApplicationDatabase, statePort, verifyNativeProduct} from "#manager/health";
@@ -25,7 +25,7 @@ import {installationPaths} from "#manager/paths";
 import {writePortableLaunchers} from "#manager/portable-launchers";
 import {buildSourceProduct, installSourceDependencies} from "#manager/product";
 import {profileDefinition} from "#manager/profiles";
-import {commandAvailable, run, runCapture} from "#manager/process";
+import {commandAvailable, runCapture} from "#manager/process";
 import {installManagerExecutable, resolveManagerRuntime, runtimeExecutable, writeManagerWrapper, writeRuntimeWrapper} from "#manager/runtime";
 import {activateManagedTools, installManagedTool, writeManagedToolWrappers} from "#manager/tools";
 import type {
@@ -112,7 +112,7 @@ async function installInternal(options: InstallOptions, mode: "fresh" | "adopt")
         const createdComponents: string[] = [];
         let stagedWorktree: string | null = null;
         try {
-            if (mode === "adopt" && options.profile === "source-product") {
+            if (mode === "adopt" && (options.profile === "source-product" || options.profile === "source-docker")) {
                 await assertNativeProductStopped(paths.state);
                 const database = await backupApplicationDatabase(paths.state, backup);
                 if (database) journal = await updateOperation(journal, "planned", {databasePath: database.databasePath, databaseBackup: database.backupPath});
@@ -134,10 +134,6 @@ async function installInternal(options: InstallOptions, mode: "fresh" | "adopt")
             return result.manifest;
         } catch (error) {
             if (stagedWorktree || mode === "adopt") await removeStagedWorktree(paths.root, stagedWorktree ?? join(tmpdir(), `nbook-adopt-worktree-${id}`)).catch(() => undefined);
-            if (mode === "adopt" && options.profile === "source-docker") {
-                const revision = await repositoryRevision(paths.root).catch(() => "");
-                if (revision) await run("docker", ["image", "rm", `neuro-book-source:${revision.slice(0, 12)}`], {cwd: paths.root, stdio: "ignore"}).catch(() => undefined);
-            }
             await recoverInterruptedOperations(paths.root).catch(() => undefined);
             throw error;
         }
@@ -246,6 +242,7 @@ async function prepareInstallation(
     } else if (options.profile === "source-docker") {
         product = {provider: "container", version: appVersion, revision: sourceRevision, image: `neuro-book-source:${sourceRevision.slice(0, 12)}`};
         await buildSourceDockerImage(stagedWorktree ?? paths.root, product.image);
+        journal = await updateOperation(journal, journal.phase, {dockerImageCreated: product.image});
     } else if (options.profile === "ghcr" && release) {
         product = {
             provider: "container",
@@ -280,6 +277,13 @@ async function prepareInstallation(
     if (options.profile === "source-docker" && product?.provider === "container"
         || options.profile === "ghcr" && product?.provider === "container" && product.digest) {
         const finalCompose = join(paths.deploy, "docker-compose.generated.yml");
+        const composeCreated = !await pathExists(finalCompose);
+        let previousCompose: string | undefined;
+        if (!composeCreated) {
+            previousCompose = join(backup, "docker-compose.generated.yml");
+            await ensureDirectory(backup);
+            await copyFile(finalCompose, previousCompose);
+        }
         const stagedCompose = await writeDockerCompose({
             root: paths.root,
             stateRoot: paths.state,
@@ -289,6 +293,12 @@ async function prepareInstallation(
             output: join(staging, "docker-compose.generated.yml"),
             layoutPath: finalCompose,
         });
+        journal = await updateOperation(journal, journal.phase, {
+            composeChanged: true,
+            composeCreated,
+            previousCompose,
+        });
+        if (!composeCreated) await stopDocker(paths.root, paths.state);
         await removePath(finalCompose);
         await rename(stagedCompose, finalCompose);
     }

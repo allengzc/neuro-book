@@ -125,7 +125,7 @@ With Bun already installed:
 bunx --bun @notnotype/neuro-book-manager@canary
 ```
 
-Stage 0 downloads a fixed Bun build into the user cache, verifies its SHA256, and enters the same Manager installer. `install.ps1`, `install.cmd`, and `install.sh` are also attached to every complete release for audited or offline installation with `SHA256SUMS`.
+Stage 0 is an auditable network bootstrap: it downloads a pinned Bun build into the user cache, verifies its SHA256, and runs Manager `@canary`. Manager then selects the newest application canary whose release manifest has been fully published; Stage 0 does not pin an application release. `install.ps1`, `install.cmd`, and `install.sh` are also attached to every complete release so they can be checked against `SHA256SUMS` before network execution.
 
 With no arguments, Manager explains the available profiles and asks for the directory, update channel, port, and authentication policy. After installation, `neuro-book manage` opens a multi-instance TUI. The instance index lives at `~/.neuro-book-manager/config.json`; deployment truth remains in each instance's `.deploy/installation.json`. Automation should use `install --profile ghcr --yes`.
 

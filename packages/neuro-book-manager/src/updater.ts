@@ -11,7 +11,7 @@ import {
     type StagedProduct,
     type StagedReleaseSource,
 } from "#manager/component";
-import {buildSourceDockerImage, startDocker, verifyDockerApplication, writeDockerCompose} from "#manager/docker";
+import {buildSourceDockerImage, startDocker, stopDocker, verifyDockerApplication, writeDockerCompose} from "#manager/docker";
 import {ensureDirectory, pathExists, removePath} from "#manager/files";
 import {assertNativeProductStopped, backupApplicationDatabase, statePort, verifyNativeProduct} from "#manager/health";
 import {
@@ -23,7 +23,7 @@ import {
 } from "#manager/git";
 import {withInstallLock} from "#manager/lock";
 import {resolveReleaseManifest, writeInstallationManifest} from "#manager/manifest-store";
-import {backupRuntimeWrappers, commitOperation, createOperation, recoverInterruptedOperations, rollbackOperation, updateOperation} from "#manager/operation";
+import {backupRuntimeWrappers, commitOperation, createOperation, recoverInterruptedOperations, updateOperation} from "#manager/operation";
 import {currentProductPlatform} from "#manager/platform";
 import {installationPaths} from "#manager/paths";
 import {buildSourceProduct, installSourceDependencies} from "#manager/product";
@@ -71,7 +71,6 @@ export async function updateInstallation(options: UpdateOptions): Promise<Instal
         });
         let stagedWorktree: string | null = null;
         let gitTarget: GitUpdateTarget | null = null;
-        let composeApplied = false;
         const createdComponents: string[] = [];
         try {
             const nativeProduct = isNativeProduct(options.manifest.profile) && selected.has("product");
@@ -86,10 +85,10 @@ export async function updateInstallation(options: UpdateOptions): Promise<Instal
                     });
                 }
             }
-            const result = await prepareUpdate(options, selected, staging, backup, createdComponents);
+            const result = await prepareUpdate(options, selected, staging, backup, createdComponents, journal);
             stagedWorktree = result.stagedWorktree;
             gitTarget = result.gitTarget;
-            journal = await updateOperation(journal, "validated", {
+            journal = await updateOperation(result.journal, "validated", {
                 nextManifest: result.manifest,
                 git: gitTarget ? {
                     previousRevision: gitTarget.previousRevision,
@@ -100,14 +99,21 @@ export async function updateInstallation(options: UpdateOptions): Promise<Instal
             if (result.stagedCompose) {
                 const compose = join(paths.deploy, "docker-compose.generated.yml");
                 const previousCompose = join(backup, "docker-compose.generated.yml");
-                if (await pathExists(compose)) {
-                    await ensureDirectory(backup);
-                    await copyFile(compose, previousCompose);
-                    journal = await updateOperation(journal, "validated", {previousCompose});
-                    await removePath(compose);
+                if (!await pathExists(compose)) throw new Error("Docker Profile缺少当前generated Compose，无法事务更新。" );
+                await ensureDirectory(backup);
+                await copyFile(compose, previousCompose);
+                journal = await updateOperation(journal, "validated", {previousCompose, composeChanged: true, composeCreated: false});
+                const stateRoot = resolve(paths.root, options.manifest.stateRoot);
+                await stopDocker(paths.root, stateRoot);
+                const database = await backupApplicationDatabase(stateRoot, backup);
+                if (database) {
+                    journal = await updateOperation(journal, "validated", {
+                        databasePath: database.databasePath,
+                        databaseBackup: database.backupPath,
+                    });
                 }
+                await removePath(compose);
                 await rename(result.stagedCompose, compose);
-                composeApplied = true;
             }
             if (result.stagedSource) {
                 const previous = options.manifest.components.source;
@@ -168,13 +174,8 @@ export async function updateInstallation(options: UpdateOptions): Promise<Instal
             await removePath(staging);
             return result.manifest;
         } catch (error) {
-            journal = await updateOperation(journal, journal.phase, {createdPaths: createdComponents}).catch(() => journal);
             if (stagedWorktree) await removeStagedWorktree(paths.root, stagedWorktree).catch(() => undefined);
-            if (!journal.git?.committed) await rollbackOperation(journal).catch(() => undefined);
-            if (composeApplied && (options.manifest.profile === "ghcr" || options.manifest.profile === "source-docker")) {
-                const stateRoot = resolve(paths.root, options.manifest.stateRoot);
-                await startDocker(paths.root, stateRoot, options.manifest.profile).catch(() => undefined);
-            }
+            await recoverInterruptedOperations(paths.root).catch(() => undefined);
             throw error;
         }
     });
@@ -190,6 +191,7 @@ async function prepareUpdate(
     staging: string,
     backup: string,
     createdComponents: string[],
+    initialJournal: Awaited<ReturnType<typeof createOperation>>,
 ): Promise<{
     manifest: InstallationManifest;
     stagedWorktree: string | null;
@@ -197,6 +199,7 @@ async function prepareUpdate(
     stagedSource: StagedReleaseSource | null;
     stagedProduct: StagedProduct | null;
     stagedCompose: string | null;
+    journal: Awaited<ReturnType<typeof createOperation>>;
 }> {
     const profile = options.manifest.profile;
     const paths = installationPaths(options.root, profile === "windows-portable");
@@ -220,6 +223,7 @@ async function prepareUpdate(
     let stagedSource: StagedReleaseSource | null = null;
     let stagedProduct: StagedProduct | null = null;
     let stagedCompose: string | null = null;
+    let journal = initialJournal;
     const bunRuntime = options.manifest.components.applicationRuntime;
     const bun = bunRuntime.provider === "container" ? null : runtimeExecutable(paths.root, bunRuntime);
 
@@ -246,6 +250,7 @@ async function prepareUpdate(
         } else if (profile === "source-docker") {
             product = {provider: "container", version: appVersion, revision: sourceRevision, image: `neuro-book-source:${sourceRevision.slice(0, 12)}`};
             await buildSourceDockerImage(stagedWorktree, product.image);
+            journal = await updateOperation(journal, journal.phase, {dockerImageCreated: product.image});
         }
     } else if (profile === "source-dev" && selected.has("source")) {
         gitTarget = await fetchUpdateTarget(paths.root);
@@ -334,7 +339,7 @@ async function prepareUpdate(
             layoutPath: finalCompose,
         });
     }
-    return {manifest: next, stagedWorktree, gitTarget, stagedSource, stagedProduct, stagedCompose};
+    return {manifest: next, stagedWorktree, gitTarget, stagedSource, stagedProduct, stagedCompose, journal};
 }
 
 function defaultComponents(profile: InstallationManifest["profile"]): ComponentId[] {

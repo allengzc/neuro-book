@@ -82,9 +82,29 @@ export async function startDocker(root: string, stateRoot: string, profile: Inst
     await run("docker", [...args, "up", "-d"], {cwd: root});
 }
 
+/** 在切换Compose或备份SQLite前停止受管app容器。 */
+export async function stopDocker(root: string, stateRoot: string): Promise<void> {
+    await run("docker", [...composeArgs(root, stateRoot), "stop", "app"], {cwd: root});
+}
+
+/** 回滚或Fresh Install失败时移除当前Compose创建的容器与网络。 */
+export async function removeDockerDeployment(root: string, stateRoot: string): Promise<void> {
+    await run("docker", [...composeArgs(root, stateRoot), "down", "--remove-orphans"], {cwd: root});
+}
+
+/** 删除Source Docker事务创建但未提交的本地镜像。 */
+export async function removeDockerImage(root: string, image: string): Promise<void> {
+    await run("docker", ["image", "rm", image], {cwd: root, stdio: "ignore"});
+}
+
 /** 从 staged Git worktree 构建带 revision tag 的 Source Docker image。 */
 export async function buildSourceDockerImage(sourceRoot: string, image: string): Promise<void> {
     await run("docker", ["build", "--file", join(sourceRoot, "Dockerfile"), "--tag", image, sourceRoot], {cwd: sourceRoot});
+}
+
+/** 生成所有Docker生命周期命令共用的Compose参数。 */
+function composeArgs(root: string, stateRoot: string): string[] {
+    return ["compose", "--env-file", join(stateRoot, ".env"), "-f", join(root, ".deploy", "docker-compose.generated.yml")];
 }
 
 function commonEnvironment(port: number): Record<string, string> {

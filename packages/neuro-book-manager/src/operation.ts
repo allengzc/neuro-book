@@ -2,6 +2,7 @@ import {copyFile, cp, readdir, rm} from "node:fs/promises";
 import {join, resolve} from "node:path";
 
 import {rollbackProduct, rollbackReleaseSource} from "#manager/component";
+import {removeDockerDeployment, removeDockerImage, startDocker} from "#manager/docker";
 import {ensureDirectory, pathExists, readJson, removePath, safeTarget, writeJsonAtomic} from "#manager/files";
 import {writeInstallationManifest} from "#manager/manifest-store";
 import {installationPaths} from "#manager/paths";
@@ -66,9 +67,14 @@ export async function recoverInterruptedOperations(root: string): Promise<void> 
 /** 按 journal 恢复当前操作；不会 reset Git。 */
 export async function rollbackOperation(journal: OperationJournal): Promise<void> {
     const root = journal.root;
+    const currentCompose = join(root, ".deploy", "docker-compose.generated.yml");
+    const stateRoot = resolve(root, journal.previousManifest?.stateRoot ?? journal.nextManifest?.stateRoot ?? ".");
+    if (journal.composeChanged && await pathExists(currentCompose)) {
+        await removeDockerDeployment(root, stateRoot);
+    }
     const previousProduct = journal.previousManifest?.components.product;
     const nextProduct = journal.nextManifest?.components.product;
-    if (nextProduct && JSON.stringify(nextProduct) !== JSON.stringify(previousProduct)) {
+    if (nextProduct && nextProduct.provider !== "container" && JSON.stringify(nextProduct) !== JSON.stringify(previousProduct)) {
         await rollbackProduct(root, join(journal.backupRoot, "product"));
     }
     const previousSource = journal.previousManifest?.components.source;
@@ -88,7 +94,12 @@ export async function rollbackOperation(journal: OperationJournal): Promise<void
         await copyFile(journal.databaseBackup, journal.databasePath);
     }
     if (journal.previousCompose && await pathExists(journal.previousCompose)) {
-        await copyFile(journal.previousCompose, join(root, ".deploy", "docker-compose.generated.yml"));
+        await copyFile(journal.previousCompose, currentCompose);
+    } else if (journal.composeCreated) {
+        await removePath(currentCompose);
+    }
+    if (journal.previousManifest && isDockerProfile(journal.previousManifest.profile)) {
+        await startDocker(root, resolve(root, journal.previousManifest.stateRoot), journal.previousManifest.profile);
     }
     if (journal.wrappersChanged) {
         const runtimeBin = join(root, ".runtime", "bin");
@@ -99,8 +110,16 @@ export async function rollbackOperation(journal: OperationJournal): Promise<void
         }
     }
     for (const path of [...journal.createdPaths].reverse()) await removePath(safeTarget(root, path));
+    let dockerImageCleanupError: string | undefined;
+    if (journal.dockerImageCreated) {
+        try {
+            await removeDockerImage(root, journal.dockerImageCreated);
+        } catch (error) {
+            dockerImageCleanupError = error instanceof Error ? error.message : String(error);
+        }
+    }
     if (journal.previousManifest) await writeInstallationManifest(join(root, ".deploy", "installation.json"), journal.previousManifest);
-    await updateOperation(journal, "committed", {outcome: "rolled-back"});
+    await updateOperation(journal, "committed", {outcome: "rolled-back", dockerImageCleanupError});
 }
 
 /** 在切换稳定 wrapper 前备份现有 `.runtime/bin`。 */
@@ -117,4 +136,9 @@ export async function backupRuntimeWrappers(root: string, backupRoot: string): P
 async function writeOperation(journal: OperationJournal): Promise<void> {
     const path = join(journal.root, ".deploy", "operations", `${journal.id}.json`);
     await writeJsonAtomic(path, journal);
+}
+
+/** Docker Profile回滚后必须恢复旧Compose对应的实例。 */
+function isDockerProfile(profile: InstallationManifest["profile"]): profile is "ghcr" | "source-docker" {
+    return profile === "ghcr" || profile === "source-docker";
 }

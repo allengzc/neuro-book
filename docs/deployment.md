@@ -47,9 +47,9 @@ irm https://raw.githubusercontent.com/notnotype/neuro-book/master/scripts/instal
 curl -fsSL https://raw.githubusercontent.com/notnotype/neuro-book/master/scripts/install/install.sh | sh
 ```
 
-Linux Stage 0要求x64 glibc，并依赖`curl`、`unzip`和`sha256sum`。Stage 0只把固定版本Bun下载到用户cache、校验官方SHA256，然后调用Manager。它不会先向目标Installation Root写`.runtime`，因此不会破坏Git materialize。
+Linux Stage 0要求x64 glibc，并依赖`curl`、`unzip`和`sha256sum`。Stage 0是可审计的联网引导脚本：只把固定版本Bun下载到用户cache、校验官方SHA256，然后调用Manager `@canary`。Manager默认解析最新一个已完整发布Manifest的应用canary；Stage 0本身不固定应用版本。它不会先向目标Installation Root写`.runtime`，因此不会破坏Git materialize。
 
-每个完成装配的应用Release也独立发布`install.ps1`、`install.cmd`和`install.sh`，三者进入同一`SHA256SUMS`。raw GitHub命令适合快速安装；Release资产适合审计、固定版本或离线分发。
+每个完成装配的应用Release也独立发布`install.ps1`、`install.cmd`和`install.sh`，三者进入同一`SHA256SUMS`。raw GitHub命令适合快速安装；Release资产适合先审计脚本内容与校验值，再进行联网引导。它们不是离线应用安装包。
 
 Manager只安装已经发布正式`release-manifest.json`的完整GitHub Release。候选资产在Actions内完成校验后才公开Manifest；仍在构建、验证失败或已取消的Release会被Resolver跳过。
 

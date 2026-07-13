@@ -1,5 +1,22 @@
 # Release Notes
 
+## 0.7.10-canary - 2026-07-13
+
+本版本继续收口NeuroBook Manager的部署事务与发布门禁，重点避免Docker更新失败后留下新容器、已迁移数据库或不可安装的半成品Release。
+
+### 更新说明
+
+- GHCR与Source Docker更新现在会在切换前停止旧容器并备份SQLite/WAL状态；新容器启动、迁移或HTTP健康检查失败时，统一恢复旧数据库、旧Compose和旧镜像并重新启动旧实例。
+- Fresh Docker安装失败会清理本次创建的Compose、容器和Source Docker本地镜像；进程中断后也由同一Operation Journal恢复，不再依赖当前命令的临时catch逻辑。
+- Windows Release门禁直接从Portable目录外执行真实`Start Neuro Book.cmd`，由Manager完成migration和前台启动，再用Chromium验证首页挂载。
+- Release先公开Source、Product、Portable和Stage 0 Payload，从公开下载地址重新校验大小、SHA256与GHCR digest；只有全部通过后才最后上传`release-manifest.json`与`SHA256SUMS`。Manager不会看到验证未完成的Release。
+
+### 迁移指南
+
+- Windows Portable用户请把旧目录中的完整`data/`复制到0.7.10的新解压目录，不要复制旧`.output`、`.runtime`或`.deploy`，然后运行`Start Neuro Book.cmd`。
+- 已由Manifest v3管理的Product Bun、GHCR和Source Docker实例直接运行`neuro-book update`。Docker更新前请确保State Root所在磁盘有足够空间保存SQLite备份。
+- 仍在0.7.8的用户必须重新解压新Portable；不要在0.7.8目录内覆盖更新。
+
 ## 0.7.9-canary - 2026-07-13
 
 本版本是 Windows Portable 0.7.8 的紧急修复版，解决启动窗口直接关闭和服务启动后首页白屏的两个独立问题。
