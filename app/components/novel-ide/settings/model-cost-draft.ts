@@ -5,6 +5,15 @@ export type ModelCostDraft = {
     output: string;
     cacheRead: string;
     cacheWrite: string;
+    tiers: ModelCostTierDraft[];
+};
+
+export type ModelCostTierDraft = {
+    inputTokensAbove: string;
+    input: string;
+    output: string;
+    cacheRead: string;
+    cacheWrite: string;
 };
 
 /**
@@ -16,6 +25,7 @@ export function createEmptyModelCostDraft(): ModelCostDraft {
         output: "",
         cacheRead: "",
         cacheWrite: "",
+        tiers: [],
     };
 }
 
@@ -31,6 +41,13 @@ export function createModelCostDraft(cost: ConfiguredModelDto["cost"]): ModelCos
         output: formatDraftNumber(cost.output),
         cacheRead: formatDraftNumber(cost.cacheRead),
         cacheWrite: formatDraftNumber(cost.cacheWrite),
+        tiers: cost.tiers.map((tier) => ({
+            inputTokensAbove: formatDraftNumber(tier.inputTokensAbove),
+            input: formatDraftNumber(tier.input),
+            output: formatDraftNumber(tier.output),
+            cacheRead: formatDraftNumber(tier.cacheRead),
+            cacheWrite: formatDraftNumber(tier.cacheWrite),
+        })),
     };
 }
 
@@ -42,13 +59,14 @@ export function clearModelCostDraft(cost: ModelCostDraft): void {
     cost.output = "";
     cost.cacheRead = "";
     cost.cacheWrite = "";
+    cost.tiers.splice(0);
 }
 
 /**
  * 判断当前草稿是否显式覆盖价格。
  */
 export function hasModelCostOverride(cost: ModelCostDraft): boolean {
-    return [cost.input, cost.output, cost.cacheRead, cost.cacheWrite].some((value) => value.trim().length > 0);
+    return cost.tiers.length > 0 || [cost.input, cost.output, cost.cacheRead, cost.cacheWrite].some((value) => value.trim().length > 0);
 }
 
 /**
@@ -59,11 +77,23 @@ export function parseModelCostDraft(cost: ModelCostDraft): ConfiguredModelDto["c
         return null;
     }
 
+    const tiers = cost.tiers.map((tier, index) => ({
+        inputTokensAbove: readThreshold(tier.inputTokensAbove, index),
+        input: normalizePrice(readRequiredPrice(tier.input, `tiers[${index}].input`)),
+        output: normalizePrice(readRequiredPrice(tier.output, `tiers[${index}].output`)),
+        cacheRead: normalizePrice(readRequiredPrice(tier.cacheRead, `tiers[${index}].cacheRead`)),
+        cacheWrite: normalizePrice(readRequiredPrice(tier.cacheWrite, `tiers[${index}].cacheWrite`)),
+    })).sort((left, right) => left.inputTokensAbove - right.inputTokensAbove);
+    const duplicate = tiers.find((tier, index) => index > 0 && tier.inputTokensAbove === tiers[index - 1]?.inputTokensAbove);
+    if (duplicate) {
+        throw new Error(`价格 tier threshold 重复：${duplicate.inputTokensAbove}`);
+    }
     return {
-        input: normalizePrice(readPrice(cost.input)),
-        output: normalizePrice(readPrice(cost.output)),
-        cacheRead: normalizePrice(readPrice(cost.cacheRead)),
-        cacheWrite: normalizePrice(readPrice(cost.cacheWrite)),
+        input: normalizePrice(readRequiredPrice(cost.input, "input")),
+        output: normalizePrice(readRequiredPrice(cost.output, "output")),
+        cacheRead: normalizePrice(readRequiredPrice(cost.cacheRead, "cacheRead")),
+        cacheWrite: normalizePrice(readRequiredPrice(cost.cacheWrite, "cacheWrite")),
+        tiers,
     };
 }
 
@@ -75,15 +105,29 @@ function formatDraftNumber(value: number): string {
 }
 
 /**
- * 读取非负价格；未填或非法字段按 0 保存。
+ * 读取必填非负价格；覆盖状态不允许用空字段静默补 0。
  */
-function readPrice(value: string): number {
+function readRequiredPrice(value: string, field: string): number {
     const normalized = value.trim();
     if (!normalized) {
-        return 0;
+        throw new Error(`自定义价格字段 ${field} 未填写`);
     }
     const parsed = Number(normalized);
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+    if (!Number.isFinite(parsed) || parsed < 0) {
+        throw new Error(`自定义价格字段 ${field} 必须是有限非负数`);
+    }
+    return parsed;
+}
+
+/**
+ * 读取 tier threshold。
+ */
+function readThreshold(value: string, index: number): number {
+    const parsed = Number(value.trim());
+    if (!Number.isInteger(parsed) || parsed < 0) {
+        throw new Error(`价格 tier ${index + 1} 的 threshold 必须是非负整数`);
+    }
+    return parsed;
 }
 
 /**

@@ -12,10 +12,10 @@
  *    response.headers 经 sanitizeResponseHeaders 敏感头 denylist 过滤后落盘。
  *  - binding 缺省等同关闭：直接透传原始调用，零开销。
  */
-import {completeSimple, streamSimple} from "@earendil-works/pi-ai";
-import type {Api, AssistantMessage, AssistantMessageEvent, Context, Model, ProviderResponse, SimpleStreamOptions} from "@earendil-works/pi-ai";
+import type {Api, AssistantMessage, AssistantMessageEvent, Context, Model, Models, ProviderResponse, SimpleStreamOptions} from "@earendil-works/pi-ai";
 import {PiRequestRecorder} from "nbook/server/agent/observability/pi-request-recorder";
 import type {PiTraceCorrelation, PiTraceDraft} from "nbook/server/agent/observability/pi-request-recorder";
+import {providerErrorText, sanitizeProviderErrorMessage} from "nbook/server/agent/observability/provider-error-sanitizer";
 
 /** 每次调用的 trace 开关（由 config 解析后传入；recorder/代理都不读 config）。 */
 export type PiTraceSettings = {
@@ -150,10 +150,14 @@ class TraceCollector {
                         output: message.usage.output,
                         cacheRead: message.usage.cacheRead,
                         cacheWrite: message.usage.cacheWrite,
+                        cacheWrite1h: message.usage.cacheWrite1h,
+                        reasoning: message.usage.reasoning,
                         totalTokens: message.usage.totalTokens,
                     }
                     : undefined,
-                errorMessage: message?.errorMessage ?? fallbackError,
+                errorMessage: message?.errorMessage
+                    ? sanitizeProviderErrorMessage(message.errorMessage)
+                    : fallbackError,
             },
             timing: {startedAt: this.startedAtIso, ttftMs: this.ttftMs, durationMs: Date.now() - this.startedAtMs},
         };
@@ -167,18 +171,19 @@ class TraceCollector {
  * 开启时返回委托式 pass-through 流（caller 拉 wrapper → wrapper 拉 original，单消费链）。
  */
 export function tracedStreamSimple(
+    models: Models,
     model: Model<Api>,
     context: Context,
     options: SimpleStreamOptions | undefined,
     binding?: PiTraceBinding,
 ): ObservableAssistantStream {
     if (!binding?.settings.enabled) {
-        return streamSimple(model, context, options);
+        return models.streamSimple(model, context, options);
     }
     const collector = new TraceCollector(model, context, binding);
-    const original = streamSimple(model, context, collector.mergeOptions(options));
+    const original = models.streamSimple(model, context, collector.mergeOptions(options));
     // finalize 挂 result()：无论 caller 是否消费/abort 都能落记录；error/abort 也 resolve 成最终 message。
-    void original.result().then((message) => collector.finalize(message)).catch((error: unknown) => collector.finalize(undefined, errorText(error)));
+    void original.result().then((message) => collector.finalize(message)).catch((error: unknown) => collector.finalize(undefined, providerErrorText(error)));
     return {
         [Symbol.asyncIterator]() {
             return (async function* () {
@@ -199,26 +204,22 @@ export function tracedStreamSimple(
  * onPayload/onResponse 仍在 provider 内触发，请求体与响应元数据照常采集；binding 缺省等同关闭。
  */
 export async function tracedCompleteSimple(
+    models: Models,
     model: Model<Api>,
     context: Context,
     options: SimpleStreamOptions | undefined,
     binding?: PiTraceBinding,
 ): Promise<AssistantMessage> {
     if (!binding?.settings.enabled) {
-        return completeSimple(model, context, options);
+        return models.completeSimple(model, context, options);
     }
     const collector = new TraceCollector(model, context, binding);
     try {
-        const message = await completeSimple(model, context, collector.mergeOptions(options));
+        const message = await models.completeSimple(model, context, collector.mergeOptions(options));
         collector.finalize(message);
         return message;
     } catch (error) {
-        collector.finalize(undefined, errorText(error));
+        collector.finalize(undefined, providerErrorText(error));
         throw error;
     }
-}
-
-/** 把未知异常压成可入 trace 记录的文本。 */
-function errorText(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
 }

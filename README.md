@@ -94,20 +94,23 @@ AI 已经是一匹好马，NeuroBook 是那副鞍（NeuroAgentHarness——Harne
 .\Start Neuro Book.cmd
 ```
 
-包内内置 Bun runtime、预构建产物和完整源码快照，不装依赖、不跑构建；首次启动自动初始化数据，默认免密码直接使用。需要时运行 `.\Create Admin.cmd` 创建管理员并开启密码保护，然后重启 NeuroBook。之后用 `.\Update Neuro Book.cmd` 一键升级，`data/` 中的作品和配置全部保留。
+包内内置 Bun、rg、PortableGit/bash、预构建 `.output` 和完整源码，不装应用依赖、不在用户机器构建；首次启动由 NeuroBook Manager 初始化 `data/` 状态目录，默认免密码直接使用。需要时运行 `.\Create Admin.cmd` 创建管理员。之后用 `.\Update Neuro Book.cmd` 事务升级，`data/` 中的作品、配置和日志全部保留。
 
 **服务器 / Docker：**
 
 ```bash
-bunx --bun --package github:notnotype/neuro-book neuro-book-deploy
+bunx --bun @notnotype/neuro-book-manager@canary
 ```
 
+不传参数会进入安装向导，说明部署方式并引导选择目录、更新通道、端口和鉴权。安装后运行`neuro-book manage`可在TUI中管理多个实例；实例索引保存在`~/.neuro-book-manager/config.json`，真实部署状态仍位于各实例的`.deploy/installation.json`。自动化部署使用`install --profile ghcr --yes`。
+
+Canary阶段固定使用`@canary`。不要写成`bunx run @notnotype/neuro-book-manager`：`bunx run`会把包名按本地脚本或路径解析，Manager不会启动。只有GitHub Release出现正式`release-manifest.json`后才可安装；仍在构建或已取消的Release会被Manager安全跳过。
 
 | 方式                     | 适合                                           |
 | ------------------------ | ---------------------------------------------- |
 | Windows Product Portable | Windows 本机用户，解压即用                     |
 | ghcr                     | 服务器 Docker 部署，拉取预构建镜像，低内存友好 |
-| Product Bun              | 已有 Bun 的本机或服务器，免源码运行            |
+| Product Bun              | 已有 Bun 的本机或服务器，源码 + 预构建 Product  |
 | Source Dev               | 开发者，源码开发和测试                         |
 
 完整的部署、更新、管理员与模型配置说明见 [docs/deployment.md](docs/deployment.md)。要让其他 AI Agent 协助部署或排障，把 [docs/operator-bridge.md](docs/operator-bridge.md) 发给它即可。

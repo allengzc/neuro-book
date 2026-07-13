@@ -1,5 +1,6 @@
 import type {AgentMessage, AgentToolCall, AssistantMessage, JsonValue, Message, Model, ThinkingLevel, ToolResultMessage} from "nbook/server/agent/messages/types";
-import type {AgentProfile, ProfileCompactionPlan} from "nbook/server/agent/profiles/types";
+import type {AgentProfile} from "nbook/server/agent/profiles/types";
+import type {ProfileRuntimeSettings} from "nbook/shared/agent/profile-runtime-settings";
 import type {TSchema} from "typebox";
 import type {AgentRuntimeHookStage} from "nbook/server/agent/profiles/define-agent-runtime";
 import type {NeuroSessionContext, InvocationErrorInfo, SessionEntryId, SessionSnapshot} from "nbook/server/agent/session/types";
@@ -12,6 +13,7 @@ import type {AgentMode} from "nbook/shared/dto/agent-session.dto";
 import type {UserInputFormSpec} from "nbook/server/agent/tools/types";
 import type {PiTraceSettings} from "nbook/server/agent/observability/traced-provider";
 import type {ProfileTurnContextPlan, ProfileTurnContextSettlement} from "nbook/server/agent/profiles/profile-turn-context";
+import type {Models} from "@earendil-works/pi-ai";
 
 export type RunRuntimeState = Map<string, JsonValue>;
 
@@ -146,11 +148,14 @@ export type RunFrame = {
     workspaceRoot: string;
     projectPath?: string;
     systemPrompt: string;
+    models: Models;
+    /** true 表示本 run 使用 invocation 私有 custom Pi runtime。 */
+    customPiRuntime?: boolean;
     model: Model<any>;
     apiKey?: string;
     timeoutMs?: number | null;
     requestOptions?: Record<string, JsonValue>;
-    compaction?: ProfileCompactionPlan;
+    compaction?: ProfileRuntimeSettings["compaction"];
     /** 本 run 的 Pi 请求 trace 设置，由 prepareRun 从 effective config 解析。缺省表示不追踪。 */
     piTrace?: PiTraceSettings;
     sessionContextEnabled: boolean;
@@ -163,6 +168,8 @@ export type RunFrame = {
     agentMode: AgentMode;
     /** Profile 显式声明的逐 turn 动态上下文。 */
     profileTurnContexts?: ProfileTurnContextPlan[];
+    /** Harness 最终解析的单文件 diff 字符预算。 */
+    fileChangeDiffMaxChars?: number;
     /** 已进入模型、等待成功 ingest 后结算的动态上下文交付。 */
     pendingProfileTurnContextSettlements?: ProfileTurnContextSettlement[];
     thinkingLevel: ThinkingLevel;
@@ -217,6 +224,9 @@ export type TurnSnapshot = {
     systemPrompt: string;
     modelMessages: AgentMessage[];
     providerMessages: Message[];
+    models: Models;
+    /** true 表示本 turn 使用 invocation 私有 custom Pi runtime。 */
+    customPiRuntime?: boolean;
     model: Model<any>;
     apiKey?: string;
     timeoutMs?: number | null;

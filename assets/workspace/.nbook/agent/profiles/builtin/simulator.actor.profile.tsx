@@ -168,7 +168,6 @@ export default defineAgentProfile({
         builtin.result.sidecar(),
     ),
     toolKeys: ["report_result"],
-    compaction: {},
     sidecars: [
         actorContextLoadPass,
         actorMemorySavePass,

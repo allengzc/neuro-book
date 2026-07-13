@@ -195,9 +195,10 @@ export default defineAgentProfile({
         ...plotWriteBindings,
         builtin.sql.execute,
     ),
-    summarizer: {
-        profileKey: "summarizer",
-        input: {
+    runtimeDefaults: {
+        summarizer: {
+            enabled: true,
+            profileKey: "summarizer",
             trigger: "afterInvocation",
             interval: {
                 kind: "sourceInvocation",
@@ -206,7 +207,6 @@ export default defineAgentProfile({
             maxDialogueContentTokens: 80_000,
         },
     },
-    compaction: {},
     async context(ctx) {
         // Leader 人设：唯一的异步读取，先取出正文再进 JSX
         const personaKey = ctx.settings.leaderPersonaPreset || DEFAULT_LEADER_PERSONA_PRESET;

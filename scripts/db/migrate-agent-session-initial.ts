@@ -1,5 +1,6 @@
 import {readdir, readFile, rename, unlink, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
+import {resolveStateWorkspaceRoot} from "nbook/server/runtime/installation-paths";
 
 type MigrationOptions = {
     rootWorkspace: string;
@@ -120,7 +121,7 @@ async function migrateSessionFile(filePath: string, dryRun: boolean): Promise<"m
  * 解析命令行参数。默认迁移 ./workspace，可用 --root 指向其它 Workspace Root。
  */
 function parseArgs(args: string[]): MigrationOptions {
-    let rootWorkspace = resolve(process.cwd(), "workspace");
+    let rootWorkspace = resolveStateWorkspaceRoot();
     let dryRun = false;
     for (let index = 0; index < args.length; index += 1) {
         const arg = args[index];

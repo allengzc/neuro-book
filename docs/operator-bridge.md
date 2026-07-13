@@ -1,650 +1,228 @@
 # NeuroBook 交付与运维桥梁
 
-这份文档不是普通部署教程，而是连接 NeuroBook 开发者、使用者和使用者 Agent 的交接层。
+本文件面向协助部署或排障的 Agent。当前部署真相源是独立 `@notnotype/neuro-book-manager`，不要再调用已删除的 `neuro-book-deploy`、`local-git` 模式、`Dockerfile.source-runtime` 或旧 Windows Launcher。
 
-它的目标是让用户可以把本文直接发给自己的 Agent，然后让 Agent 根据用户目标完成部署、更新、排障或解释。Agent 执行时应优先遵守本文，再按本文索引读取项目关键文档。
+## 先收集的信息
 
-## 适用对象
+开始操作前确认：
 
-- 用户：想把 NeuroBook 部署到一台服务器，或让 Agent 帮自己部署。
-- 用户的 Agent：需要理解本项目部署模型、配置文件边界、敏感信息边界和排障路径。
-- 项目维护者：需要把部署语义稳定地传递给外部执行者。
+1. 操作系统、架构和 Linux libc。
+2. 目标 Profile：`windows-portable`、`ghcr`、`product-bun`、`source-dev`、`source-product` 或 `source-docker`。
+3. Installation Root 的绝对路径。
+4. stable/canary channel、指定版本和端口。
+5. 是否已有 `.deploy/installation.json`。
+6. Git Profile 是否有 dirty/untracked 文件。
+7. Product 或 Docker 服务是否仍在运行。
 
-## Agent 执行原则
+不要为了继续更新而自动执行 `git restore`、`git stash`、`git reset`、删除未知文件或终止用户进程。
 
-用户的 Agent 在执行部署前，必须先确认这些信息：
+## 核心目录合同
 
-1. 用户要部署到哪里：本机、远程服务器、还是已有的 `arch` 开发服务器。
-2. 用户希望的模式：Windows Product Portable、Product Bun、`ghcr`，还是源码部署 `local-git` / `source`。
-3. 是否已有 `.env` / `config.yaml` / `workspace/.nbook/config.json`：已有时不要随意覆盖这些私有配置文件。
-4. 服务器内存是否足够执行 Nuxt build：低内存服务器优先使用 `ghcr`。
-5. 用户是否允许 Agent 执行需要 sudo 的 Docker 或系统包管理器命令。
+Installation Root 是源码与可替换组件的统一根：
 
-不要把密码、Provider key、数据库密码写入聊天记录、命令参数、Git commit 或 issue。管理员密码不要作为命令参数传入。
-
-## 关键文档索引
-
-Agent 回答问题或执行任务时，应按问题类型读取这些文档：
-
-- [../README.md](../README.md)：项目功能概览、常用命令、Docker Compose 部署入口、故障排查。
-- [../PROJECT-STATUS.md](../PROJECT-STATUS.md)：仓库当前状态、近期风险、部署策略的最新摘要。
-- [../AGENTS.md](../AGENTS.md)：代码协作规则、文档维护规则、编码约束。
-- [README.md](README.md)：文档体系入口，说明 `docs/`、`reference/`、`PROJECT-STATUS.md` 的分工。
-- [tasks/README.md](tasks/README.md)：active 编号任务与 archived 任务的维护规则。
-- [tasks/archived/docker-compose-deployment/README.md](tasks/archived/docker-compose-deployment/README.md)：Docker Compose 部署任务 walkthrough，记录部署模式演进、关键决策和验证记录。
-- [../reference/agent/README.md](../reference/agent/README.md)：Agent 稳定参考入口；profile、prompt、上下文分区、Import 和默认协作协议优先看这里。
-- [../reference/agent/leader-default.md](../reference/agent/leader-default.md)：当前 `leader.default` 的工具、任务、多 Agent、SQL、Plan Mode 和 Skills 操作协议。
-- [../reference/agent/project-workspace-guide.md](../reference/agent/project-workspace-guide.md)：Project Workspace 路径、基础内容节点、常用目录和 workspace node CLI 的 Agent 短指南。
-- [../reference/agent/profile-import.md](../reference/agent/profile-import.md)：Profile `<Import />` 共享文本导入节点规范。
-- [../reference/content/README.md](../reference/content/README.md)：内容结构、lorebook / simulation、Markdown 扩展、retrieval 和 profile context memory 稳定参考入口。
-- [tasks/02-pi-agent-harness-migration/README.md](tasks/02-pi-agent-harness-migration/README.md)：当前 Pi-based Agent session / event / tool / profile 主路径迁移记录。
-- [tasks/04-tsx-profile-workbench/README.md](tasks/04-tsx-profile-workbench/README.md)：TSX Profile Workbench 当前实现边界。
-- [tasks/06-leader-default-prompt-parity/README.md](tasks/06-leader-default-prompt-parity/README.md)：leader.default prompt parity、task/plot/SQL 工具、writer/retrieval profile 和 skill 迁移记录。
-- [../reference/README.md](../reference/README.md)：NeuroBook Reference Bookshelf。
-- [../reference/agent/harness.md](../reference/agent/harness.md)：当前 Agent Harness、session、profile 和持久化流程参考。
-- [../reference/agent/profile-guide.md](../reference/agent/profile-guide.md)：Agent profile 实现和阅读指南。
-- [../reference/agent/context.md](../reference/agent/context.md)：TSX prompt 上下文拼接规则。
-
-如果用户问的是部署问题，优先读本文、README 的 Docker Compose 部分、`docs/tasks/archived/docker-compose-deployment/README.md` 和 `PROJECT-STATUS.md`。Archived walkthrough 记录了部署方案的演进过程，当前执行真相以本文、README 和 `PROJECT-STATUS.md` 为准。
-
-如果用户问的是 Agent 能力、提示词、工具或 workspace 文件语义，先读 `reference/agent/README.md`、`reference/agent/leader-default.md`、`reference/agent/project-workspace-guide.md`、`reference/agent/profile-import.md` 和 `reference/content/README.md`。需要了解迁移背景、实现演进或历史边界时，再继续读 `docs/tasks/02-pi-agent-harness-migration/README.md`、`docs/tasks/04-tsx-profile-workbench/README.md`、`docs/tasks/06-leader-default-prompt-parity/README.md` 和 `reference/agent/harness.md`。
-
-当前 Agent 文档阅读时应使用 session / linked agent 心智：正式 HTTP 是 `/api/agent/sessions/**`，前端历史真相来自 session snapshot + JSONL entry tree，SSE 只是增量事件通道。旧 `thread` / `subagent` / `/api/agent/threads/**` / `/api/agent-v3/**` 只在归档文档或迁移说明中出现。
-
-SkillCatalog 只展示可发现 skill。独立 `skill` 工具已经禁用；当用户要求 Agent 使用某个 skill 时，应先从 catalog 找到 `location`，再用 `read` 打开对应 `SKILL.md`，并按入口文档继续读取 reference/scripts/templates/examples。
-
-## 部署模型
-
-NeuroBook 正式 release 主线采用 Product-first：构建机生成 Product Payload，运行机通过 Windows Launcher、Bun 或 Docker 启动，不要求源码 checkout、根 `node_modules` 或本机 build。Windows 普通用户使用 GitHub Release 中的 Windows Product Portable；它独立于 `neuro-book-deploy`，包内包含预构建 `app/`、Windows Launcher 和内置 Bun runtime。源码部署 `local-git` / `source` 仍保留给开发者和过渡场景。
-
-仓库跟踪的模板文件：
-
-- `docker-compose.yml`：基础模板，默认只启动 `app`，数据库为 SQLite 文件库。
-- `Dockerfile`：GHCR app 镜像构建文件，构建阶段和 app final runner 都使用 Bun；最终镜像包含项目源码、预构建 Nuxt `.output`、`.output/server/node_modules` Nitro vendor 和 Agent 常用工具，运行时不要求根 `node_modules`。
-- `Dockerfile.source-runtime`：source 模式本地 runtime 镜像，只提供 Bun、Python 3、ripgrep、git、bash 等工具，不复制源码。
-
-部署脚本生成的本地状态：
-
-- `.env`：容器运行环境变量，例如端口、session password、`DATABASE_KIND=sqlite`、`DATABASE_URL=file:./workspace/.nbook/neuro-book.sqlite`。
-- `config.yaml`：Boot Config，只保存启动/部署期配置，例如 server host/port、database kind/url 与 `auth.enabled`；数据库字段通过 `${DATABASE_KIND}` / `${DATABASE_URL}` 镜像 `.env`。
-- `workspace/.nbook/config.json`：Global Config，保存 Provider key、模型白名单、baseURL、代理、profile 模型覆盖和长期 UI/editor 偏好。
-- `.deploy/docker-compose.generated.yml`：根据 `ghcr` 或 `source` 模式生成的 compose override；local-git 模式不使用该文件。
-- `.deploy/README.md`：当前部署目录的本地操作说明。
-
-`.env`、`config.yaml`、`workspace/` 和 `.deploy/` 都不进 Git。`git pull` 不会更新这些本机部署状态。如果部署脚本或部署模式变化，需要重新生成或迁移 `.deploy/` 本地说明和 compose override。部署脚本默认生成空模型配置，不预置 DeepSeek 或其他 Provider；用户进入前端设置页后再选择 Provider、API Key 和默认模型。
-
-基础 `docker-compose.yml` 不挂载根目录 `config.yaml`。`ghcr` 模式会由 `.deploy/docker-compose.generated.yml` 把 `config.yaml` 挂载到容器内 `/app/config.yaml`，并把 `workspace/` 挂载到 `/app/workspace`。`source` 模式会把整个项目目录挂载到 `/app`，因此容器内自然能看到 `/app/config.yaml` 和 `/app/workspace`。
-
-local-git 模式不使用 Docker。应用直接在宿主机项目目录中运行，读取同一份 `.env`、`config.yaml` 和 `workspace/.nbook/config.json`。旧 `native` 参数只作为兼容别名保留。
-
-### Windows Product Portable
-
-这是 Windows x64 的点击启动 Product Portable 包，适合普通 Windows 本机用户。它不是 `neuro-book-deploy` 的部署模式。
-
-特点：
-
-- GitHub Release asset，zip 自带 Bun runtime、root-level Launcher 脚本和 `app/` Product Payload。
-- zip 不要求用户安装 Git、ripgrep，不要求根 `node_modules`，不在产品机执行 Nuxt build。
-- 用户运行 `Start Neuro Book.cmd` 后，Launcher 初始化 `data/.env`、`data/config.yaml`、`data/workspace/.nbook/config.json`，执行 SQLite migration，没有用户时引导创建管理员，然后启动本地网页。
-- 服务 cwd 是 `app/` Product Root；`app/workspace` 映射到 `data/workspace`，升级时保留 `data/`。
-- `Create Admin.cmd` / `Create Admin.ps1` 使用内置 Bun 运行产品脚本创建或重置管理员。
-- `Update Neuro Book.cmd` / `Update Neuro Book.ps1` 会查询 GitHub Release，下载并校验 `neuro-book-windows-x64.zip`，备份旧 `app/` / `launcher/` / 根启动脚本后切换新版，并保留 `data/`；不再 `git pull`。内置 `runtime/bun/` 自动更新时保留当前版本，避免替换正在运行的 bun.exe。
-
-适合：
-
-- Windows 本机点击启动体验。
-- 用户希望不安装源码依赖、不构建、不接触命令行。
-
-不适合：
-
-- 需要跨进程热替换内置 Bun runtime 的生产环境；当前自动更新只切换 Product Payload 和 Launcher。
-
-## 部署模式
-
-### local-git 模式
-
-这是默认推荐模式，适合本机或不想安装 Docker 的机器。
-
-特点：
-
-- 宿主机 git clone/pull 项目源码。
-- 宿主机安装依赖、Nuxt prepare/generate/build 和 SQLite 迁移。
-- 服务启动前先同步 user-assets，再用 `bun .output/server/index.mjs` 启动。
-- 部署脚本生成 `.deploy/start-local-git.sh` 或 `.deploy/start-local-git.ps1` 便于启动服务，但不生成 systemd/pm2 服务，不接管后台进程管理。
-- 数据库固定 SQLite-only。App SQLite 位于 `workspace/.nbook/neuro-book.sqlite`；Project SQLite 位于 `workspace/<project>/.nbook/project.sqlite`。
-
-宿主机工具：
-
-- 必需：`git`、`bun`、`rg`。
-- Unix/macOS/Linux 还需要 `bash`、`coreutils` 和基础 `findutils`。
-- 建议安装 `python3`，用于保持 Agent helper 脚本能力。
-- 部署脚本会按平台给出 Windows `winget` / Scoop、macOS `brew` 或 Linux 主流包管理器安装命令，交互确认后才执行；非交互环境缺工具会停止并打印命令。Windows 下 `winget` 是官方包管理器，适合普通用户；Scoop 更偏开发者工具链，默认安装到用户目录。可用 `--windows-package-manager auto|winget|scoop` 指定，默认 `auto` 优先使用已安装的 `winget`，其次尝试 Scoop。
-- 模型 Provider 和 API Key 不在部署开局询问；部署后进入前端设置页或编辑 `workspace/.nbook/config.json` 配置。
-- `--dry-run --yes` 会展示将写入的文件路径、清理动作和将执行的命令；local-git 模式仍会探测本机命令是否存在，用来展示缺失工具和安装建议，但不会安装、构建、迁移、启动服务或写入部署文件。
-
-### ghcr 模式
-
-这是低内存服务器的推荐 Docker 模式。
-
-特点：
-
-- 服务器拉取 `ghcr.io/notnotype/neuro-book:<release-tag>`；交互安装会列出 stable / canary / alpha / beta / rc release，非交互安装默认使用当前安装器版本对应的 `v...` tag。
-- 服务器不执行 Nuxt build，避免 OOM。
-- app 镜像内部包含项目源码、Prisma、`.output`、`.output/server/node_modules` Nitro vendor、Bun runtime 和 agent 常用工具。
-- 容器启动时执行 SQLite migration，并用 Product 启动脚本运行服务；不会执行 `bun install`，也不依赖根 `node_modules`。
-- 创建管理员时使用 Bun 运行产品内脚本，不使用根 `bun run auth:create-admin`。
-- `latest` 只代表最新 stable；canary / alpha / beta / rc 不会默认覆盖 `latest`。
-
-适合：
-
-- 低内存 VPS。
-- 用户只想运行服务，不想在服务器上 build。
-- release 发布后的稳定部署。
-
-### source 模式
-
-source 模式适合开发服务器或需要频繁 `git pull` 同步最新代码的服务器。
-
-特点：
-
-- 宿主机 git clone 项目源码。
-- 容器内 `/app` 挂载宿主机项目目录。
-- source runtime 镜像由服务器本地构建，使用 `Dockerfile.source-runtime`，不依赖 GHCR。
-- 宿主机需要执行 `bun install`、Prisma generate、Nuxt build。
-- 宿主机代码更新后，容器重启即可使用新的 `.output`。
-
-适合：
-
-- 开发服务器。
-- 需要快速验证最新 commit。
-- GHCR 镜像尚未发布，但服务器需要先跑起来。
-
-注意：source 模式仍然需要 Nuxt build。如果服务器内存不足，可能出现 `JavaScript heap out of memory`。这时应优先改用 `ghcr`，或给服务器增加 swap。
-
-## 常用入口
-
-首次部署或重新生成 `.deploy/`：
-
-```bash
-bunx --bun --package github:notnotype/neuro-book neuro-book-deploy
+```text
+<root>/
+├─ Git tracked source
+├─ .output/                         # Product
+├─ .runtime/
+│  ├─ manager/<version>/
+│  ├─ bun/<version>/
+│  ├─ tools/<name>/<version>/
+│  └─ bin/                          # 稳定 wrapper
+├─ .deploy/
+│  ├─ installation.json
+│  ├─ install.lock
+│  ├─ staging/
+│  ├─ backups/
+│  └─ docker-compose.generated.yml
+└─ State Root files
 ```
 
-clone 后在仓库内运行：
+State Root 默认等于 Installation Root。Windows Portable 的 State Root 是 `<root>/data`，包含 `workspace/`、`config.yaml`、`.env` 和 `logs/`。应用进程通过 `NEURO_BOOK_STATE_ROOT` 解析这些路径；公开 Project Path 仍是 `workspace/<project>`。
+
+Source、Product、Runtime、Tool、Deployment State 和 User State 有独立所有权。更新只能替换目标组件拥有的路径。
+
+## 标准入口
+
+已有 Bun：
 
 ```bash
-bun scripts/deploy/neuro-book-deploy.mjs
+bunx --bun @notnotype/neuro-book-manager@canary install --profile ghcr
 ```
 
-source 模式初始化：
+Canary 使用 `@canary`。没有 Bun 时，Stage 0 会把固定 Bun 放入用户 cache 并校验 SHA256，再调用同一个 Manager。Stage 0 不应把临时 Bun 写入目标 Installation Root。
 
-```bash
-bun scripts/deploy/neuro-book-deploy.mjs --deploy-mode source
-```
+不要生成或建议`bunx run @notnotype/neuro-book-manager`。`bunx run`会把包名当作本地脚本或路径，无法启动Manager。stable和正确npm `latest`建立前，所有canary操作显式使用`@canary`。
 
-local-git 模式初始化：
+Release只有在正式`release-manifest.json`公开后才算装配完成。候选资产只存在于Actions artifact期间不可安装；构建中、验证失败或取消的Release应由Resolver安全跳过。
 
-```bash
-bun scripts/deploy/neuro-book-deploy.mjs --deploy-mode local-git
-```
-
-保留已有敏感配置，只刷新 `.deploy/docker-compose.generated.yml` 和 `.deploy/README.md`：
-
-```bash
-bun scripts/deploy/neuro-book-deploy.mjs --redeploy --deploy-mode source
-```
-
-本项目开发服务器快速同步：
-
-```bash
-bun scripts/deploy/deploy.mjs
-```
-
-本地发布 GHCR runtime/app 镜像：
-
-```bash
-bun scripts/deploy/publish-ghcr-image.mjs
-```
-
-## Agent 执行步骤
-
-这一节可以直接作为用户 Agent 的执行 checklist。
-
-### Step 1: 读取上下文
-
-先读：
-
-```bash
-sed -n '1,260p' docs/operator-bridge.md
-sed -n '63,190p' README.md
-sed -n '1,130p' docs/tasks/archived/docker-compose-deployment/README.md
-```
-
-确认当前仓库状态：
-
-```bash
-git status --short
-git rev-parse --short HEAD
-```
-
-如果是远程服务器，确认目标目录：
-
-```bash
-pwd
-ls -la
-test -d .git && git status --short
-```
-
-### Step 2: 选择部署模式
-
-默认选择 `ghcr`，除非用户明确要求源码挂载、开发服务器快速同步，或机器不能使用 Docker。
-
-选择 `ghcr` 的判断：
-
-- 用户希望稳定运行。
-- 服务器内存低。
-- 用户不需要在服务器上 build。
-- GHCR 镜像已经发布。
-
-选择 `source` 的判断：
-
-- 用户明确需要 `git pull` 后快速更新。
-- 用户接受服务器执行 `bun install` 和 `bun run nuxt:build`。
-- 用户希望容器内看到宿主机完整源码。
-- GHCR 可能还没有发布。
-
-选择 `local-git` 的判断：
-
-- 用户明确要求免 Docker。
-- 用户已安装 Bun，且允许脚本引导安装 Git、ripgrep 等工具。
-- 用户接受宿主机执行 `bun install`、`bun run nuxt:build` 和 `bun run migrate:deploy`。
-- 用户接受 SQLite-only 数据库边界。
-
-不要恢复或引入旧的 `build` 部署模式。本项目不提供“纯生产 build 镜像部署”作为用户可选路径。
-
-### Step 3: 首次部署
-
-默认部署：
-
-```bash
-bunx --bun --package github:notnotype/neuro-book neuro-book-deploy
-```
-
-local-git 模式：
-
-```bash
-bunx --bun --package github:notnotype/neuro-book neuro-book-deploy --deploy-mode local-git
-```
-
-source 模式：
-
-```bash
-bunx --bun --package github:notnotype/neuro-book neuro-book-deploy --deploy-mode source
-```
-
-旧 native 别名：
-
-```bash
-bunx --bun --package github:notnotype/neuro-book neuro-book-deploy --deploy-mode native
-```
-
-如果已经 clone 后使用 local-git：
-
-```bash
-bun scripts/deploy/neuro-book-deploy.mjs --deploy-mode local-git
-```
-
-如果已经 clone 后使用 source：
-
-```bash
-bun scripts/deploy/neuro-book-deploy.mjs --deploy-mode source
-```
-
-旧 native 别名已经 clone：
-
-```bash
-bun scripts/deploy/neuro-book-deploy.mjs --deploy-mode native
-```
-
-部署脚本会生成 `.deploy/`。如果用户已有 `.deploy/` 并且只想刷新 compose override，用：
-
-```bash
-bun scripts/deploy/neuro-book-deploy.mjs --redeploy --deploy-mode source
-```
-
-### Step 4: source 模式手动更新
-
-在服务器项目目录执行：
-
-```bash
-git pull --ff-only
-bun install --frozen-lockfile
-set -a
-source .env
-set +a
-bun run nuxt:prepare
-bun run generate
-bun run nuxt:build
-docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml up -d --build
-```
-
-如果 sudo 必须使用：
-
-```bash
-sudo docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml up -d --build
-```
-
-### Step 5: ghcr 模式更新
-
-```bash
-docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml pull app
-docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml up -d
-```
-
-如果用 sudo：
-
-```bash
-sudo docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml pull app
-sudo docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml up -d
-```
-
-### Step 6: local-git 模式手动更新
-
-在服务器项目目录执行：
-
-```bash
-git pull --ff-only
-bun install --frozen-lockfile
-set -a
-source .env
-set +a
-bun run nuxt:prepare
-bun run generate
-bun run nuxt:build
-bun run migrate:deploy
-bun scripts/build/prepare-system-assets.ts --sync-user-assets
-bun .output/server/index.mjs
-```
-
-PowerShell 下先按 `.env` 内容设置当前进程环境变量，再运行：
+安装后的稳定入口：
 
 ```powershell
-bun scripts/build/prepare-system-assets.ts --sync-user-assets
-bun .output/server/index.mjs
+.\.runtime\bin\neuro-book.cmd status --json
 ```
-
-也可以直接运行部署脚本生成的启动脚本：
 
 ```bash
-.deploy/start-local-git.sh
+./.runtime/bin/neuro-book status --json
 ```
 
-Windows PowerShell：
+面向真人的首次安装可以省略子命令进入Clack向导；Agent和CI应继续显式传入Profile并使用`--yes`，避免等待交互输入。Manager的用户级实例索引位于`~/.neuro-book-manager/config.json`，只保存目录与偏好，不替代每个实例的`.deploy/installation.json`。跨目录排障可使用`--root <path>`或`--instance <name-or-id>`；多实例人工管理入口是`neuro-book manage`。
 
-```powershell
-.\.deploy\start-local-git.ps1
-```
+## Profile 语义
 
-### Step 7: 创建管理员
+### windows-portable
 
-GHCR 模式容器启动后执行：
+- Release zip 解压目录就是 Installation Root，没有 `app/` 子 Product Root。
+- 根目录包含完整 Source、`.output`、`.runtime`、`.deploy` 和启动脚本。
+- `.runtime` 内置 Bun、rg、PortableGit/bash 和版本化 Manager。
+- `data/` 是唯一需要跨重新解压保留的用户状态目录。
+- `Start/Update/Create Admin` 只是 Manager 的平台前端，不维护第二套更新协议。
+
+### ghcr
+
+- 宿主机不 clone NeuroBook 源码。
+- `.deploy/docker-compose.generated.yml` 引用 Release Manifest 中的 `image@sha256:digest`。
+- 镜像 `/app` 包含完整源码和 `.output`。
+- Runtime/Tool provider 是 `container`。
+- State Root 的 Workspace Root、Boot Config 和日志通过 volume 持久化。
+
+### product-bun
+
+- 下载同版本 Source archive 与当前平台 Product overlay。
+- Product 的 `sourceRevision` 必须与 Release Source revision 一致。
+- 根源码不要求安装依赖；运行入口只依赖 `.output` 的 vendor/runtime。
+- Bun 可以是 `system`，也可以由 Stage 0/Manager 安装为 `managed`。
+
+### source-dev / source-product
+
+- Source provider 是 Git。
+- 物化流程使用 `git init`、`remote add`、`fetch`、`switch`，支持已有 checkout。
+- `source-dev` 安装依赖后运行 dev server。
+- `source-product` 在 `.deploy/staging` 构建并原子切换根 `.output`。
+- dirty、未知文件和非 fast-forward 必须停止并报告。
+
+### source-docker
+
+- Git 源码是 build context。
+- 完整 Dockerfile 在容器内安装依赖、构建 Nuxt 并生成 runner。
+- 不存在宿主 Bun build + runtime container 挂载 `.output` 的旧混合流程。
+
+## 状态与诊断
+
+优先收集：
 
 ```bash
-docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml exec app bun .output/server/scripts/cli/create-admin.ts
+neuro-book status --json
+neuro-book doctor --json
+neuro-book runtime list
+neuro-book tools list
 ```
 
-不要把管理员密码作为命令参数传入。使用交互输入，或只在一次性 secret 环境中设置：
+然后读取 `.deploy/installation.json`。关注：
+
+- `profile`、`managerVersion`、`appVersion`、`channel`、`sourceRevision`。
+- `stateRoot` 是否与 Profile 一致。
+- Source/Product revision 是否匹配。
+- 每个组件的 provider、version、platform、path、checksum。
+- managed 组件的官方 `sourceUrl`、`license` 和 `redistribution`。
+
+`installation.json` 是严格 schema，不要手工加入任意字段。如果状态与文件系统不一致，先报告，不要直接伪造 manifest。
+
+## 更新流程
+
+默认更新当前 Profile 的应用组件，不更新 Manager 自身：
 
 ```bash
-AUTH_ADMIN_PASSWORD='<password>' docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml exec -e AUTH_ADMIN_PASSWORD app bun .output/server/scripts/cli/create-admin.ts
+neuro-book update
+neuro-book update --component product
+neuro-book update --component runtime tools
 ```
 
-source 模式执行：
+更新应满足：
+
+1. 获取 `.deploy/install.lock`。
+2. 下载或 build 到 `.deploy/staging/<operation>`。
+3. 校验 SHA256、Release Manifest、platform、version 和 source revision。
+4. 检查 Git dirty、运行状态和 Windows 文件占用。
+5. 备份本次组件拥有的路径。
+6. 原子切换。
+7. 执行 migration 和最小健康检查。
+8. 最后写入 `installation.json`。
+9. 失败时恢复旧 Source/Product。
+
+Manager 或 Bun 正在运行时不得覆盖当前文件。它们使用版本目录；稳定 wrapper 在下一次进程启动时切换目标。
+
+## Runtime 与工具
 
 ```bash
-docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml exec app bun run auth:create-admin
+neuro-book runtime install bun --version <version>
+neuro-book runtime update bun
+neuro-book tools install rg
+neuro-book tools install git
+neuro-book tools update
+neuro-book tools path rg
 ```
 
-local-git 模式执行：
+- Windows/Linux x64 支持 managed Bun 和 rg。
+- Windows x64 支持 managed PortableGit，Git 与真正的 `bash.exe` 来自同一受审计发行包。
+- Linux/macOS Git 与 bash 使用 system/package manager。
+- Python v1 只检测并给安装建议，不托管下载。
+- Manager 只改变子进程 PATH，不改变系统 PATH。
+
+版本目录视为不可变。已经存在的相同版本应复用并刷新 wrapper，不应先删除当前可用版本再联网下载。
+
+## 管理员与鉴权
 
 ```bash
-set -a
-source .env
-set +a
-bun run auth:create-admin
+neuro-book admin create admin
 ```
 
-### Step 8: 检查运行状态
+Windows Portable 可运行根 `Create Admin.cmd`。Boot Config 位于 State Root `config.yaml`；Product Env 位于 State Root `.env`。不要把密码写入命令、日志、安装 manifest 或文档。
+
+## Docker 排障
+
+生成文件是 `.deploy/docker-compose.generated.yml`。常用只读检查：
 
 ```bash
-docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml ps
-docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml logs --tail=120 app
+docker compose --env-file .env -f .deploy/docker-compose.generated.yml config
+docker compose --env-file .env -f .deploy/docker-compose.generated.yml ps
+docker compose --env-file .env -f .deploy/docker-compose.generated.yml logs --tail 200 app
 ```
 
-如果 app 不可访问，Docker 模式先看容器是否反复重启，再看 app 日志；local-git 模式直接查看运行 `bun .output/server/index.mjs` 的终端输出。
+Windows Portable 的 `.env` 在 `data/`；Docker Profile 默认在 Installation Root。GHCR 应看到 digest 固定镜像；Source Docker 应看到根 Dockerfile build context，而不是已删除的 source runtime Dockerfile。
 
-## arch 开发服务器
+## Git 排障
 
-本项目维护者使用 `arch` 作为 source 模式开发服务器。
+允许的只读检查：
 
-默认目标：
+```bash
+git status --short --branch
+git remote -v
+git rev-parse HEAD
+git rev-parse origin/master
+git merge-base HEAD origin/master
+```
+
+如果 worktree dirty、HEAD 不能 fast-forward、remote 不正确或目标目录含未知文件，停止并让用户决定。不要自动修复用户 Git 状态。
+
+## Release 合同
+
+应用 Release 必须同时提供：
 
 ```text
-host: arch
-dir: /home/notnotype/composes/neuro-book
+release-manifest.json
+SHA256SUMS
+neuro-book-source.zip
+neuro-book-product-windows-x64.zip
+neuro-book-product-linux-x64-glibc.tar.gz
+neuro-book-windows-x64.zip
+ghcr.io/notnotype/neuro-book:<tag>
 ```
 
-快速同步命令：
+Source archive 只含 Git tracked 文件；Product overlay 只含 `.output` 与组件 metadata；Windows Portable 是 Source + Windows Product + managed Runtime/Tool + Manager。Release Manifest 的 `minManagerVersion` 必须已发布到 npm 对应 channel。
 
-```bash
-bun scripts/deploy/deploy.mjs
-```
+Manager 使用独立 `manager-v*` tag。stable 发布 npm `latest`，先行版发布 `canary`。不要假设 Manager、应用、GHCR tag 或 Bun 版本相同。
 
-脚本会：
+## 验收边界
 
-1. SSH 到 `arch`。
-2. 进入 `/home/notnotype/composes/neuro-book`。
-3. 检查 tracked worktree 是否干净。
-4. `git pull --ff-only`。
-5. 刷新 source compose override。
-6. `bun install --frozen-lockfile`。
-7. 加载 `.env`。
-8. `bun run nuxt:prepare`。
-9. `bun run generate`。
-10. `bun run nuxt:build`。
-11. 使用 sudo 重启 app 容器。
-12. 输出 compose 状态和 app 最近日志。
-
-脚本会本地隐藏输入 sudo 密码。密码只通过 SSH stdin 传给远端 `sudo -v`，不写入命令行或文件。
-
-## GHCR 发布
-
-项目发布两类 GHCR 镜像：
-
-- `ghcr.io/notnotype/neuro-book-runtime`：基础 runtime 镜像。
-- `ghcr.io/notnotype/neuro-book`：开箱即用 app 镜像。
-
-本地发布：
-
-```bash
-echo "$GHCR_TOKEN" | docker login ghcr.io -u notnotype --password-stdin
-bun scripts/deploy/publish-ghcr-image.mjs
-```
-
-默认 tag：
-
-- `v${package.json.version}`
-- stable 版本额外推送 `latest`
-- prerelease / canary / alpha / beta / rc 只推送对应的 `v...` release tag，不覆盖 `latest`
-
-指定 tag：
-
-```bash
-bun scripts/deploy/publish-ghcr-image.mjs --tag v0.1.0
-```
-
-GitHub Actions 只在 GitHub Release `published` 时发布镜像，不在普通 push 或 pull request 时发布。
-
-Canary 发布使用项目 release 脚本，它会更新 `package.json.version`、创建 release commit、push 当前分支并创建 GitHub prerelease。patch canary 使用：
-
-```bash
-bun run release -- canary --next patch --push --yes --no-watch
-```
-
-创建 GitHub Release 后不要等待 Actions；Release Container workflow 会在后台推送 runtime/app 两类镜像的 release tag。只有 stable release 会额外推送 `latest`。该 workflow 保留 GitHub Actions JavaScript action 兼容环境变量；这只影响 Actions 自身，不改变 Product/GHCR 的 Bun runtime 合同。
-
-## 配置与敏感信息边界
-
-`.env` 只保存容器运行环境：
-
-- `NUXT_PORT`
-- `NUXT_SESSION_PASSWORD`
-- `DATABASE_KIND`
-- `DATABASE_URL`
-
-`config.yaml` 保存 Boot Config：
-
-- `server.host`
-- `server.port`
-- `database.kind`
-- `database.url`
-- `auth.enabled`（修改后需要重启；关闭时管理员接口也无鉴权）
-
-`workspace/.nbook/config.json` 保存业务配置：
-
-- Provider API key
-- Provider baseURL
-- 默认模型
-- Pi Model 字段覆盖，例如模型级 `api`、`input`、`reasoning`、`maxTokens`、`compat`
-- profile 模型覆盖
-- 代理配置
-
-模型连接不再使用项目自有 provider adapter。运行时会把 `provider/model` 解析为 Pi `Model`：Pi 内置目录已有的模型继承 Pi registry 元数据；自定义模型需要在模型项上显式声明 Pi Model 字段。图片输入能力也来自 Pi `Model.input`，不要仅凭模型名称判断。
-
-同一个 Pi Provider 可以添加多份本地连接。Global Config 的 provider `id` 是本地连接实例 ID，用于模型 key 和 API key；模型项的 `provider` 字段是 Pi Provider ID，用于继承 Pi registry 与 provider 兼容性。`requestOptions` 不是旧 adapter 参数，它只作为 Pi stream options 的 JSON 补充入口，目前只透传 `headers`、`maxRetries`、`maxRetryDelayMs`、`metadata`、`transport`、`cacheRetention`。
-
-不要把 `.env`、`config.yaml`、`workspace/` 或 `.deploy/` 加入 Git。`assets/workspace/*.example.json` 可以包含公开 provider baseURL，但不能包含真实 key。
-
-旧版本如果把业务配置写在根 `config.yaml`，在仓库内执行：
-
-```bash
-bun run config:migrate
-```
-
-脚本会把 Provider/API key、模型和 Agent profile 配置迁移到 `workspace/.nbook/config.json`，并把根 `config.yaml` 收窄为 Boot Config。新的 database 字段会写成 `${DATABASE_KIND}` / `${DATABASE_URL}` 引用，不覆盖 `.env`。脚本不会把 secret 打印到终端。
-
-如果历史中曾提交过真实 key，应视为泄露并轮换。即使主线历史已清理，旧 clone、fork、缓存、本地 worktree 仍可能保留旧对象。
-
-## 常见问题
-
-### `.deploy/docker-compose.generated.yml` 没有跟着 git pull 更新
-
-这是正常现象。`.deploy/` 是部署本地状态，不进 Git。
-
-解决：
-
-```bash
-bun scripts/deploy/neuro-book-deploy.mjs --redeploy --deploy-mode source
-```
-
-或者对 `arch` 开发服务器运行：
-
-```bash
-bun scripts/deploy/deploy.mjs
-```
-
-### `DATABASE_URL 只支持 SQLite file: URL`
-
-当前版本已移除 PostgreSQL 支持，App SQLite 缺省使用 `file:./workspace/.nbook/neuro-book.sqlite`。
-
-解决：
-
-```bash
-set -a
-source .env
-set +a
-bun run generate
-```
-
-### `Cannot find module '@clack/prompts'`
-
-source 模式下容器看到的是宿主机源码和宿主机 `node_modules`。
-
-解决：
-
-```bash
-bun install --frozen-lockfile
-```
-
-同时确认 `node_modules` 权限不是 root-only。
-
-### Nuxt build OOM
-
-典型日志：
-
-```text
-FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory
-error: script "nuxt:build" was terminated by signal SIGABRT
-```
-
-优先方案：改用 `ghcr` 模式，不在服务器 build。
-
-source 模式必须 build 时，可以增加 swap：
-
-```bash
-sudo fallocate -l 6G /swapfile
-sudo chmod 600 /swapfile
-sudo mkswap /swapfile
-sudo swapon /swapfile
-free -h
-```
-
-也可以临时提高 Node heap：
-
-```bash
-export NODE_OPTIONS="--max-old-space-size=4096"
-bun run nuxt:build
-```
-
-### source 模式意外构建了完整 Dockerfile
-
-如果日志出现：
-
-```text
-The command '/bin/sh -c bun run nuxt:build' returned a non-zero code
-```
-
-说明 Docker build 正在使用完整 `Dockerfile`，而不是 `Dockerfile.source-runtime`。
-
-检查：
-
-```bash
-cat .deploy/docker-compose.generated.yml
-```
-
-source 模式应包含：
-
-```yaml
-build:
-    context: .
-    dockerfile: Dockerfile.source-runtime
-```
-
-如果不是，运行：
-
-```bash
-bun scripts/deploy/neuro-book-deploy.mjs --redeploy --deploy-mode source
-```
-
-## Agent 提交结果格式
-
-用户的 Agent 完成部署或排障后，应向用户报告：
-
-- 选择了哪种部署模式，以及原因。
-- 改动了哪些文件，尤其是否改动 `.env`、`config.yaml` 或 `workspace/.nbook/config.json`。
-- 执行了哪些命令。
-- 当前容器状态。
-- 访问地址。
-- 管理员是否已创建。
-- 是否存在未解决风险，例如 OOM、旧数据卷密码不一致、GHCR 镜像未发布。
-
-如果没有用户明确授权，不要删除数据卷，不要轮换数据库密码，不要覆盖 Provider key，不要提交 `.deploy/` 或 `workspace/`。
+推荐顺序：CLI status/doctor、migration、HTTP smoke、数据路径检查、更新保留检查。不要自动启动浏览器；CLI/HTTP smoke 通过后，建议用户手动验证首次启动、登录、项目数据保留和更新提示。

@@ -1,5 +1,7 @@
 # Windows Portable Packaging
 
+> 本任务保留历史设计与验收记录；当前 Windows Portable 根布局、更新协议、PortableGit/bash 与 `data/` State Root 已由 Task 105 取代，后续实现只更新 Task 105。
+
 > Active task directory format: `NN-kebab-case-name/`. Archived tasks move to `docs/tasks/archived/<task-slug>/`.
 > 当前状态：下方前半段保留旧 source bootstrap 设计作为历史记录。当前 release 主线已经迁移为 Windows Product Launcher：zip 包含预构建 `app/` Product Payload、`runtime/bun/`、`launcher/` 和升级保留的 `data/`；用户机器不再 clone 源码、安装依赖或执行 Nuxt build。
 

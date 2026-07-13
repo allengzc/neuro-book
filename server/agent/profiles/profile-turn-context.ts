@@ -18,8 +18,6 @@ export type FileChangeAwareness = "off" | "minimal" | "full";
 export type ProfileTurnContextPlan = {
     kind: "file-change-notice";
     mode: "minimal" | "full";
-    /** 小型 unified diff 的字符预算；0 = 只给引用与位置摘要。 */
-    diffMaxChars: number;
     /** 在 AppendingSet 静态消息中的插入位置。 */
     appendingIndex: number;
 };
@@ -43,11 +41,11 @@ export type MaterializedProfileTurnContext = {
 /**
  * Profile Workbench dry-run 占位：展示节点位置与模式，但不读取真实 Project history。
  */
-export function previewProfileTurnContexts(plans: ProfileTurnContextPlan[]): MaterializedProfileTurnContext["insertions"] {
+export function previewProfileTurnContexts(plans: ProfileTurnContextPlan[], diffMaxChars = DEFAULT_AGENT_DIFF_MAX_CHARS): MaterializedProfileTurnContext["insertions"] {
     return plans.map((plan) => ({
         appendingIndex: plan.appendingIndex,
         message: createUserMessage({
-            text: `<file-change-notice runtime-data="preview" mode="${plan.mode}" diff-max-chars="${plan.diffMaxChars}">\nGenerated at runtime from project file changes not yet seen by this session.\n</file-change-notice>`,
+            text: `<file-change-notice runtime-data="preview" mode="${plan.mode}" diff-max-chars="${diffMaxChars}">\nGenerated at runtime from project file changes not yet seen by this session.\n</file-change-notice>`,
         }),
     }));
 }
@@ -61,6 +59,7 @@ export async function materializeProfileTurnContexts(input: {
     plans: ProfileTurnContextPlan[];
     projectPath?: string;
     sessionId: number;
+    diffMaxChars: number;
 }): Promise<MaterializedProfileTurnContext> {
     if (!input.projectPath || input.plans.length === 0) {
         return {insertions: [], settlements: []};
@@ -75,11 +74,11 @@ export async function materializeProfileTurnContexts(input: {
         const diffDetails = await readAgentChangeDiffDetails({
             projectPath: input.projectPath,
             groups,
-            maxChars: plan.diffMaxChars,
+            maxChars: input.diffMaxChars,
         });
         insertions.push({
             appendingIndex: plan.appendingIndex,
-            message: createUserMessage({text: buildFileChangeReminder(groups, plan.mode, diffDetails, plan.diffMaxChars)}),
+            message: createUserMessage({text: buildFileChangeReminder(groups, plan.mode, diffDetails, input.diffMaxChars)}),
         });
         settlements.push({
             kind: "file-change-notice",

@@ -1,256 +1,209 @@
 # 部署方式
 
-NeuroBook 默认面向本地或单机部署。正式 release 主线采用 Product-first：构建机生成 Product Payload，运行机通过 Platform Launcher、Bun 或 Docker 启动，不要求源码 checkout、根 `node_modules` 或本机 build。
+NeuroBook 的所有安装形式由独立包 `@notnotype/neuro-book-manager` 管理，公开命令为 `neuro-book`。旧 `neuro-book-deploy`、`local-git` 和宿主 build + runtime container 的混合模式已删除。
 
-## 发布模型
+## 推荐顺序
 
-- Product Payload：预构建应用本体，包含 `package.json`、`.output/`、运行资产、SQLite migrations、产品脚本和 `.output/server/node_modules` Nitro vendor。`source/` 目录携带完整源码快照（git tracked 文件，不含 `node_modules` 和构建产物）；运行不依赖它，但后续排障时可以让 Agent 在 `source/` 内安装依赖并重新构建。
-- Platform Launcher：平台启动壳，负责初始化运行状态、迁移数据库、创建管理员、启动服务和后续更新。Windows Launcher 是第一版落地。
-- 运行状态：`workspace/`、`.env`、`config.yaml` 和 SQLite 数据库属于用户数据，升级时保留，不随 Product Payload 覆盖。
+| Profile | 适合场景 | Source | Product | Runtime / Tool |
+| --- | --- | --- | --- | --- |
+| `windows-portable` | Windows x64 普通用户 | Release 源码 | Windows `.output` | 托管 Bun、rg、PortableGit/bash |
+| `ghcr` | 服务器 Docker | 镜像 `/app` | 镜像 `.output` | container |
+| `product-bun` | 已有 Bun 的 Windows/Linux | Release 源码 | 平台 `.output` | system Bun/Tool |
+| `source-dev` | 本机开发 | Git | 无 | system Bun/Tool |
+| `source-product` | 从 Git 构建生产 Product | Git | 本机 staging build | system Bun/Tool |
+| `source-docker` | 需要从源码构建镜像 | Git build context | 容器内 build | container |
 
-## 部署方式选择
+初版正式支持 Windows x64 与 Linux x64 glibc。macOS、arm64 和 musl 尚未进入 Product/managed runtime 发布矩阵。
 
-| 方式 | 适合 | 特点 |
-| --- | --- | --- |
-| Windows Product Portable | Windows 本机普通用户 | 点击启动，内置 Bun 和 Product Payload，不需要 Git/build。 |
-| Product Bun | 已有 Bun 的本机或服务器 | 解压 Product Payload 后用 Bun 启动，不要求源码和根 `node_modules`。 |
-| Product Docker / ghcr | 低内存服务器 | 拉取预构建镜像，服务器不执行 Nuxt build。 |
-| Source Dev | 开发者 | 源码 checkout、本机依赖安装、开发和测试。 |
-| local-git | 高级/过渡源码部署 | 宿主机 clone/pull、build、运行，不作为普通用户 release 主线。 |
-| source Docker | 开发服务器 | 容器运行 runtime，宿主机源码挂载进容器。 |
+## Stage 0
 
-如果不确定，Windows 用户选 Windows Product Portable；服务器优先选 `ghcr` 或 Product Bun。
-
-## Product Runtime
-
-Product Runtime 是本地成品验证根，用来模拟未来 release zip 解压后的运行目录。它遵循 Nuxt/Nitro 生产模型：构建机生成 `.output`，运行机从 Product Root 执行标准入口。
-
-生成：
+机器已经安装 Bun 时，可以直接运行：
 
 ```bash
-bun run nuxt:build
-bun run product:stage
+bunx --bun @notnotype/neuro-book-manager@canary
 ```
 
-启动：
+不传参数会进入 Clack 安装向导，逐步解释并选择 Profile、Installation Root、实例名称、更新通道、端口和鉴权。CI 或自动化部署使用显式命令：
 
 ```bash
-bun run product:start
+bunx --bun @notnotype/neuro-book-manager@canary install --profile ghcr --yes
 ```
 
-如果直接使用 Nuxt/Nitro 入口，需要自行加载 Product Root `.env`；常规运行应优先使用 `product-start.mjs`：
+Canary Manager 使用 `@canary`。没有 Bun 时，使用仓库提供的平台 Stage 0：
+
+不要使用`bunx run @notnotype/neuro-book-manager`；该命令会让Bun把包名按本地脚本或路径解析，Manager不会启动。稳定Manager和正确npm `latest`建立前，公开文档继续使用`@canary`。
+
+```powershell
+irm https://raw.githubusercontent.com/notnotype/neuro-book/master/scripts/install/install.ps1 | iex
+```
 
 ```bash
-bun .output/server/scripts/deploy/product-start.mjs
+curl -fsSL https://raw.githubusercontent.com/notnotype/neuro-book/master/scripts/install/install.sh | sh
 ```
 
-边界：
+Stage 0 只把固定版本 Bun 下载到用户 cache、校验官方 SHA256，然后调用 Manager。它不会先向目标 Installation Root 写 `.runtime`，因此不会破坏 Git materialize。
 
-- `product/` 是 Product Root，生产 `cwd` 必须指向这里。
-- `product/.output/server/index.mjs` 是服务入口。
-- `product/.output/server/node_modules` 是 Nitro 内置 vendor，不要求产品根有 `node_modules`。
-- `product/.env` 由 `product:stage` 生成，包含 `NUXT_SESSION_PASSWORD` 和 SQLite 默认环境；`product:start` / `product-start.mjs` 会自动加载它。
-- `product/` 保留必要运行资产、脚本、SQLite migrations、`assets/workspace` 和 TSX Profile Workbench 编译所需 runtime source 子集。
-- 产品脚本入口使用 `product/.output/server/scripts/**`，从 Product Root 运行，依赖从 `.output/server/node_modules` 解析。
-- 通用 `.output` runner 必须包含 `scripts/deploy/product-start.mjs`、`scripts/build/prepare-system-assets.ts`、SQLite migration 和 CLI 脚本；`nuxt:build` 的 Nitro 后处理会复制这些脚本并做缺失门禁。
-- `product:stage` 会在 Product Root 内重新编译系统 profiles，使 `.compiled` artifact 绑定产品内 `.output/server/node_modules`，而不是开发机根 `node_modules`。
-- Profile Workbench 后端 worker 的 `tsx/esm/api` 和 `tsx` loader 必须通过 `.output/server/index.mjs` 创建的 runtime require 解析到 `.output/server/node_modules`；Product Runtime 不允许从 Product Root 裸 import 或回退到仓库根 `node_modules`。
-- TSX profile artifact 会 bundle 第三方包；用户 profile 在 product 内编译后运行时不需要产品根 `node_modules`。
-- `product/assets/workspace/.nbook/agent/scripts/workspace.ts` 是 launcher，真实执行入口是 `product/.output/server/scripts/agent/workspace.ts`；`agent/bin/workspace(.cmd)`、`profile(.cmd)`、`variable(.cmd)` 也遵循同一 product/source 双入口解析。Product 分支使用 Bun 直接执行 `.output/server/scripts/**`。
-- `.output/server/node_modules/nbook` 是产品内 runtime source 包，负责解析脚本和 worker 中的 `nbook/*` 导入，不回退到开发机源码或根 `node_modules`。
-- `package.json.version` 是产品版本接口优先读取的版本真相源；通用 `.output` runner 无根 `node_modules` 时可回退到 `.output/server/package.json`。Windows portable 桥接版仍在 `app/release-meta.json` 放 deprecated 占位文件，只用于旧 Launcher 更新校验。
+Manager只安装已经发布正式`release-manifest.json`的完整GitHub Release。候选资产在Actions内完成校验后才公开Manifest；仍在构建、验证失败或已取消的Release会被Resolver跳过。
 
-当前本地验收已覆盖 `product/` 隔离运行和 Windows Product Portable zip 解压运行：避开仓库父级源码和根 `node_modules` 后，通过了 profile status/compile、Profile Workbench HTTP `/api/agent/profiles/compile` dry-run、HTTP `/api/agent/profiles/compile-all`、workspace project create/validate、workspace node validate、SQLite migration、管理员创建、Windows Launcher 启动、Windows Launcher 自动更新 fake-release smoke、Product/zip 内 agent bin wrapper、`product:start` 启动、登录和 `/api/app/version` package version smoke。
+## Installation Root 与 State Root
 
-## Windows Product Portable
+```text
+neuro-book/
+├─ Git tracked source
+├─ .output/
+├─ .runtime/
+│  ├─ manager/<version>/
+│  ├─ bun/<version>/
+│  ├─ tools/<name>/<version>/
+│  └─ bin/
+├─ .deploy/
+│  ├─ installation.json
+│  ├─ install.lock
+│  ├─ staging/
+│  ├─ backups/
+│  └─ docker-compose.generated.yml
+├─ workspace/
+├─ config.yaml
+└─ .env
+```
 
-Windows Product Portable 是 Windows x64 的 Product Payload + Windows Launcher 包。它自带 Bun runtime、预构建 `app/` 和用户可点击入口。
+`NEURO_BOOK_STATE_ROOT` 决定用户状态物理根。未设置时等于 Installation Root；Windows Portable 设置为 `<root>/data`，因此物理文件位于 `data/workspace`、`data/config.yaml`、`data/.env` 和 `data/logs`。公开 Project Path 始终保持 `workspace/<project>`。
 
-首次运行 `Start Neuro Book.cmd` 时会：
+Release 更新只替换组件拥有的路径，不覆盖 State Root。
 
-- 初始化 `data/.env`、`data/config.yaml` 和 `data/workspace/.nbook/config.json`。
-- 将 `app/workspace` 映射到 `data/workspace`，让服务 cwd 保持 Product Root，同时把用户数据留在 `data/`。
-- 执行 SQLite migration。
-- 提示密码保护状态。Windows Portable 默认关闭密码保护，浏览器打开即可使用；运行 `Create Admin.cmd` 创建管理员后会更新 Boot Config，重启 NeuroBook 后密码保护生效。
-- 启动本地网页。
+## 常用命令
 
-目录边界：
+```text
+neuro-book                              # 交互式安装向导
+neuro-book manage                       # 多实例 TUI
+neuro-book install --profile <profile> [--dir <path>] [--version <version>]
+    [--channel <stable|canary>] [--port <port>]
+    [--auth <enabled|disabled>] [--yes] [--dry-run]
 
-- 解压目录是 Portable Root。
-- `app/` 是可替换 Product Payload 和服务 cwd。
-- `app/source/` 是随包分发的完整源码快照；运行不依赖它，排障时可让 Agent 在其中 `bun install` + 重新构建。
-- `data/` 是升级保留的运行状态，保存 `workspace/`、`.env`、`config.yaml` 和 SQLite。
-- `runtime/bun/` 是内置 Bun runtime。
-- `launcher/` 是 Windows Launcher。
+neuro-book instances list [--json]
+neuro-book instances add <path> [--name <name>] [--default]
+neuro-book instances forget <name-or-id>
+neuro-book instances default <name-or-id>
+neuro-book instances config
 
-自动化 smoke 或服务器脚本可以设置 `NEURO_BOOK_NO_OPEN_BROWSER=1`，让 Windows Launcher 启动服务但不自动打开浏览器；普通用户双击启动仍会打开本地网页。
+neuro-book update [--component <source|product|runtime|tools>...] [--dry-run]
+neuro-book start
+neuro-book status [--json]
+neuro-book doctor [--json]
 
-`Update Neuro Book.cmd` 不再执行 `git pull`。它会查询 GitHub Releases，列出带 `neuro-book-windows-x64.zip` 和 `SHA256SUMS` 的 stable / canary / alpha / beta / rc 版本供用户选择，校验 SHA256 后备份旧 `app/`、`launcher/`、根启动脚本和 `portable-release.json`，再切换新版并保留 `data/`。自动更新会保留当前 `runtime/bun/`，避免在 launcher 运行中替换正在使用的 `bun.exe`。
+neuro-book runtime list
+neuro-book runtime install bun [--version <version>]
+neuro-book runtime update bun
+
+neuro-book tools list
+neuro-book tools install <rg|git>
+neuro-book tools update [rg|git]
+neuro-book tools path <rg|git>
+neuro-book admin create [username]
+```
+
+`update/start/status/doctor/runtime/tools/admin` 支持全局 `--root <path>` 或 `--instance <name-or-id>`。未显式指定时，Manager 优先使用当前目录所属实例；目录外执行时使用用户配置中的默认实例。
+
+## 用户级 Manager 配置
+
+Manager 配置默认位于 `~/.neuro-book-manager/config.json`。它只保存：
+
+- 安装向导偏好，例如 channel 和上次安装目录。
+- 已注册实例的名称、绝对 Installation Root 和默认实例。
+
+配置不复制应用版本、组件 checksum、Runtime 或 Product 状态；这些信息仍只存在于实例的 `.deploy/installation.json`。因此用户级配置损坏或删除不会破坏实例，重新执行 `neuro-book instances add <path>` 即可恢复索引。
+
+`neuro-book manage` 的 blessed TUI 支持多实例查看、状态、诊断、启动、事务更新、注册、设为默认和忘记记录。安装、启动和更新等长操作会退出 TUI 后在正常终端中继续，避免子进程输出破坏界面。
+
+安装完成后优先使用 Installation Root 下的稳定 wrapper：Windows 为 `.runtime\bin\neuro-book.cmd`，POSIX 为 `.runtime/bin/neuro-book`。Manager 只修改自己启动的子进程 PATH，不修改系统 PATH。
+
+## Windows Portable
+
+从 GitHub Release 下载 `neuro-book-windows-x64.zip`，解压到新目录后运行：
+
+```powershell
+.\Start Neuro Book.cmd
+```
+
+包内已经包含源码、Windows Product、Bun、rg、PortableGit/bash 和 Manager。`Update Neuro Book.cmd` 调用统一 Manager；`Create Admin.cmd` 调用 `neuro-book admin create`。更新保留整个 `data/`。
+
+旧版 `app/data/runtime/launcher` Portable 不承诺原地覆盖升级。首次迁移请重新解压新包，再把旧 `data/` 复制到新 Installation Root。
+
+## GHCR
+
+```bash
+bunx --bun @notnotype/neuro-book-manager@canary install \
+  --profile ghcr --dir /opt/neuro-book --port 3000 --yes
+cd /opt/neuro-book
+.runtime/bin/neuro-book start
+```
+
+Manager 不 clone 宿主源码；它根据 Release Manifest 生成 Compose，镜像使用 `ref@sha256:digest`，并挂载 State Root 的 Workspace Root、Boot Config 和日志。镜像 `/app` 内含完整源码和 `.output`。
 
 ## Product Bun
 
-Product Bun 适合已有 Bun 的本机或服务器。它使用与 Windows Product Portable 相同的 Product Payload，但不内置平台 launcher 或 Bun runtime。
+```bash
+bunx --bun @notnotype/neuro-book-manager@canary install \
+  --profile product-bun --dir "$HOME/neuro-book" --yes
+cd "$HOME/neuro-book"
+.runtime/bin/neuro-book start
+```
 
-构建机：
+Manager 下载同一 Release 的 Source archive 和当前平台 Product overlay，并校验二者 `sourceRevision` 相同。运行只依赖 `.output` 中的 Product runtime，不依赖根 `node_modules`；根源码用于审计、Agent 协作和后续重建。
+
+## Source Profile
+
+开发运行：
 
 ```bash
-bun run nuxt:build
-bun run product:stage
+bunx --bun @notnotype/neuro-book-manager@canary install \
+  --profile source-dev --dir "$HOME/neuro-book" --yes
 ```
 
-运行机：
+本机生产构建：
 
 ```bash
-cd product
-bun .output/server/scripts/deploy/product-start.mjs
+bunx --bun @notnotype/neuro-book-manager@canary install \
+  --profile source-product --dir "$HOME/neuro-book" --yes
 ```
 
-Product Bun 仍要求 Product Root 为服务 cwd；依赖由 `.output/server/node_modules` 承载。
+Manager 使用 `git init/fetch/switch` 物化仓库，支持空目录、只含 `.runtime/.deploy/data` 的目录和已有 checkout。dirty worktree、未知文件、非 fast-forward 都会停止；不会自动 restore、stash 或 reset。
 
-## local-git
-
-`local-git` 是源码部署过渡模式。它不使用 Docker，直接在宿主机运行生产服务。
-
-初始化命令：
-
-```bash
-bunx --bun --package github:notnotype/neuro-book neuro-book-deploy
-```
-
-或 clone 仓库后运行：
-
-```bash
-bun scripts/deploy/neuro-book-deploy.mjs --deploy-mode local-git
-```
-
-它会：
-
-- clone 或复用项目源码。
-- 检查 Git、Bun、ripgrep 等工具。
-- 生成 `.env`、`config.yaml`、`workspace/.nbook/config.json` 和 `.deploy/README.md`。
-- 安装依赖、构建应用、执行 SQLite migration。
-- 打印启动命令；启动前会同步 user-assets，修复未手改系统 profile 覆盖层的 `.compiled` artifact。
-
-local-git 不接管 systemd、pm2 或后台进程管理。需要长期运行时，可以按部署目录中的 `.deploy/README.md` 接入自己的进程管理方式。
-
-## Product Docker / ghcr
-
-`ghcr` 是低内存服务器推荐的 Docker 模式。
-
-它使用预构建镜像：
-
-```text
-ghcr.io/notnotype/neuro-book:<release-tag>
-```
-
-交互部署会查询 GitHub Releases，列出 stable / canary / alpha / beta / rc 版本供选择。非交互部署默认使用当前安装器 package 版本对应的镜像 tag；例如 canary 安装器会默认使用同一个 canary tag，而不是旧的 `latest`。也可以显式传：
-
-```bash
-bunx --bun --package github:notnotype/neuro-book neuro-book-deploy --deploy-mode ghcr --release v0.5.3-canary.20260701.030929Z.69581b3e
-```
-
-`--image <image>` 仍可覆盖完整镜像名，适合私有镜像或手工验证；它不能和 `--release` 同时使用。`latest` 只代表最新 stable。
-
-适合：
-
-- 服务器内存不足，不适合本地 Nuxt build。
-- 只想运行服务，不想在服务器上构建应用。
-- release 发布后的相对稳定部署。
-
-`ghcr` 模式仍会把 `workspace/` 挂载为持久目录。Provider key、管理员用户、Project Workspace 和 SQLite 数据都保存在本机运行状态中。
-
-GHCR app 镜像携带完整项目源码（含 `world-engine/`、`plugins/` 和全部构建配置），可在容器内直接排障或让 Agent 重新构建，但运行合同遵循 Product Docker：final runner 使用 Bun runtime，服务入口、启动前 user-assets 同步、SQLite migration 和管理员脚本都从预构建 `.output/server/scripts/**` 运行，依赖由 `.output/server/node_modules` Nitro vendor 承载。部署机和容器启动时不执行 `bun install`，也不要求根 `node_modules`。Product Runtime 判定会在无根 `node_modules` 时使用 `.output/server/package.json`，版本接口优先读取可用的 package manifest。
+`source-product` 先把 Nuxt build 写入 `.deploy/staging/<operation>/.output`，校验完成后才切换根 `.output`。构建失败时旧 Product 保持可运行。
 
 ## Source Docker
 
-`source` 是开发服务器模式。容器提供 runtime，宿主机项目目录挂载到容器内 `/app`。
-
-适合：
-
-- 开发服务器。
-- 需要频繁 `git pull` 同步最新代码。
-- GHCR 镜像尚未发布但服务器要先跑起来。
-
-source 模式仍然需要宿主机执行依赖安装和 Nuxt build。如果服务器内存不足，优先改用 `ghcr`。
-
-## 配置文件边界
-
-NeuroBook 的运行状态默认不进 Git。
-
-常见本机文件：
-
-- `.env`：容器或本机运行环境变量。
-- `config.yaml`：Boot Config，保存启动和部署期配置。
-- `config.yaml`：Boot Config，保存 server、database 与 `auth.enabled`；修改鉴权后需要重启。
-- `workspace/.nbook/config.json`：Global Config，保存 models、agent、UI/editor 长期偏好。
-- `workspace/{project}/.nbook/config.json`：Project Config，只覆盖当前 Project 允许的配置项。
-- `workspace/.nbook/neuro-book.sqlite`：App SQLite。
-- `workspace/{project}/.nbook/project.sqlite`：Project SQLite。
-
-不要把密码、Provider API Key 或本机数据库提交到 Git。
-
-## 管理员与鉴权
-
-服务器部署默认开启全站鉴权；Windows Product Portable 默认关闭，运行 `Create Admin.cmd` 创建管理员后更新 `data/config.yaml`，重启后开启。
-
-`neuro-book-deploy` 交互部署会询问是否开启密码保护，也可以用 `--auth enabled` / `--auth disabled` 显式指定（非交互默认开启）。选择结果写入 `config.yaml`；redeploy 时显式选择会更新已有 Boot Config，未显式选择则保持原值。关闭后管理员接口也不再鉴权。
-
-开启鉴权的部署在首次使用前创建管理员。
-
-local-git：
-
-```powershell
-bun run auth:create-admin admin
-```
-
-local-git 是源码运行模式，管理员脚本要求该目录已经执行过 `bun install --frozen-lockfile`。脚本可以自动补缺失的 Prisma Client；但如果本地 Nuxt CLI 依赖不存在，会直接提示先安装依赖，不会自动安装。
-
-ghcr：
-
 ```bash
-docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml exec app bun .output/server/scripts/cli/create-admin.ts
+bunx --bun @notnotype/neuro-book-manager@canary install \
+  --profile source-docker --dir /opt/neuro-book --yes
+cd /opt/neuro-book
+.runtime/bin/neuro-book start
 ```
 
-ghcr 必须使用容器内 Product 脚本，不要在宿主机源码 checkout 中执行 `bun run auth:create-admin`。GHCR 运行机不会执行 `bun install`、`nuxt:prepare` 或 Prisma generate。
+Git 源码是 Docker build context。完整多阶段 Dockerfile 在容器内执行 `bun install --frozen-lockfile` 和 Nuxt build；宿主机不再先 build `.output` 再挂入 runtime 容器。
 
-source Docker：
+## 更新与回滚边界
 
-```bash
-docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml exec app bun run auth:create-admin
+更新顺序为：安装锁、staging 下载/build、checksum/manifest/platform 校验、运行状态检查、组件备份、切换、migration/最小检查、最后提交 `installation.json`。Release Source 与 Product 更新失败会恢复旧组件。
+
+Manager v1 不接管 systemd、pm2 或通用后台进程。原生 Product 正在运行或 Windows 文件被占用时，更新会停止并要求用户先退出服务。Runtime 和 Manager 使用版本目录，wrapper 在下一次启动时指向新版本。
+
+## Release 资产
+
+每个应用 Release 包含：
+
+```text
+release-manifest.json
+SHA256SUMS
+neuro-book-source.zip
+neuro-book-product-windows-x64.zip
+neuro-book-product-linux-x64-glibc.tar.gz
+neuro-book-windows-x64.zip
+ghcr.io/notnotype/neuro-book:<tag>
 ```
 
-local-git / source 源码运行时如果缺少 `server/generated/prisma/client.ts`，管理员脚本会先自动执行 Prisma generate；Product / ghcr 运行时只使用已打包在 `.output/server/node_modules/nbook` 内的 Prisma Client，缺失时应拉取匹配 release 镜像或重新构建 Product Payload。
+Release Manifest 记录应用版本、Git revision、channel、最低 Manager 版本、各资产 URL/SHA256、Product 平台与 source revision、Windows Portable 资产以及 GHCR digest。Manager 过旧时会拒绝继续并提示重新运行 Stage 0 或 bunx。
 
-管理员后台在 `/admin/users`。管理员可以创建用户、调整角色、禁用账号和重置密码。
+## 验收建议
 
-如果只在完全可信的本地环境调试，可以在 Global Config 中关闭鉴权：
-
-```json
-{
-    "auth": {
-        "enabled": false
-    }
-}
-```
-
-公开或远程部署不建议关闭鉴权。
-
-## 更新与排障
-
-Windows Product Portable 使用 `Update Neuro Book.cmd` 自动下载、校验并切换最新版 Product Payload。更新保留 `data/`，失败会尝试恢复备份。
-
-local-git 部署通常在应用目录执行：
-
-```bash
-git pull --ff-only
-bun install --frozen-lockfile
-bun run generate
-bun run nuxt:build
-bun run migrate:deploy
-bun scripts/build/prepare-system-assets.ts --sync-user-assets
-bun .output/server/index.mjs
-```
-
-如果要让其他 Agent 协助部署、更新或排障，优先把 [交付与运维桥梁](https://github.com/notnotype/neuro-book/blob/master/docs/operator-bridge.md) 发给它。那份文档更适合作为外部执行者的 checklist。
-
-仓库当前状态和部署策略摘要见 [PROJECT-STATUS.md](https://github.com/notnotype/neuro-book/blob/master/PROJECT-STATUS.md)。
+自动化 CLI/HTTP smoke 通过后，仍建议手动验证首次启动、登录、创建项目、更新提示和更新后数据保留。本项目不会自动执行浏览器验收。

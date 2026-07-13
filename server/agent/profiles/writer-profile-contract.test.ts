@@ -122,7 +122,6 @@ describe("writer profile contract", () => {
             expect(prepared.turnContexts).toEqual([{
                 kind: "file-change-notice",
                 mode: "minimal",
-                diffMaxChars: 512,
                 appendingIndex: 0,
             }]);
         } finally {
@@ -145,7 +144,6 @@ function defaultWriterSettings() {
         polishingWorkflow: "使用 stop-slop 做自查。",
         adultStylePrompt: "",
         fileChangeAwareness: "minimal" as const,
-        fileChangeDiffMaxChars: 512,
     };
 }
 

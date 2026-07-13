@@ -1,5 +1,5 @@
-import {getModel} from "@earendil-works/pi-ai";
-import type {KnownProvider, Model} from "@earendil-works/pi-ai";
+import type {Api, KnownProvider, Model} from "@earendil-works/pi-ai";
+import {getBuiltinModels, getBuiltinProviders} from "@earendil-works/pi-ai/providers/all";
 import type {AgentProfileModelConfig} from "nbook/server/config/types";
 import {loadGlobalEffectiveConfigSync} from "nbook/server/config/config-service";
 import type {EffectiveConfig} from "nbook/server/config/types";
@@ -8,9 +8,9 @@ type ModelOverrideInput = Partial<AgentProfileModelConfig> & {
     model?: string | null;
 };
 
-type PiModelInput = Model<any>["input"][number];
+type PiModelInput = Model<Api>["input"][number];
 type ConfigModelInput = "text" | "image";
-type ResolvedPiModel = Model<any> & {
+export type ResolvedPiModel = Model<Api> & {
     /**
      * 本地 Global Config provider 实例 ID。允许同一个 Pi provider 添加多份连接时，
      * model.provider 仍保持 Pi provider ID，API key 必须从这个本地实例读取。
@@ -53,7 +53,7 @@ export function resolvePiModelFromConfig(
     const piProviderId = model.provider ?? providerId;
     const piModel = resolvePiRegistryModel(piProviderId, model.id);
     const piApi = model.api ?? provider.api ?? piModel?.api ?? "openai-completions";
-    const compat = mergeModelCompat(piProviderId, piModel, model.compat as Model<any>["compat"]);
+    const compat = mergeModelCompat(piProviderId, piModel, model.compat as Model<Api>["compat"]);
     const customCost = model.cost ?? {
         input: 0,
         output: 0,
@@ -87,6 +87,7 @@ export function resolvePiModelFromConfig(
             output: model.cost?.output ?? piModel?.cost.output ?? 0,
             cacheRead: model.cost?.cacheRead ?? piModel?.cost.cacheRead ?? 0,
             cacheWrite: model.cost?.cacheWrite ?? piModel?.cost.cacheWrite ?? 0,
+            tiers: model.cost?.tiers ?? piModel?.cost.tiers,
         },
         contextWindow: model.contextWindowTokens ?? piModel?.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
         maxTokens: model.maxTokens ?? piModel?.maxTokens ?? DEFAULT_MAX_TOKENS,
@@ -118,7 +119,7 @@ export function resolvePiApiKeyFromConfig(
  */
 export function resolvePiApiKeyForModelFromConfig(
     config: Pick<EffectiveConfig, "models">,
-    model: Model<any>,
+    model: Model<Api>,
 ): string | undefined {
     const providerConfigId = typeof (model as {providerConfigId?: unknown}).providerConfigId === "string"
         ? (model as unknown as {providerConfigId: string}).providerConfigId
@@ -145,24 +146,23 @@ function normalizePiModelInput(input: ConfigModelInput[] | PiModelInput[] | null
     return values.length > 0 ? values : ["text"];
 }
 
-function resolvePiRegistryModel(providerId: string, modelId: string): Model<any> | undefined {
-    try {
-        return getModel(providerId as KnownProvider, modelId as never) as Model<any> | undefined;
-    } catch {
+function resolvePiRegistryModel(providerId: string, modelId: string): Model<Api> | undefined {
+    if (!getBuiltinProviders().includes(providerId as KnownProvider)) {
         return undefined;
     }
+    return getBuiltinModels(providerId as KnownProvider).find((model) => model.id === modelId);
 }
 
 function mergeModelCompat(
     providerId: string,
-    piModel: Model<any> | undefined,
-    modelCompat: Model<any>["compat"],
-): Model<any>["compat"] {
+    piModel: Model<Api> | undefined,
+    modelCompat: Model<Api>["compat"],
+): Model<Api>["compat"] {
     const providerCompat = providerId === "xiaomi-token-plan-cn" ? XIAOMI_TOKEN_PLAN_COMPAT : {};
     const merged = {
         ...providerCompat,
         ...(piModel?.compat ?? {}),
         ...(modelCompat ?? {}),
     };
-    return Object.keys(merged).length ? merged as Model<any>["compat"] : undefined;
+    return Object.keys(merged).length ? merged as Model<Api>["compat"] : undefined;
 }

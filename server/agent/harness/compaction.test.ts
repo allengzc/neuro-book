@@ -2,8 +2,9 @@ import {randomUUID} from "node:crypto";
 import {rm} from "node:fs/promises";
 import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
-import {fauxAssistantMessage, fauxText, fauxToolCall, registerFauxProvider} from "@earendil-works/pi-ai";
-import type {Context, FauxProviderRegistration} from "@earendil-works/pi-ai";
+import {fauxAssistantMessage, fauxText, fauxToolCall} from "@earendil-works/pi-ai";
+import type {Context} from "@earendil-works/pi-ai";
+import {createFauxModels, type FauxModelsFixture} from "nbook/server/agent/test-utils/faux-models";
 import {appendCompaction, COMPACTION_PROMPT, COMPACTION_SUMMARY_PREFIX, compactIfNeeded, resolveCompactionOptions, shouldCompactWithOptions} from "nbook/server/agent/harness/compaction";
 import {createAssistantTextMessage, createTextToolResult, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
@@ -11,12 +12,12 @@ import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 describe("compaction", () => {
     let root: string;
     let repo: JsonlSessionRepository;
-    let faux: FauxProviderRegistration;
+    let faux: FauxModelsFixture;
 
     beforeEach(() => {
         root = join(".agent", "agent-compaction-test", randomUUID());
         repo = new JsonlSessionRepository(root);
-        faux = registerFauxProvider({
+        faux = createFauxModels({
             models: [{
                 id: `faux-compact-${randomUUID()}`,
                 contextWindow: 128_000,
@@ -26,7 +27,6 @@ describe("compaction", () => {
     });
 
     afterEach(async () => {
-        faux.unregister();
         await rm(root, {recursive: true, force: true});
     });
 
@@ -53,12 +53,13 @@ describe("compaction", () => {
             repo,
             snapshot,
             messages: repo.reduce(snapshot).messages,
+            models: faux.runtime,
             model: faux.getModel(),
             instructions: "focus on files",
             writeCompactionEntry,
             compaction: {
                 reserveTokens: 2_000,
-                keepRecentTokens: 1,
+                keepRecent: {kind: "tokens", value: 1},
             },
         });
 
@@ -97,11 +98,12 @@ describe("compaction", () => {
             repo,
             snapshot,
             messages: repo.reduce(snapshot).messages,
+            models: faux.runtime,
             model: faux.getModel(),
             writeCompactionEntry,
             compaction: {
                 reserveTokens: 2_000,
-                keepRecentTokens: 1,
+                keepRecent: {kind: "tokens", value: 1},
             },
         });
 
@@ -128,11 +130,12 @@ describe("compaction", () => {
             repo,
             snapshot,
             messages: repo.reduce(snapshot).messages,
+            models: faux.runtime,
             model: faux.getModel(),
             writeCompactionEntry,
             compaction: {
                 reserveTokens: 2_000,
-                keepRecentTokens: 1,
+                keepRecent: {kind: "tokens", value: 1},
             },
         })).rejects.toThrow("未完成 tool call");
     });
@@ -151,8 +154,7 @@ describe("compaction", () => {
             repo,
             snapshot,
             messages: repo.reduce(snapshot).messages,
-            systemPrompt: "",
-            tools: [],
+            models: faux.runtime,
             model: faux.getModel(),
             writeCompactionEntry,
         });
@@ -162,8 +164,8 @@ describe("compaction", () => {
 
     it("解析默认 prompt/prefix、百分比触发和 recent 百分比", () => {
         const options = resolveCompactionOptions({
-            triggerPercent: 0.8,
-            keepRecentPercent: 0.25,
+            trigger: {kind: "percent", value: 0.8},
+            keepRecent: {kind: "percent", value: 0.25},
         }, faux.getModel());
 
         expect(options.prompt).toBe(COMPACTION_PROMPT);
@@ -175,7 +177,7 @@ describe("compaction", () => {
 
     it("triggerTokens 生效并把自定义 prompt/prefix 写入 summary 调用和 compaction entry", async () => {
         let summaryPrompt: Context | null = null;
-        let summaryHeaders: Record<string, string> | undefined;
+        let summaryHeaders: Record<string, string | null> | undefined;
         faux.setResponses([
             (context, options) => {
                 summaryPrompt = context;
@@ -196,8 +198,7 @@ describe("compaction", () => {
             repo,
             snapshot,
             messages: repo.reduce(snapshot).messages,
-            systemPrompt: "",
-            tools: [],
+            models: faux.runtime,
             model: {
                 ...faux.getModel(),
                 headers: {
@@ -212,8 +213,8 @@ describe("compaction", () => {
                 },
             },
             compaction: {
-                triggerTokens: 1,
-                keepRecentTokens: 1,
+                trigger: {kind: "tokens", value: 1},
+                keepRecent: {kind: "tokens", value: 1},
                 prompt: "CUSTOM PROMPT",
                 summaryPrefix: "CUSTOM PREFIX",
             },
@@ -227,7 +228,7 @@ describe("compaction", () => {
         expect(summaryHeaders).toEqual({
             "x-request": "request",
             "x-model": "model",
-            "x-shared": "model",
+            "x-shared": "request",
         });
         expect(messageText(reduced.messages[0] as never)).toContain("CUSTOM PREFIX");
     });
@@ -261,12 +262,11 @@ describe("compaction", () => {
             repo,
             snapshot: firstSnapshot,
             messages: repo.reduce(firstSnapshot).messages,
-            systemPrompt: "",
-            tools: [],
+            models: faux.runtime,
             model: faux.getModel(),
             compaction: {
-                triggerTokens: 1,
-                keepRecentTokens: 1,
+                trigger: {kind: "tokens", value: 1},
+                keepRecent: {kind: "tokens", value: 1},
             },
             writeCompactionEntry,
         });
@@ -282,12 +282,11 @@ describe("compaction", () => {
             repo,
             snapshot: secondSnapshot,
             messages: repo.reduce(secondSnapshot).messages,
-            systemPrompt: "",
-            tools: [],
+            models: faux.runtime,
             model: faux.getModel(),
             compaction: {
-                triggerTokens: 1,
-                keepRecentTokens: 200,
+                trigger: {kind: "tokens", value: 1},
+                keepRecent: {kind: "tokens", value: 200},
             },
             writeCompactionEntry,
         });
@@ -336,11 +335,12 @@ describe("compaction", () => {
             repo,
             snapshot,
             messages: repo.reduce(snapshot).messages,
+            models: faux.runtime,
             model: faux.getModel(),
             writeCompactionEntry,
             compaction: {
                 reserveTokens: 2_000,
-                keepRecentTokens: 1,
+                keepRecent: {kind: "tokens", value: 1},
             },
         });
 

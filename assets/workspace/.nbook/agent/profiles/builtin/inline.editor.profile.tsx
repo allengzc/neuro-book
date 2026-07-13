@@ -32,7 +32,6 @@ export default defineAgentProfile({
         builtin.file.write,
         builtin.result.main(),
     ),
-    compaction: {},
     context(ctx) {
         const inputContext = renderInlineEditContext(ctx);
         return (

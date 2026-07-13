@@ -11,27 +11,24 @@ Windows 普通用户优先使用 Release Zip。它适合本机点击启动，不
 1. 从 GitHub Release 下载 Windows x64 zip。
 2. 解压到一个新目录。
 3. 运行 `Start Neuro Book.cmd`。
-4. 按提示安装缺失的 Git、Bun、ripgrep。
-5. 首次启动时按提示创建管理员。
-6. 打开本地网页并登录。
+4. 首次启动自动初始化 `data/`。
+5. 打开本地网页；需要鉴权时运行 `Create Admin.cmd`。
 
-Release Zip 不是离线包。首次启动会联网安装依赖、clone 源码、构建应用并初始化 SQLite 数据库。
+Release Zip 已包含源码、预构建 Product、Bun、rg 和 PortableGit/bash；首次启动不安装应用依赖、不 clone、不构建。
 
 不要用新版 zip 直接覆盖旧目录。更新时优先使用解压目录里的 `Update Neuro Book.cmd`。
 
-## 方式二：local-git
+## 方式二：NeuroBook Manager
 
-如果你熟悉命令行，或者要部署到自己的机器，默认推荐 `local-git`。
+服务器优先使用 GHCR；已有 Bun 的机器也可以选择 Product Bun 或 Source Profile。
 
 在目标机器运行：
 
 ```bash
-npx --yes --package github:notnotype/neuro-book neuro-book-deploy
+bunx --bun @notnotype/neuro-book-manager@canary install --profile ghcr
 ```
 
-脚本会询问部署目录、端口和部署模式。默认模式是 `local-git`：在宿主机 clone/pull 源码，安装依赖，构建应用，迁移 SQLite，然后生成本地启动说明。
-
-部署完成后，按 `.deploy/README.md` 中的命令启动服务。
+安装完成后进入 Installation Root，运行 `.runtime/bin/neuro-book start`。更新、状态和诊断统一使用 `neuro-book update/status/doctor`。
 
 ## 创建管理员
 
@@ -60,6 +57,6 @@ workspace/.nbook/config.json
 ## 常见下一步
 
 - 应用已经跑起来，想开始第一本书：读 [从第一本书到第一次 RP](/tutorials/)。
-- 想了解 Windows、Docker、local-git 的差异：读 [部署方式](/deployment)。
+- 想了解 Windows、Docker、Product Bun 和 Source Profile 的差异：读 [部署方式](/deployment)。
 - 想理解项目文件放在哪里：读 [Agent 项目指南](https://github.com/notnotype/neuro-book/blob/master/reference/agent/project-workspace-guide.md)。
 - 想让 Agent 协助部署或排障：把 [交付与运维桥梁](https://github.com/notnotype/neuro-book/blob/master/docs/operator-bridge.md) 发给它。

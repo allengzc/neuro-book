@@ -1,5 +1,96 @@
 import {describe, expect, it} from "vitest";
-import {CheckModelRequestDtoSchema, CheckProviderRequestDtoSchema} from "nbook/shared/dto/app-settings.dto";
+import {CheckModelRequestDtoSchema, CheckProviderRequestDtoSchema, ThinkingLevelSchema, UpdateModelSettingsRequestDtoSchema} from "nbook/shared/dto/app-settings.dto";
+
+describe("Pi settings contracts", () => {
+    it("thinking level 接受 max", () => {
+        expect(ThinkingLevelSchema.parse("max")).toBe("max");
+    });
+
+    it("Provider requestOptions 拒绝 runtime-owned 字段", () => {
+        expect(() => UpdateModelSettingsRequestDtoSchema.parse({
+            defaultModelKey: "custom/model",
+            providers: [{
+                id: "custom",
+                name: "Custom",
+                enabled: true,
+                api: "openai-completions",
+                options: {apiKey: "", baseURL: "", proxy: "", timeoutMs: null, requestOptions: {apiKey: "hidden"}},
+                models: [{
+                    name: "Model",
+                    id: "model",
+                    group: null,
+                    enabled: true,
+                    provider: null,
+                    api: null,
+                    baseUrl: null,
+                    reasoning: null,
+                    input: null,
+                    maxTokens: null,
+                    cost: null,
+                    compat: null,
+                    contextWindowTokens: null,
+                }],
+            }],
+        })).toThrow("apiKey");
+    });
+
+    it("保存时拒绝未知 Pi API", () => {
+        expect(() => UpdateModelSettingsRequestDtoSchema.parse({
+            defaultModelKey: "custom/model",
+            providers: [{
+                id: "custom",
+                name: "Custom",
+                enabled: true,
+                api: "mystery-api",
+                options: {apiKey: "", baseURL: "", proxy: "", timeoutMs: null, requestOptions: {}},
+                models: [{
+                    name: "Model",
+                    id: "model",
+                    group: null,
+                    enabled: true,
+                    provider: null,
+                    api: null,
+                    baseUrl: null,
+                    reasoning: null,
+                    input: null,
+                    maxTokens: null,
+                    cost: null,
+                    compat: null,
+                    contextWindowTokens: null,
+                }],
+            }],
+        })).toThrow("不支持的 Pi API");
+    });
+
+    it("cost tiers 拒绝重复 threshold", () => {
+        const cost = {input: 1, output: 2, cacheRead: 0, cacheWrite: 0};
+        expect(() => UpdateModelSettingsRequestDtoSchema.parse({
+            defaultModelKey: "custom/model",
+            providers: [{
+                id: "custom",
+                name: "Custom",
+                enabled: true,
+                api: "openai-completions",
+                options: {apiKey: "", baseURL: "", proxy: "", timeoutMs: null, requestOptions: {}},
+                models: [{
+                    name: "Model",
+                    id: "model",
+                    group: null,
+                    enabled: true,
+                    provider: null,
+                    api: null,
+                    baseUrl: null,
+                    reasoning: null,
+                    input: null,
+                    maxTokens: null,
+                    cost: {...cost, tiers: [{...cost, inputTokensAbove: 100}, {...cost, inputTokensAbove: 100}]},
+                    compat: null,
+                    contextWindowTokens: null,
+                }],
+            }],
+        })).toThrow("tier threshold 重复");
+    });
+});
 
 describe("CheckProviderRequestDtoSchema", () => {
     it("保留当前 Provider 检查携带的模型草稿", () => {

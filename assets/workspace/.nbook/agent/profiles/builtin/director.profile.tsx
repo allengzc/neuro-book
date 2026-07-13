@@ -35,7 +35,6 @@ export default defineAgentProfile({
         ...plotWriteBindings,
         builtin.result.main(),
     ),
-    compaction: {},
     context(ctx) {
         return (
             <ProfilePrompt>

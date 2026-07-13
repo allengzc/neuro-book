@@ -24,6 +24,7 @@ import {
     resolveUserNbookRoot,
 } from "nbook/server/workspace-files/workspace-assets-root";
 import {appLogger} from "nbook/server/app-logs/logger";
+import {resolveStateRoot} from "nbook/server/runtime/installation-paths";
 import type {
     UserAssetsAssetSyncWarningDto,
     UserAssetsProfileSyncWarningDto,
@@ -426,7 +427,9 @@ export async function sha256File(filePath: string): Promise<{sha256: string; byt
  * 把小说目录脚手架复制到 workspace，只补缺失文件，不覆盖用户已编辑内容。
  */
 export async function copyNovelDirectoryTemplate(workspaceRoot: string): Promise<void> {
-    const absoluteWorkspaceRoot = path.resolve(process.cwd(), workspaceRoot);
+    const absoluteWorkspaceRoot = path.isAbsolute(workspaceRoot)
+        ? path.resolve(workspaceRoot)
+        : path.resolve(resolveStateRoot(), workspaceRoot);
     const mergedRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-novel-template-"));
     try {
         await fs.cp(projectDirectoryTemplateRoot(), mergedRoot, {

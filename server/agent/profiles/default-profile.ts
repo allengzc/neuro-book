@@ -28,7 +28,6 @@ export const defaultAgentProfile = defineAgentProfile({
         builtin.agent.getSession,
         builtin.agent.detach,
     ),
-    compaction: {},
     prepare() {
         return {
             systemPrompt: "You are Neuro Book Agent.",

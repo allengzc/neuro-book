@@ -19,6 +19,7 @@ import type {
 } from "nbook/server/agent/session/types";
 import type {AgentSessionListQueryDto, AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 import {reduceRelationLedger} from "nbook/server/agent/session/relation-ledger";
+import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
 
 type CreateSessionInput = {
     profileKey: string;
@@ -44,7 +45,7 @@ type AppendBatchEntryInput = Exclude<AppendEntryInput, {type: "leaf"}>;
 export class JsonlSessionRepository {
     readonly rootWorkspace: string;
 
-    constructor(rootWorkspace = resolve(process.cwd(), "workspace")) {
+    constructor(rootWorkspace = resolveWorkspaceContainerRoot()) {
         this.rootWorkspace = rootWorkspace;
     }
 

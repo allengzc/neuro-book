@@ -1,21 +1,17 @@
 {
   "name": "neuro-book",
-  "version": "0.7.2-canary.20260711.122605Z.dc668548",
+  "version": "0.7.5-canary.20260712.122532Z.ee84760d",
   "description": "A local AI workspace for long-form novel writing, integrating a file-based workspace, Markdown Studio, story structure management, and multi-agent writing workflows.",
   "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
     "url": "https://github.com/notnotype/neuro-book.git"
   },
+  "workspaces": [
+    "packages/*"
+  ],
   "type": "module",
   "main": "dist/index.js",
-  "bin": {
-    "neuro-book-deploy": "./scripts/deploy/neuro-book-deploy.mjs"
-  },
-  "files": [
-    "scripts/deploy/*.mjs",
-    "scripts/utils/*.mjs"
-  ],
   "scripts": {
     "dev": "nuxt prepare && bun run generate && bun scripts/build/prepare-system-assets.ts --sync-user-assets --force-sync-user-assets && nuxt dev",
     "dev:warmup": "bun scripts/cli/warmup-dev-server.mjs",
@@ -41,14 +37,21 @@
     "sync:nb-history": "bun scripts/cli/sync-nb-history.ts",
     "config:migrate": "bun scripts/db/migrate-config-system.ts",
     "docker:publish": "bun scripts/deploy/publish-ghcr-image.mjs",
-    "package:windows-portable": "bun scripts/deploy/windows-portable.mjs",
+    "package:windows-portable": "bun scripts/deploy/windows-portable-manager.ts",
+    "release:source": "bun scripts/release/release-assets.ts source --output dist/neuro-book-source.zip",
+    "release:product:windows": "bun scripts/release/release-assets.ts product --platform windows-x64 --output dist/neuro-book-product-windows-x64.zip",
+    "release:product:linux": "bun scripts/release/release-assets.ts product --platform linux-x64-glibc --output dist/neuro-book-product-linux-x64-glibc.tar.gz",
     "product:stage": "bun scripts/deploy/product-runtime.mjs stage",
     "product:start": "bun scripts/deploy/product-runtime.mjs start",
     "product:create-admin": "bun scripts/deploy/product-runtime.mjs create-admin",
     "auth:create-admin": "bun scripts/cli/create-admin.ts",
     "studio": "bunx prisma studio --config ./prisma.config.ts",
-    "deploy": "bun scripts/deploy/deploy.mjs",
     "release": "bun scripts/release/release.ts",
+    "manager:release": "bun scripts/release/manager-release.ts",
+    "manager:build": "bun run --cwd packages/neuro-book-manager build",
+    "manager:test": "bun run --cwd packages/neuro-book-manager test",
+    "manager:typecheck": "bun run --cwd packages/neuro-book-manager typecheck",
+    "manager:pack": "bun run --cwd packages/neuro-book-manager pack:check",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs"
@@ -57,8 +60,8 @@
     "@clack/prompts": "^1.0.0",
     "@dnd-kit/helpers": "^0.3.2",
     "@dnd-kit/vue": "^0.3.2",
-    "@earendil-works/pi-agent-core": "^0.75.4",
-    "@earendil-works/pi-ai": "^0.75.4",
+    "@earendil-works/pi-agent-core": "0.80.6",
+    "@earendil-works/pi-ai": "0.80.6",
     "@iconify-json/lucide": "^1.2.95",
     "@libsql/client": "^0.17.3",
     "@libsql/isomorphic-ws": "^0.1.5",
@@ -116,6 +119,7 @@
     "fflate": "^0.8.3",
     "fuse.js": "^7.3.0",
     "global-agent": "^3.0.0",
+    "h3": "^1.15.5",
     "i": "^0.3.7",
     "jsdom": "^29.1.1",
     "json-editor-vue": "^0.18.1",
@@ -162,7 +166,8 @@
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vitepress": "^2.0.0-alpha.17",
-    "vitest": "^4.1.2"
+    "vitest": "^4.1.2",
+    "vue-tsc": "^3.3.7"
   },
   "private": true
 }

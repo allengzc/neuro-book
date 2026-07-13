@@ -26,7 +26,6 @@ export default defineAgentProfile({
     tools: toolset(
         builtin.result.main({dataSchema: OutputSchema}),
     ),
-    compaction: {},
     context(ctx) {
         return (
             <ProfilePrompt>

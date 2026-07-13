@@ -79,9 +79,10 @@ export default defineAgentProfile({
         builtin.control.requestUserInput,
         builtin.control.switchMode,
     ),
-    summarizer: {
-        profileKey: "summarizer",
-        input: {
+    runtimeDefaults: {
+        summarizer: {
+            enabled: true,
+            profileKey: "summarizer",
             trigger: "afterInvocation",
             interval: {
                 kind: "sourceInvocation",
@@ -90,7 +91,6 @@ export default defineAgentProfile({
             maxDialogueContentTokens: 80_000,
         },
     },
-    compaction: {},
     context(ctx) {
         const customTopPrompt = (ctx.settings.customTopSystemPrompt ?? "").trim();
         return (

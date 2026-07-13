@@ -9,6 +9,7 @@ import {
     compileProfileArtifacts,
     hashFile,
     isProfileReleaseCommittedButRegistryFailedError,
+    PROFILE_ARTIFACT_COMPILER_VERSION,
     PROFILE_COMPILED_ARTIFACT_GC_GRACE_MS,
     PROFILE_COMPILED_ARTIFACTS_DIR_NAME,
     PROFILE_COMPILED_DIR_NAME,
@@ -377,7 +378,7 @@ describe("AgentProfileCatalog", () => {
 
         expect(item.artifactSha256).toBe(artifactHash.sha256);
         expect(item.artifactBytes).toBe(artifactHash.bytes);
-        expect(head).toContain("nbook-profile-artifact-compiler-version:6");
+        expect(head).toContain(`nbook-profile-artifact-compiler-version:${PROFILE_ARTIFACT_COMPILER_VERSION}`);
         expect(head).toContain("__nbookCreateRequire(import.meta.url)");
         expect(head).not.toContain("globalThis._importMeta_");
         await expect(validateProfileArtifact(systemRoot, item)).resolves.toEqual({fresh: true});

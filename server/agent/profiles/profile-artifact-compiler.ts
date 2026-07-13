@@ -1368,7 +1368,8 @@ function productPackageManifestPath(): string | null {
         return rootPackage;
     }
     const outputPackage = resolve(process.cwd(), ".output", "server", "package.json");
-    if (packageManifestName(outputPackage) === "neuro-book-output" && !existsSync(resolve(process.cwd(), "node_modules"))) {
+    if (packageManifestName(outputPackage) === "neuro-book-output"
+        && (process.env.NEURO_BOOK_PRODUCT_BUILD === "1" || !existsSync(resolve(process.cwd(), "node_modules")))) {
         return outputPackage;
     }
     return null;

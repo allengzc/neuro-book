@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
+import {resolveStateWorkspaceRoot} from "nbook/server/runtime/installation-paths";
 
 export const WORKSPACE_CONTAINER_ROOT = "workspace";
 export const WORKSPACE_NBOOK_ROOT = path.posix.join(WORKSPACE_CONTAINER_ROOT, ".nbook");
@@ -77,7 +78,12 @@ export function resolveSystemNbookRoot(startPath = process.cwd()): string {
     if (workspaceAssetRootContext?.systemNbookRoot) {
         return workspaceAssetRootContext.systemNbookRoot;
     }
-    return path.join(resolveApplicationRoot(startPath), SYSTEM_ASSETS_RELATIVE_ROOT);
+    const applicationRoot = resolveApplicationRoot(startPath);
+    const productAssetsRoot = path.join(applicationRoot, ".output", "server", SYSTEM_ASSETS_RELATIVE_ROOT);
+    if (!fs.existsSync(path.join(applicationRoot, "node_modules")) && fs.existsSync(productAssetsRoot)) {
+        return productAssetsRoot;
+    }
+    return path.join(applicationRoot, SYSTEM_ASSETS_RELATIVE_ROOT);
 }
 
 /**
@@ -101,7 +107,7 @@ export function resolveWorkspaceContainerRoot(startPath = process.cwd()): string
         currentPath = parentPath;
     }
 
-    return path.join(resolveApplicationRoot(startPath), WORKSPACE_CONTAINER_ROOT);
+    return resolveStateWorkspaceRoot(resolveApplicationRoot(startPath));
 }
 
 /**

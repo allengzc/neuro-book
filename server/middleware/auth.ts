@@ -1,6 +1,7 @@
 import {getCurrentUser, isAuthEnabled} from "nbook/server/utils/auth";
 
 const publicApiPaths = new Set([
+    "/api/app/version",
     "/api/auth/login",
     "/api/auth/logout",
     "/api/auth/me",
@@ -10,7 +11,7 @@ const publicApiPaths = new Set([
 /**
  * 判断当前路径是否不需要鉴权。
  */
-function isPublicPath(pathname: string): boolean {
+export function isPublicPath(pathname: string): boolean {
     if (pathname === "/login") {
         return true;
     }

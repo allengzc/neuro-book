@@ -1,5 +1,6 @@
 import {readdir, readFile, rename, unlink, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
+import {resolveStateWorkspaceRoot} from "nbook/server/runtime/installation-paths";
 
 type MigrationOptions = {
     rootWorkspace: string;
@@ -137,7 +138,7 @@ function hasInitialData(value: unknown): boolean {
  * 解析命令行参数。默认 dry-run；传 --write 才实际写入。
  */
 function parseArgs(args: string[]): MigrationOptions {
-    let rootWorkspace = resolve(process.cwd(), "workspace");
+    let rootWorkspace = resolveStateWorkspaceRoot();
     let dryRun = true;
     for (let index = 0; index < args.length; index += 1) {
         const arg = args[index];

@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type {JsonValue} from "nbook/server/agent/messages/types";
+import {resolveStateRoot, resolveStateWorkspaceRoot} from "nbook/server/runtime/installation-paths";
 
 export type ProfileHomeWriteMode = "create" | "overwrite";
 
@@ -80,7 +81,7 @@ export function resolveProjectRootForProfileHome(projectPath: string | undefined
     if (!projectPath) {
         return null;
     }
-    return path.isAbsolute(projectPath) ? path.resolve(projectPath) : path.resolve(process.cwd(), projectPath);
+    return path.isAbsolute(projectPath) ? path.resolve(projectPath) : path.resolve(resolveStateRoot(), projectPath);
 }
 
 /**
@@ -88,9 +89,9 @@ export function resolveProjectRootForProfileHome(projectPath: string | undefined
  */
 export function resolveGlobalRootForProfileHome(workspaceRoot: string | undefined): string {
     if (!workspaceRoot?.trim()) {
-        return path.resolve(process.cwd(), "workspace", ".nbook");
+        return path.resolve(resolveStateWorkspaceRoot(), ".nbook");
     }
-    const resolved = path.isAbsolute(workspaceRoot) ? path.resolve(workspaceRoot) : path.resolve(process.cwd(), workspaceRoot);
+    const resolved = path.isAbsolute(workspaceRoot) ? path.resolve(workspaceRoot) : path.resolve(resolveStateRoot(), workspaceRoot);
     return path.basename(resolved) === ".nbook" ? resolved : path.join(resolved, ".nbook");
 }
 

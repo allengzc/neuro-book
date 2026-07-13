@@ -1,24 +1,22 @@
 import {tracedCompleteSimple} from "nbook/server/agent/observability/traced-provider";
 import type {PiTraceBinding} from "nbook/server/agent/observability/traced-provider";
+import type {Models} from "@earendil-works/pi-ai";
 import {estimateContextTokens, estimateTokens} from "@earendil-works/pi-agent-core";
-import type {AgentMessage, AgentTool, AssistantMessage, JsonValue, Message, Model, ThinkingLevel, ToolResultMessage} from "nbook/server/agent/messages/types";
-import type {ProfileCompactionPlan} from "nbook/server/agent/profiles/types";
+import type {AgentMessage, AssistantMessage, JsonValue, Message, Model, ThinkingLevel, ToolResultMessage} from "nbook/server/agent/messages/types";
+import {
+    COMPACTION_PROMPT,
+    COMPACTION_SUMMARY_PREFIX,
+    DEFAULT_PROFILE_RUNTIME_SETTINGS,
+    resolveProfileRuntimeSettings,
+} from "nbook/server/agent/profiles/profile-runtime-settings";
+import type {ProfileCompactionRuntimePatch} from "nbook/shared/agent/profile-runtime-settings";
 import type {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import type {CompactionSessionEntry, CustomMessageSessionEntry, MessageSessionEntry, SessionEntry, SessionSnapshot} from "nbook/server/agent/session/types";
 import {createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
-import {estimateModelRequestTokens} from "nbook/server/agent/harness/model-context-estimate";
+import {sanitizeProviderErrorMessage} from "nbook/server/agent/observability/provider-error-sanitizer";
+import {mergePiRequestHeaders, parsePiSimpleRequestOptions, piRequestAuthOptions} from "nbook/server/agent/harness/pi-request-options";
 
-export const COMPACTION_PROMPT = `You are performing a CONTEXT CHECKPOINT COMPACTION. Create a handoff summary for another LLM that will resume the task.
-
-Include:
-- Current progress and key decisions made
-- Important context, constraints, or user preferences
-- What remains to be done (clear next steps)
-- Any critical data, examples, or references needed to continue
-
-Be concise, structured, and focused on helping the next LLM seamlessly continue the work.`;
-
-export const COMPACTION_SUMMARY_PREFIX = "Another language model started to solve this problem and produced a summary of its thinking process. You also have access to the state of the tools that were used by that language model. Use this to build on the work that has already been done and avoid duplicating work. Here is the summary produced by the other language model, use the information in this summary to assist with your own analysis:";
+export {COMPACTION_PROMPT, COMPACTION_SUMMARY_PREFIX};
 
 export type CompactionOptions = {
     enabled: boolean;
@@ -33,8 +31,8 @@ export type CompactionOptions = {
 };
 
 export const DEFAULT_NEURO_COMPACTION_OPTIONS: Omit<CompactionOptions, "enabled"> = {
-    reserveTokens: 25_600,
-    keepRecentTokens: 24_000,
+    reserveTokens: DEFAULT_PROFILE_RUNTIME_SETTINGS.compaction.reserveTokens,
+    keepRecentTokens: DEFAULT_PROFILE_RUNTIME_SETTINGS.compaction.keepRecent.value,
     prompt: COMPACTION_PROMPT,
     summaryPrefix: COMPACTION_SUMMARY_PREFIX,
     promptSource: "default",
@@ -64,14 +62,14 @@ export async function compactIfNeeded(input: {
     repo: JsonlSessionRepository;
     snapshot: SessionSnapshot;
     messages: AgentMessage[];
-    systemPrompt: string;
-    tools: AgentTool[];
+    models: Models;
+    customPiRuntime?: boolean;
     model: Model<any>;
     apiKey?: string;
     timeoutMs?: number | null;
     requestOptions?: Record<string, JsonValue>;
     thinkingLevel?: ThinkingLevel;
-    compaction?: ProfileCompactionPlan;
+    compaction?: ProfileCompactionRuntimePatch;
     trace?: PiTraceBinding;
     writeCompactionEntry: (entry: Omit<CompactionSessionEntry, "id" | "parentId" | "timestamp">) => Promise<void>;
 }): Promise<boolean> {
@@ -83,11 +81,7 @@ export async function compactIfNeeded(input: {
         return false;
     }
 
-    const usage = estimateModelRequestTokens({
-        systemPrompt: input.systemPrompt,
-        messages: input.messages,
-        tools: input.tools,
-    });
+    const usage = estimateContextTokens(input.messages);
     if (!shouldCompactWithOptions(usage.tokens, input.model.contextWindow, options)) {
         return false;
     }
@@ -95,6 +89,8 @@ export async function compactIfNeeded(input: {
         repo: input.repo,
         snapshot: input.snapshot,
         messages: input.messages,
+        models: input.models,
+        customPiRuntime: input.customPiRuntime,
         tokensBefore: usage.tokens,
         model: input.model,
         apiKey: input.apiKey,
@@ -115,6 +111,8 @@ export async function appendCompaction(input: {
     repo: JsonlSessionRepository;
     snapshot: SessionSnapshot;
     messages: AgentMessage[];
+    models: Models;
+    customPiRuntime?: boolean;
     model: Model<any>;
     apiKey?: string;
     timeoutMs?: number | null;
@@ -122,7 +120,7 @@ export async function appendCompaction(input: {
     thinkingLevel?: ThinkingLevel;
     tokensBefore?: number;
     instructions?: string;
-    compaction?: ProfileCompactionPlan;
+    compaction?: ProfileCompactionRuntimePatch;
     options?: CompactionOptions;
     trace?: PiTraceBinding;
     writeCompactionEntry: (entry: Omit<CompactionSessionEntry, "id" | "parentId" | "timestamp">) => Promise<void>;
@@ -137,6 +135,8 @@ export async function appendCompaction(input: {
     const plan = selectCompactionPlan(path, options);
     const generatedSummary = await generateCompactionSummary({
         messages: plan.messagesToSummarize,
+        models: input.models,
+        customPiRuntime: input.customPiRuntime,
         model: input.model,
         apiKey: input.apiKey,
         timeoutMs: input.timeoutMs,
@@ -180,20 +180,21 @@ export async function appendCompaction(input: {
 /**
  * 将 profile compaction plan 解析成当前模型下的执行策略。
  */
-export function resolveCompactionOptions(plan: ProfileCompactionPlan, model: Model<any>): CompactionOptions {
-    const keepRecentTokens = typeof plan.keepRecentPercent === "number"
-        ? Math.max(1, Math.floor(model.contextWindow * plan.keepRecentPercent))
-        : plan.keepRecentTokens ?? DEFAULT_NEURO_COMPACTION_OPTIONS.keepRecentTokens;
+export function resolveCompactionOptions(patch: ProfileCompactionRuntimePatch, model: Model<any>): CompactionOptions {
+    const plan = resolveProfileRuntimeSettings(undefined, {compaction: patch}).compaction;
+    const keepRecentTokens = plan.keepRecent.kind === "percent"
+        ? Math.max(1, Math.floor(model.contextWindow * plan.keepRecent.value))
+        : plan.keepRecent.value;
     return {
-        enabled: plan.enabled ?? true,
-        reserveTokens: plan.reserveTokens ?? DEFAULT_NEURO_COMPACTION_OPTIONS.reserveTokens,
+        enabled: plan.enabled,
+        reserveTokens: plan.reserveTokens,
         keepRecentTokens,
-        triggerPercent: plan.triggerPercent,
-        triggerTokens: plan.triggerTokens,
-        prompt: plan.prompt ?? COMPACTION_PROMPT,
-        summaryPrefix: plan.summaryPrefix ?? COMPACTION_SUMMARY_PREFIX,
-        promptSource: plan.prompt ? "profile" : "default",
-        summaryPrefixSource: plan.summaryPrefix ? "profile" : "default",
+        triggerPercent: plan.trigger.kind === "percent" ? plan.trigger.value : undefined,
+        triggerTokens: plan.trigger.kind === "tokens" ? plan.trigger.value : undefined,
+        prompt: plan.prompt,
+        summaryPrefix: plan.summaryPrefix,
+        promptSource: plan.prompt === COMPACTION_PROMPT ? "default" : "profile",
+        summaryPrefixSource: plan.summaryPrefix === COMPACTION_SUMMARY_PREFIX ? "default" : "profile",
     };
 }
 
@@ -218,6 +219,8 @@ export function shouldCompactWithOptions(contextTokens: number, contextWindow: n
  */
 async function generateCompactionSummary(input: {
     messages: Message[];
+    models: Models;
+    customPiRuntime?: boolean;
     model: Model<any>;
     apiKey?: string;
     timeoutMs?: number | null;
@@ -238,24 +241,29 @@ async function generateCompactionSummary(input: {
         input.previousSummary ? `<previous-summary>\n${input.previousSummary}\n</previous-summary>` : "",
         `<conversation>\n${conversation}\n</conversation>`,
     ].filter(Boolean).join("\n\n");
-    const requestOptions = piStreamOptions(input.requestOptions);
+    const requestOptions = parsePiSimpleRequestOptions(input.requestOptions);
     const completeContext = {
         systemPrompt: input.prompt,
         messages: [createUserMessage({text: prompt})],
     };
     const completeOptions = {
-        apiKey: input.apiKey,
-        timeoutMs: input.timeoutMs ?? undefined,
         ...requestOptions,
-        headers: mergeHeaders(readHeaders(requestOptions.headers), input.model.headers),
+        ...piRequestAuthOptions({
+            api: input.model.api,
+            apiKey: input.apiKey,
+            customRuntime: input.customPiRuntime === true,
+            env: requestOptions.env,
+        }),
+        headers: mergePiRequestHeaders(input.model.headers, requestOptions.headers),
+        timeoutMs: input.timeoutMs ?? undefined,
         maxTokens: Math.min(Math.floor(input.reserveTokens * 0.8), input.model.maxTokens),
         reasoning: input.thinkingLevel && input.thinkingLevel !== "off" ? input.thinkingLevel as never : undefined,
     };
     // 统一入口：trace 缺省时 tracedCompleteSimple 等同裸 completeSimple（不落记录、零开销）。
-    const response = await tracedCompleteSimple(input.model, completeContext, completeOptions, input.trace);
+    const response = await tracedCompleteSimple(input.models, input.model, completeContext, completeOptions, input.trace);
 
     if (response.stopReason === "error" || response.stopReason === "aborted") {
-        throw new Error(response.errorMessage || "compaction summary 生成失败");
+        throw new Error(sanitizeProviderErrorMessage(response.errorMessage || "compaction summary 生成失败"));
     }
 
     const text = response.content
@@ -432,31 +440,4 @@ function sumVisibleEntryTokens(entries: SessionEntry[]): number {
 
 function sumMessageTokens(messages: Message[]): number {
     return messages.reduce((total, message) => total + estimateTokens(message), 0);
-}
-
-function piStreamOptions(requestOptions: Record<string, JsonValue> | undefined): Record<string, unknown> {
-    if (!requestOptions) {
-        return {};
-    }
-    const allowedKeys = new Set(["headers", "maxRetries", "maxRetryDelayMs", "metadata", "transport", "cacheRetention"]);
-    return Object.fromEntries(
-        Object.entries(requestOptions).filter(([key]) => allowedKeys.has(key)),
-    );
-}
-
-function readHeaders(value: unknown): Record<string, string> | undefined {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-        return undefined;
-    }
-    return Object.fromEntries(
-        Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
-    );
-}
-
-function mergeHeaders(left: Record<string, string> | undefined, right: Record<string, string> | undefined): Record<string, string> | undefined {
-    const headers = {
-        ...left,
-        ...right,
-    };
-    return Object.keys(headers).length ? headers : undefined;
 }

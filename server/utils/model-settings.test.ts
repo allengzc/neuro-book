@@ -1,5 +1,6 @@
 import {afterEach, describe, expect, it, vi} from "vitest";
-import {fauxAssistantMessage, fauxText, registerFauxProvider} from "@earendil-works/pi-ai";
+import {fauxAssistantMessage, fauxText} from "@earendil-works/pi-ai";
+import {createFauxModels} from "nbook/server/agent/test-utils/faux-models";
 import {buildModelSettingsDto, checkModelHealth, checkProviderConnection, convertModelSettingsRequestToConfig, discoverProviderModels, MODEL_SMOKE_CHECK_PROMPTS, pickModelSmokeCheckPrompt, resolveConfiguredModel, withSavedProviderApiKey} from "nbook/server/utils/model-settings";
 import type {ConfiguredModelDto, ModelProviderDraftDto} from "nbook/shared/dto/app-settings.dto";
 
@@ -82,25 +83,21 @@ describe("model settings provider enabled", () => {
 
 describe("provider/model Pi checks", () => {
     it("model check 通过 Pi streamSimple smoke", async () => {
-        const faux = registerFauxProvider({
+        const faux = createFauxModels({
             provider: "faux-check",
             models: [{id: "faux-fast"}],
         });
         faux.setResponses([fauxAssistantMessage(fauxText("ok"))]);
-        try {
-            const result = await checkModelHealth(createProviderDraft({
-                id: "faux-check",
-                name: "Faux",
-                api: faux.api,
-            }), createModelDraft({
-                id: "faux-fast",
-            }));
+        const result = await checkModelHealth(createProviderDraft({
+            id: "faux-check",
+            name: "Faux",
+            api: faux.api,
+        }), createModelDraft({
+            id: "faux-fast",
+        }), {runtimeResolver: () => faux.runtime});
 
-            expect(result.success).toBe(true);
-            expect(result.message).toContain("Pi 检查通过");
-        } finally {
-            faux.unregister();
-        }
+        expect(result.success).toBe(true);
+        expect(result.message).toContain("Pi 检查通过");
     });
 
     it("model check 收到已取消 signal 时不进入 Pi stream", async () => {
@@ -119,7 +116,7 @@ describe("provider/model Pi checks", () => {
 
     it("model check 将 active signal 传给 Pi streamSimple", async () => {
         const controller = new AbortController();
-        const faux = registerFauxProvider({
+        const faux = createFauxModels({
             provider: "faux-signal-check",
             models: [{id: "faux-fast"}],
         });
@@ -127,41 +124,34 @@ describe("provider/model Pi checks", () => {
             expect(options?.signal).toBe(controller.signal);
             return fauxAssistantMessage(fauxText("ok"));
         }]);
-        try {
-            const result = await checkModelHealth(createProviderDraft({
-                id: "faux-signal-check",
-                name: "Faux Signal",
-                api: faux.api,
-            }), createModelDraft({
-                id: "faux-fast",
-            }), {
-                signal: controller.signal,
-            });
+        const result = await checkModelHealth(createProviderDraft({
+            id: "faux-signal-check",
+            name: "Faux Signal",
+            api: faux.api,
+        }), createModelDraft({
+            id: "faux-fast",
+        }), {
+            signal: controller.signal,
+                runtimeResolver: () => faux.runtime,
+        });
 
-            expect(result.success).toBe(true);
-        } finally {
-            faux.unregister();
-        }
+        expect(result.success).toBe(true);
     });
 
     it("provider check 可使用传入的代表模型", async () => {
-        const faux = registerFauxProvider({
+        const faux = createFauxModels({
             provider: "faux-provider-check",
             models: [{id: "faux-fast"}],
         });
         faux.setResponses([fauxAssistantMessage(fauxText("ok"))]);
-        try {
-            const result = await checkProviderConnection(createProviderDraft({
-                id: "faux-provider-check",
-                name: "Faux Provider",
-                api: faux.api,
-            }), [createModelDraft({id: "faux-fast"})]);
+        const result = await checkProviderConnection(createProviderDraft({
+            id: "faux-provider-check",
+            name: "Faux Provider",
+            api: faux.api,
+            }), [createModelDraft({id: "faux-fast"})], {runtimeResolver: () => faux.runtime});
 
-            expect(result.success).toBe(true);
-            expect(result.message).toContain("Faux Provider Pi 检查通过");
-        } finally {
-            faux.unregister();
-        }
+        expect(result.success).toBe(true);
+        expect(result.message).toContain("Faux Provider Pi 检查通过");
     });
 
     it("provider check 显式空模型列表时不回退 Pi registry", async () => {
@@ -177,7 +167,9 @@ describe("provider/model Pi checks", () => {
         expect(result.message).toContain("没有可检查的模型");
     });
 
-    it("缺少 API Key 时不发起 provider 请求", async () => {
+    it("本地无认证端点允许不填写 API Key", async () => {
+        const faux = createFauxModels({provider: "qwen", api: "openai-completions", models: [{id: "faux-fast"}]});
+        faux.setResponses([fauxAssistantMessage(fauxText("ok"))]);
         const result = await checkModelHealth(createProviderDraft({
             options: {
                 apiKey: "",
@@ -186,13 +178,11 @@ describe("provider/model Pi checks", () => {
                 timeoutMs: null,
                 requestOptions: {},
             },
-        }), createModelDraft());
+        }), createModelDraft(), {runtimeResolver: () => faux.runtime});
 
         expect(result).toMatchObject({
-            success: false,
-            latencyMs: null,
+            success: true,
         });
-        expect(result.message).toContain("缺少 API Key");
     });
 
     it("配置 Provider 代理时给出明确不支持提示", async () => {
@@ -214,7 +204,7 @@ describe("provider/model Pi checks", () => {
     });
 
     it("provider 错误消息会脱敏", async () => {
-        const faux = registerFauxProvider({
+        const faux = createFauxModels({
             provider: "faux-error-check",
             models: [{id: "faux-fast"}],
         });
@@ -222,19 +212,15 @@ describe("provider/model Pi checks", () => {
             stopReason: "error",
             errorMessage: "upstream rejected Bearer sk-secret123456789",
         })]);
-        try {
-            const result = await checkModelHealth(createProviderDraft({
-                id: "faux-error-check",
-                name: "Faux",
-                api: faux.api,
-            }), createModelDraft({id: "faux-fast"}));
+        const result = await checkModelHealth(createProviderDraft({
+            id: "faux-error-check",
+            name: "Faux",
+            api: faux.api,
+        }), createModelDraft({id: "faux-fast"}), {runtimeResolver: () => faux.runtime});
 
-            expect(result.success).toBe(false);
-            expect(result.message).toContain("Bearer [redacted]");
-            expect(result.message).not.toContain("sk-secret123456789");
-        } finally {
-            faux.unregister();
-        }
+        expect(result.success).toBe(false);
+        expect(result.message).toContain("Bearer [REDACTED]");
+        expect(result.message).not.toContain("sk-secret123456789");
     });
 
     it("可补齐已保存的 Provider API Key", () => {

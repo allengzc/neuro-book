@@ -25,20 +25,27 @@ export function sumUsage(usages: Array<Usage | undefined>): Usage | undefined {
         return undefined;
     }
 
-    return presentUsages.reduce<Usage>((total, usage) => ({
-        input: total.input + usage.input,
-        output: total.output + usage.output,
-        cacheRead: total.cacheRead + usage.cacheRead,
-        cacheWrite: total.cacheWrite + usage.cacheWrite,
-        totalTokens: total.totalTokens + usage.totalTokens,
+    const hasReasoning = presentUsages.some((usage) => usage.reasoning !== undefined);
+    const hasCacheWrite1h = presentUsages.some((usage) => usage.cacheWrite1h !== undefined);
+    const total = presentUsages.reduce<Usage>((sum, usage) => ({
+        input: sum.input + usage.input,
+        output: sum.output + usage.output,
+        cacheRead: sum.cacheRead + usage.cacheRead,
+        cacheWrite: sum.cacheWrite + usage.cacheWrite,
+        totalTokens: sum.totalTokens + usage.totalTokens,
         cost: {
-            input: total.cost.input + usage.cost.input,
-            output: total.cost.output + usage.cost.output,
-            cacheRead: total.cost.cacheRead + usage.cost.cacheRead,
-            cacheWrite: total.cost.cacheWrite + usage.cost.cacheWrite,
-            total: total.cost.total + usage.cost.total,
+            input: sum.cost.input + usage.cost.input,
+            output: sum.cost.output + usage.cost.output,
+            cacheRead: sum.cost.cacheRead + usage.cost.cacheRead,
+            cacheWrite: sum.cost.cacheWrite + usage.cost.cacheWrite,
+            total: sum.cost.total + usage.cost.total,
         },
     }), EMPTY_USAGE);
+    return {
+        ...total,
+        ...(hasReasoning ? {reasoning: presentUsages.reduce((sum, usage) => sum + (usage.reasoning ?? 0), 0)} : {}),
+        ...(hasCacheWrite1h ? {cacheWrite1h: presentUsages.reduce((sum, usage) => sum + (usage.cacheWrite1h ?? 0), 0)} : {}),
+    };
 }
 
 /**

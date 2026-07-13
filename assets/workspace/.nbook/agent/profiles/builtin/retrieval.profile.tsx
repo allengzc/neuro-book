@@ -28,7 +28,6 @@ export default defineAgentProfile({
         builtin.file.read,
         builtin.result.main(),
     ),
-    compaction: {},
     context(ctx) {
         return (
             <ProfilePrompt>

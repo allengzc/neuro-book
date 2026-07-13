@@ -6,6 +6,8 @@ import {afterEach, beforeEach, describe, expect, it} from "vitest";
 const originalCwd = process.cwd();
 const originalDatabaseKind = process.env.DATABASE_KIND;
 const originalDatabaseUrl = process.env.DATABASE_URL;
+const originalApplicationRoot = process.env.NEURO_BOOK_APPLICATION_ROOT;
+const originalStateRoot = process.env.NEURO_BOOK_STATE_ROOT;
 let tempDir: string | null = null;
 
 describe("database config", () => {
@@ -13,12 +15,16 @@ describe("database config", () => {
         process.chdir(originalCwd);
         delete process.env.DATABASE_KIND;
         delete process.env.DATABASE_URL;
+        delete process.env.NEURO_BOOK_APPLICATION_ROOT;
+        delete process.env.NEURO_BOOK_STATE_ROOT;
     });
 
     afterEach(async () => {
         process.chdir(originalCwd);
         restoreEnv("DATABASE_KIND", originalDatabaseKind);
         restoreEnv("DATABASE_URL", originalDatabaseUrl);
+        restoreEnv("NEURO_BOOK_APPLICATION_ROOT", originalApplicationRoot);
+        restoreEnv("NEURO_BOOK_STATE_ROOT", originalStateRoot);
         if (tempDir) {
             await rm(tempDir, {recursive: true, force: true});
             tempDir = null;
@@ -72,6 +78,20 @@ describe("database config", () => {
         expect(result.kind).toBe("sqlite");
         expect(result.url).toBe("file:./workspace/.nbook/env.sqlite");
     });
+
+    it("相对 SQLite 路径基于 State Root 解析", async () => {
+        tempDir = await mkdtemp(join(tmpdir(), "nbook-db-state-root-"));
+        const stateRoot = join(tempDir, "data");
+        process.env.NEURO_BOOK_APPLICATION_ROOT = tempDir;
+        process.env.NEURO_BOOK_STATE_ROOT = stateRoot;
+        process.env.DATABASE_KIND = "sqlite";
+        process.env.DATABASE_URL = "file:./workspace/.nbook/state.sqlite";
+
+        const {resolveDatabaseConfig} = await importFreshConfig();
+        const result = resolveDatabaseConfig();
+
+        expect(result.sqliteFilePath).toBe(join(stateRoot, "workspace", ".nbook", "state.sqlite"));
+    });
 });
 
 async function importFreshConfig() {
@@ -79,7 +99,10 @@ async function importFreshConfig() {
     return await import("nbook/server/database/config");
 }
 
-function restoreEnv(name: "DATABASE_KIND" | "DATABASE_URL", value: string | undefined): void {
+function restoreEnv(
+    name: "DATABASE_KIND" | "DATABASE_URL" | "NEURO_BOOK_APPLICATION_ROOT" | "NEURO_BOOK_STATE_ROOT",
+    value: string | undefined,
+): void {
     if (value === undefined) {
         delete process.env[name];
         return;

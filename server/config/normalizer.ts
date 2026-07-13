@@ -28,8 +28,14 @@ import type {
 } from "nbook/server/config/types";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import {ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
+import {
+    ProfileCompactionRuntimePatchDtoSchema,
+    ProfileFileChangeNoticeRuntimePatchDtoSchema,
+    ProfileSummarizerRuntimePatchDtoSchema,
+} from "nbook/shared/dto/config.dto";
 import {builtInThemeIds, themeAppearanceValues, themeVarNames, type CustomThemeDto, type ThemeAppearance, type ThemeVarName} from "nbook/shared/theme/theme-vars";
-import {DEFAULT_AGENT_DIFF_MAX_CHARS, MAX_AGENT_DIFF_MAX_CHARS} from "nbook/shared/agent/file-change-policy";
+import {mergeProfileRuntimePatches} from "nbook/server/agent/profiles/profile-runtime-settings";
+import type {ProfileRuntimeSettingsPatch} from "nbook/shared/agent/profile-runtime-settings";
 
 const DEFAULT_THEME: EffectiveConfig["ui"]["theme"] = "sepia";
 const DEFAULT_COST_CURRENCY: EffectiveConfig["ui"]["costCurrency"] = "USD";
@@ -166,6 +172,7 @@ export function createDefaultEffectiveConfig(): EffectiveConfig {
                 userAssets: null,
             },
             profileModelDefaults: {...DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS},
+            profileRuntimeDefaults: {},
             profiles: {},
         },
         ui: {
@@ -202,6 +209,7 @@ export function normalizeGlobalConfig(input: Partial<StoredGlobalConfig> | null 
                 userAssets: normalizeNullableModelKey(raw.agent?.defaultProfileKey?.userAssets),
             },
             profileModelDefaults: normalizeAgentProfileModelPatch(raw.agent?.profileModelDefaults),
+            profileRuntimeDefaults: normalizeProfileRuntimeSettingsPatch(raw.agent?.profileRuntimeDefaults),
             profiles: normalizeAgentProfiles(raw.agent?.profiles),
         },
         ui: {
@@ -238,6 +246,7 @@ export function normalizeProjectConfig(input: Partial<StoredProjectConfig> | nul
             agent: {
                 defaultProfileKey: normalizeNullableModelKey(raw.agent.defaultProfileKey),
                 profileModelDefaults: raw.agent.profileModelDefaults ? normalizeAgentProfileModelPatch(raw.agent.profileModelDefaults) : undefined,
+                profileRuntimeDefaults: raw.agent.profileRuntimeDefaults ? normalizeProfileRuntimeSettingsPatch(raw.agent.profileRuntimeDefaults) : undefined,
                 profiles: raw.agent.profiles ? normalizeAgentProfiles(raw.agent.profiles) : undefined,
             },
         } : {}),
@@ -267,7 +276,9 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
         userAssets: normalizeNullableModelKey(globalConfig.agent?.defaultProfileKey?.userAssets),
     };
     effective.agent.profileModelDefaults = normalizeAgentProfileModelDefaults(globalConfig.agent?.profileModelDefaults);
-    effective.agent.profiles = normalizeCompleteAgentProfiles(globalProfilePatches, effective.agent.profileModelDefaults);
+    const globalRuntimeDefaults = normalizeProfileRuntimeSettingsPatch(globalConfig.agent?.profileRuntimeDefaults);
+    effective.agent.profileRuntimeDefaults = globalRuntimeDefaults;
+    effective.agent.profiles = normalizeCompleteAgentProfiles(globalProfilePatches, effective.agent.profileModelDefaults, globalRuntimeDefaults);
     effective.ui.customThemes = normalizeCustomThemes(globalConfig.ui?.customThemes);
     effective.ui.theme = normalizeTheme(globalConfig.ui?.theme, effective.ui.customThemes);
     effective.ui.costCurrency = normalizeCostCurrency(globalConfig.ui?.costCurrency);
@@ -302,17 +313,13 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
             projectConfig.agent.profileModelDefaults,
         );
     }
-    if (projectConfig.agent?.profileModelDefaults || projectConfig.agent?.profiles) {
+    const projectRuntimeDefaults = normalizeProfileRuntimeSettingsPatch(projectConfig.agent?.profileRuntimeDefaults);
+    effective.agent.profileRuntimeDefaults = mergeProfileRuntimePatches(globalRuntimeDefaults, projectRuntimeDefaults);
+    if (projectConfig.agent?.profileModelDefaults || projectConfig.agent?.profileRuntimeDefaults || projectConfig.agent?.profiles) {
         const projectProfiles = normalizeAgentProfiles(projectConfig.agent.profiles);
         effective.agent.profiles = Object.fromEntries(
             [...new Set([...Object.keys(globalProfilePatches), ...Object.keys(projectProfiles)])]
                 .map((profileKey) => {
-                    // summarizer 开关按 enabled 字段级合并：project 覆盖 global，非法/空配置不参与遮蔽。
-                    const summarizerEnabled = normalizeAgentProfileSummarizer(projectProfiles[profileKey]?.summarizer)?.enabled
-                        ?? normalizeAgentProfileSummarizer(globalProfilePatches[profileKey]?.summarizer)?.enabled;
-                    const fileChangeDiffMaxChars = normalizeAgentProfileFileChangeNotice(projectProfiles[profileKey]?.fileChangeNotice)?.diffMaxChars
-                        ?? normalizeAgentProfileFileChangeNotice(globalProfilePatches[profileKey]?.fileChangeNotice)?.diffMaxChars
-                        ?? DEFAULT_AGENT_DIFF_MAX_CHARS;
                     return [profileKey, {
                         model: mergeAgentProfileModelConfig(
                             mergeAgentProfileModelConfig(
@@ -325,8 +332,12 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
                             globalProfilePatches[profileKey]?.settings,
                             projectProfiles[profileKey]?.settings,
                         ),
-                        ...(summarizerEnabled !== undefined ? {summarizer: {enabled: summarizerEnabled}} : {}),
-                        fileChangeNotice: {diffMaxChars: fileChangeDiffMaxChars},
+                        runtime: mergeProfileRuntimePatches(
+                            globalRuntimeDefaults,
+                            globalProfilePatches[profileKey]?.runtime,
+                            projectRuntimeDefaults,
+                            projectProfiles[profileKey]?.runtime,
+                        ),
                     } satisfies AgentProfileConfig];
                 }),
         );
@@ -430,13 +441,10 @@ export function normalizeAgentProfiles(input: Record<string, Partial<StoredAgent
         if (!key) {
             continue;
         }
-        const summarizer = normalizeAgentProfileSummarizer(profile.summarizer);
-        const fileChangeNotice = normalizeAgentProfileFileChangeNotice(profile.fileChangeNotice);
         entries.push([key, {
             model: normalizeAgentProfileModelPatch(profile.model),
             settings: normalizeAgentProfileSettings(profile.settings),
-            ...(summarizer !== undefined ? {summarizer} : {}),
-            ...(fileChangeNotice !== undefined ? {fileChangeNotice} : {}),
+            runtime: normalizeProfileRuntimeSettingsPatch(profile.runtime),
         }]);
     }
     return Object.fromEntries(entries.sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey)));
@@ -445,17 +453,14 @@ export function normalizeAgentProfiles(input: Record<string, Partial<StoredAgent
 function normalizeCompleteAgentProfiles(
     input: Record<string, StoredAgentProfileConfig> | undefined,
     defaults: AgentProfileModelConfig,
+    runtimeDefaults: ProfileRuntimeSettingsPatch,
 ): Record<string, AgentProfileConfig> {
     return Object.fromEntries(
-        Object.entries(input ?? {}).map(([profileKey, profile]) => {
-            const summarizer = normalizeAgentProfileSummarizer(profile.summarizer);
-            return [profileKey, {
-                model: mergeAgentProfileModelConfig(defaults, profile.model),
-                settings: normalizeAgentProfileSettings(profile.settings),
-                ...(summarizer !== undefined ? {summarizer} : {}),
-                fileChangeNotice: normalizeAgentProfileFileChangeNotice(profile.fileChangeNotice) ?? {diffMaxChars: DEFAULT_AGENT_DIFF_MAX_CHARS},
-            } satisfies AgentProfileConfig];
-        }),
+        Object.entries(input ?? {}).map(([profileKey, profile]) => [profileKey, {
+            model: mergeAgentProfileModelConfig(defaults, profile.model),
+            settings: normalizeAgentProfileSettings(profile.settings),
+            runtime: mergeProfileRuntimePatches(runtimeDefaults, profile.runtime),
+        } satisfies AgentProfileConfig]),
     );
 }
 
@@ -493,16 +498,20 @@ export function normalizeAgentProfileSettings(input: unknown): AgentProfileSetti
     return normalizeJsonRecord(input);
 }
 
-/**
- * 规范化 profile 级 summarizer 开关。只有携带合法 boolean enabled 时才算配置存在；
- * 非法/空值返回 undefined（等同未配置），避免空对象在合并时遮蔽上级配置。
- */
-function normalizeAgentProfileSummarizer(input: unknown): {enabled: boolean} | undefined {
+/** 逐子策略规范化通用运行配置，单个非法分组不会遮蔽其他合法分组。 */
+export function normalizeProfileRuntimeSettingsPatch(input: unknown): ProfileRuntimeSettingsPatch {
     if (!input || typeof input !== "object" || Array.isArray(input)) {
-        return undefined;
+        return {};
     }
-    const enabled = (input as {enabled?: unknown}).enabled;
-    return typeof enabled === "boolean" ? {enabled} : undefined;
+    const record = input as Record<string, unknown>;
+    const summarizer = ProfileSummarizerRuntimePatchDtoSchema.safeParse(record.summarizer);
+    const compaction = ProfileCompactionRuntimePatchDtoSchema.safeParse(record.compaction);
+    const fileChangeNotice = ProfileFileChangeNoticeRuntimePatchDtoSchema.safeParse(record.fileChangeNotice);
+    return {
+        ...(summarizer.success && Object.keys(summarizer.data).length > 0 ? {summarizer: summarizer.data} : {}),
+        ...(compaction.success && Object.keys(compaction.data).length > 0 ? {compaction: compaction.data} : {}),
+        ...(fileChangeNotice.success && Object.keys(fileChangeNotice.data).length > 0 ? {fileChangeNotice: fileChangeNotice.data} : {}),
+    };
 }
 
 /**
@@ -511,17 +520,6 @@ function normalizeAgentProfileSummarizer(input: unknown): {enabled: boolean} | u
 function withoutAuth(input: Partial<StoredGlobalConfig> & {auth?: unknown}): Partial<StoredGlobalConfig> {
     const {auth: _ignoredAuth, ...rest} = input;
     return rest;
-}
-
-/** 规范化 Profile 通用文件变更提醒配置。 */
-function normalizeAgentProfileFileChangeNotice(input: unknown): {diffMaxChars: number} | undefined {
-    if (!input || typeof input !== "object" || Array.isArray(input)) {
-        return undefined;
-    }
-    const diffMaxChars = (input as {diffMaxChars?: unknown}).diffMaxChars;
-    return Number.isInteger(diffMaxChars) && Number(diffMaxChars) >= 0 && Number(diffMaxChars) <= MAX_AGENT_DIFF_MAX_CHARS
-        ? {diffMaxChars: Number(diffMaxChars)}
-        : undefined;
 }
 
 /**
@@ -848,10 +846,43 @@ function normalizeModelCost(input: unknown): ConfiguredModelConfig["cost"] {
         output: normalizeFiniteNumber(cost.output),
         cacheRead: normalizeFiniteNumber(cost.cacheRead),
         cacheWrite: normalizeFiniteNumber(cost.cacheWrite),
+        tiers: normalizeModelCostTiers(cost.tiers),
     };
     return normalized;
 }
 
 function normalizeFiniteNumber(input: unknown): number {
-    return typeof input === "number" && Number.isFinite(input) ? input : 0;
+    return typeof input === "number" && Number.isFinite(input) && input >= 0 ? input : 0;
+}
+
+/**
+ * 规范化 Pi request-wide 价格 tier；重复 threshold 保留最后一项，并按 threshold 升序保存。
+ */
+function normalizeModelCostTiers(input: unknown): NonNullable<ConfiguredModelConfig["cost"]>["tiers"] {
+    if (!Array.isArray(input)) {
+        return [];
+    }
+    const byThreshold = new Map<number, NonNullable<ConfiguredModelConfig["cost"]>["tiers"][number]>();
+    for (const item of input) {
+        if (!item || typeof item !== "object" || Array.isArray(item)) {
+            continue;
+        }
+        const tier = item as Record<string, unknown>;
+        const threshold = typeof tier.inputTokensAbove === "number"
+            && Number.isInteger(tier.inputTokensAbove)
+            && tier.inputTokensAbove >= 0
+            ? tier.inputTokensAbove
+            : null;
+        if (threshold === null) {
+            continue;
+        }
+        byThreshold.set(threshold, {
+            inputTokensAbove: threshold,
+            input: normalizeFiniteNumber(tier.input),
+            output: normalizeFiniteNumber(tier.output),
+            cacheRead: normalizeFiniteNumber(tier.cacheRead),
+            cacheWrite: normalizeFiniteNumber(tier.cacheWrite),
+        });
+    }
+    return [...byThreshold.values()].sort((left, right) => left.inputTokensAbove - right.inputTokensAbove);
 }

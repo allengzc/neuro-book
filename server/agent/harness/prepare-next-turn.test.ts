@@ -71,6 +71,7 @@ function fakeFrame(): RunFrame {
         workspaceKey: "global",
         workspaceRoot: "workspace",
         systemPrompt: "",
+        models: {} as RunFrame["models"],
         model: {} as RunFrame["model"],
         sessionContextEnabled: true,
         toolKeys: ["report_result"],

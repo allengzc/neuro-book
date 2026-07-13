@@ -49,13 +49,13 @@ describe("config normalizer theme", () => {
     });
 });
 
-describe("config normalizer profile summarizer", () => {
+describe("config normalizer profile runtime", () => {
     const globalWithDisabled = normalizeGlobalConfig({
         agent: {
             profiles: {
                 "leader.default": {
                     model: {},
-                    summarizer: {enabled: false},
+                    runtime: {summarizer: {enabled: false}},
                 },
             },
         },
@@ -63,7 +63,7 @@ describe("config normalizer profile summarizer", () => {
 
     it("仅 global 配置时 effective 保留 summarizer 开关", () => {
         const effective = resolveEffectiveConfig(globalWithDisabled, null);
-        expect(effective.agent.profiles["leader.default"]?.summarizer).toEqual({enabled: false});
+        expect(effective.agent.profiles["leader.default"]?.runtime?.summarizer).toEqual({enabled: false});
     });
 
     it("project 空/非法 summarizer 不遮蔽 global 的禁用（enabled 字段级合并）", () => {
@@ -72,24 +72,24 @@ describe("config normalizer profile summarizer", () => {
                 profiles: {
                     "leader.default": {
                         model: {},
-                        summarizer: {},
+                        runtime: {summarizer: {}},
                     },
                 },
             },
         } as StoredProjectConfig;
-        expect(resolveEffectiveConfig(globalWithDisabled, emptyProject).agent.profiles["leader.default"]?.summarizer).toEqual({enabled: false});
+        expect(resolveEffectiveConfig(globalWithDisabled, emptyProject).agent.profiles["leader.default"]?.runtime?.summarizer).toEqual({enabled: false});
 
         const invalidProject = {
             agent: {
                 profiles: {
                     "leader.default": {
                         model: {},
-                        summarizer: {enabled: "yes"},
+                        runtime: {summarizer: {enabled: "yes"}},
                     },
                 },
             },
         } as never as StoredProjectConfig;
-        expect(resolveEffectiveConfig(globalWithDisabled, invalidProject).agent.profiles["leader.default"]?.summarizer).toEqual({enabled: false});
+        expect(resolveEffectiveConfig(globalWithDisabled, invalidProject).agent.profiles["leader.default"]?.runtime?.summarizer).toEqual({enabled: false});
     });
 
     it("project 合法 summarizer 覆盖 global；双方未配置时不携带 key", () => {
@@ -98,12 +98,12 @@ describe("config normalizer profile summarizer", () => {
                 profiles: {
                     "leader.default": {
                         model: {},
-                        summarizer: {enabled: true},
+                        runtime: {summarizer: {enabled: true}},
                     },
                 },
             },
         } as StoredProjectConfig;
-        expect(resolveEffectiveConfig(globalWithDisabled, enabledProject).agent.profiles["leader.default"]?.summarizer).toEqual({enabled: true});
+        expect(resolveEffectiveConfig(globalWithDisabled, enabledProject).agent.profiles["leader.default"]?.runtime?.summarizer).toEqual({enabled: true});
 
         const plainGlobal = normalizeGlobalConfig({
             agent: {
@@ -119,42 +119,40 @@ describe("config normalizer profile summarizer", () => {
                 },
             },
         } as StoredProjectConfig;
-        expect(resolveEffectiveConfig(plainGlobal, plainProject).agent.profiles["leader.default"]?.summarizer).toBeUndefined();
+        expect(resolveEffectiveConfig(plainGlobal, plainProject).agent.profiles["leader.default"]?.runtime).toEqual({});
     });
-});
 
-describe("config normalizer profile file-change notice", () => {
     it("默认使用 512，Project 可继承或覆盖 Global", () => {
         const global = normalizeGlobalConfig({
-            agent: {profiles: {writer: {model: {}, fileChangeNotice: {diffMaxChars: 1024}}}},
+            agent: {profileRuntimeDefaults: {fileChangeNotice: {diffMaxChars: 1024}}},
         });
-        expect(resolveEffectiveConfig(global, null).agent.profiles.writer?.fileChangeNotice.diffMaxChars).toBe(1024);
+        expect(resolveEffectiveConfig(global, null).agent.profileRuntimeDefaults?.fileChangeNotice?.diffMaxChars).toBe(1024);
 
         const inherited = resolveEffectiveConfig(global, {agent: {profiles: {writer: {model: {}}}}} as StoredProjectConfig);
-        expect(inherited.agent.profiles.writer?.fileChangeNotice.diffMaxChars).toBe(1024);
+        expect(inherited.agent.profiles.writer?.runtime?.fileChangeNotice?.diffMaxChars).toBe(1024);
 
-        const overridden = resolveEffectiveConfig(global, {agent: {profiles: {writer: {model: {}, fileChangeNotice: {diffMaxChars: 0}}}}} as StoredProjectConfig);
-        expect(overridden.agent.profiles.writer?.fileChangeNotice.diffMaxChars).toBe(0);
+        const overridden = resolveEffectiveConfig(global, {agent: {profiles: {writer: {model: {}, runtime: {fileChangeNotice: {diffMaxChars: 0}}}}}} as StoredProjectConfig);
+        expect(overridden.agent.profiles.writer?.runtime?.fileChangeNotice?.diffMaxChars).toBe(0);
 
-        const defaults = resolveEffectiveConfig(normalizeGlobalConfig({agent: {profiles: {writer: {model: {}}}}}), null);
-        expect(defaults.agent.profiles.writer?.fileChangeNotice.diffMaxChars).toBe(512);
+        const defaults = resolveEffectiveConfig(normalizeGlobalConfig({}), null);
+        expect(defaults.agent.profileRuntimeDefaults).toEqual({});
     });
 
     it("接受 0 与 8192，非法或越界值不参与遮蔽", () => {
         const global = normalizeGlobalConfig({
             agent: {profiles: {
-                min: {model: {}, fileChangeNotice: {diffMaxChars: 0}},
-                max: {model: {}, fileChangeNotice: {diffMaxChars: 8192}},
-                invalid: {model: {}, fileChangeNotice: {diffMaxChars: 9000}},
+                min: {model: {}, runtime: {fileChangeNotice: {diffMaxChars: 0}}},
+                max: {model: {}, runtime: {fileChangeNotice: {diffMaxChars: 8192}}},
+                invalid: {model: {}, runtime: {fileChangeNotice: {diffMaxChars: 9000}}},
             }},
         });
         const effective = resolveEffectiveConfig(global, {
-            agent: {profiles: {max: {model: {}, fileChangeNotice: {diffMaxChars: -1}}}},
+            agent: {profiles: {max: {model: {}, runtime: {fileChangeNotice: {diffMaxChars: -1}}}}},
         } as StoredProjectConfig);
 
-        expect(effective.agent.profiles.min?.fileChangeNotice.diffMaxChars).toBe(0);
-        expect(effective.agent.profiles.max?.fileChangeNotice.diffMaxChars).toBe(8192);
-        expect(effective.agent.profiles.invalid?.fileChangeNotice.diffMaxChars).toBe(512);
+        expect(effective.agent.profiles.min?.runtime?.fileChangeNotice?.diffMaxChars).toBe(0);
+        expect(effective.agent.profiles.max?.runtime?.fileChangeNotice?.diffMaxChars).toBe(8192);
+        expect(effective.agent.profiles.invalid?.runtime?.fileChangeNotice).toBeUndefined();
     });
 });
 

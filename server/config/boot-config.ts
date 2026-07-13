@@ -1,7 +1,7 @@
 import fs from "node:fs";
-import path from "node:path";
 import * as yaml from "yaml";
 import {expandEnvTemplate} from "nbook/server/utils/env-template";
+import {resolveBootConfigPath} from "nbook/server/runtime/installation-paths";
 
 export type BootConfig = {
     auth?: {
@@ -25,7 +25,7 @@ let cachedAuthEnabled: boolean | null = null;
 export function loadBootConfigSync(): BootConfig {
     let text: string;
     try {
-        text = fs.readFileSync(path.resolve(process.cwd(), "config.yaml"), "utf-8");
+        text = fs.readFileSync(resolveBootConfigPath(), "utf-8");
     } catch (error) {
         if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
             return {};

@@ -50,7 +50,17 @@ export type PiTraceResponse = {
     httpStatus?: number;
     headers?: Record<string, string>;
     stopReason?: string;
-    usage?: {input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number};
+    usage?: {
+        input: number;
+        output: number;
+        cacheRead: number;
+        cacheWrite: number;
+        /** 仅当 Provider 提供 1h cache write 拆分时存在。 */
+        cacheWrite1h?: number;
+        /** 仅当 Provider 提供 reasoning token 拆分时存在。 */
+        reasoning?: number;
+        totalTokens: number;
+    };
     errorMessage?: string;
 };
 

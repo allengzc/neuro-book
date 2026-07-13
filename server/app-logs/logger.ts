@@ -2,6 +2,10 @@ import {randomUUID} from "node:crypto";
 import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import {resolveStateLogRoot, resolveStateWorkspaceRoot} from "nbook/server/runtime/installation-paths";
+import {redactSensitiveText} from "nbook/server/utils/sensitive-text";
+
+export {redactSensitiveText} from "nbook/server/utils/sensitive-text";
 
 export type AppLogLevel = "debug" | "info" | "warn" | "error" | "fatal";
 
@@ -48,12 +52,6 @@ const MAX_ARRAY_ITEMS = 50;
 const MAX_OBJECT_KEYS = 80;
 const MAX_DEPTH = 6;
 const SENSITIVE_KEY_PATTERN = /(authorization|cookie|set-cookie|api[-_]?key|apikey|password|token|secret|credential)/iu;
-const SENSITIVE_TEXT_PATTERNS: Array<[RegExp, string]> = [
-    [/\b(authorization\s*[:=]\s*)(bearer\s+)?[^\s,;"']+/giu, "$1$2[REDACTED]"],
-    [/\b(cookie|set-cookie)\s*[:=]\s*[^\r\n]+/giu, "$1=[REDACTED]"],
-    [/\b(api[-_]?key|apikey|password|token|secret|credential)\s*[:=]\s*([^\s,;"']+)/giu, "$1=[REDACTED]"],
-    [/\b(sk-[A-Za-z0-9_-]{12,})\b/gu, "[REDACTED]"],
-];
 
 /**
  * 解析运行时日志目录。Windows portable 会通过环境变量显式指向 data/logs。
@@ -66,9 +64,9 @@ export function resolveAppLogDirectory(options: Pick<AppFileLoggerOptions, "cwd"
         return path.isAbsolute(configured) ? path.resolve(configured) : path.resolve(cwd, configured);
     }
     if (env.NODE_ENV === "production") {
-        return path.resolve(cwd, "logs");
+        return resolveStateLogRoot(cwd, env);
     }
-    return path.resolve(cwd, "workspace", ".nbook", "logs");
+    return path.join(resolveStateWorkspaceRoot(cwd, env), ".nbook", "logs");
 }
 
 /**
@@ -83,13 +81,6 @@ export function resolveCurrentServerLogPath(directory = resolveAppLogDirectory()
  */
 export function sanitizeAppLogValue(input: unknown): unknown {
     return sanitizeValue(input, 0, new WeakSet<object>());
-}
-
-/**
- * 对自由文本做敏感片段脱敏，用于 console 字符串、错误消息和 launcher 输出。
- */
-export function redactSensitiveText(input: string): string {
-    return SENSITIVE_TEXT_PATTERNS.reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), input);
 }
 
 /**

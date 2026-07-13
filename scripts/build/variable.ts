@@ -6,6 +6,7 @@ import ts from "typescript";
 import {compileVariableDefinitions, readVariableDefinitionManifest, validateVariableDefinitionArtifact} from "nbook/server/agent/variables/definition-artifact";
 import {loadCompiledVariableDefinitions} from "nbook/server/agent/variables/definition-artifact";
 import {resolveAgentNbookRoot} from "nbook/server/agent/variables/workspace-paths";
+import {resolveStateRoot, resolveStateWorkspaceRoot} from "nbook/server/runtime/installation-paths";
 import type {VariableNamespace} from "nbook/server/agent/variables/types";
 
 type DefinitionCommand = "status" | "check" | "compile";
@@ -172,7 +173,7 @@ function definitionTarget(options: CliOptions): {root: string; label: string; na
     if (options.scope === "project") {
         const projectWorkspace = options.projectWorkspace!;
         return {
-            root: path.resolve(process.cwd(), projectWorkspace, ".nbook", "agent", "variables"),
+            root: path.resolve(resolveStateRoot(), projectWorkspace, ".nbook", "agent", "variables"),
             label: `${projectWorkspace.replaceAll("\\", "/")}/.nbook/agent/variables`,
             namespace: "project",
         };
@@ -186,13 +187,13 @@ function definitionTarget(options: CliOptions): {root: string; label: string; na
 
 function resolveWorkspaceRoot(workspaceRoot?: string): string {
     if (workspaceRoot) {
-        return path.resolve(process.cwd(), workspaceRoot);
+        return path.resolve(resolveStateRoot(), workspaceRoot);
     }
     const cwd = path.resolve(process.cwd());
     if (fs.existsSync(path.join(cwd, ".nbook"))) {
         return cwd;
     }
-    return path.resolve(cwd, "workspace");
+    return resolveStateWorkspaceRoot(cwd);
 }
 
 async function findDefinitionFiles(root: string): Promise<string[]> {

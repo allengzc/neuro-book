@@ -1,5 +1,6 @@
 import type {InvocationErrorInfo, InvocationErrorPhase} from "nbook/server/agent/session/types";
 import type {RunKernelPhase} from "nbook/server/agent/harness/run-kernel-types";
+import {providerErrorText} from "nbook/server/agent/observability/provider-error-sanitizer";
 
 /**
  * Run Kernel 内部 stage 抛错时使用的轻量包装。
@@ -49,5 +50,5 @@ export function toRunKernelErrorInfo(error: unknown, fallbackPhase: InvocationEr
 }
 
 function errorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
+    return providerErrorText(error);
 }

@@ -13,6 +13,7 @@ import {generateBuiltinVariableTypes} from "nbook/server/agent/variables/generat
 import {builtinVariableDefinitions} from "nbook/server/agent/variables/registry";
 import {readVariableDefinitionManifest, VARIABLE_DEFINITION_COMPILED_DIR} from "nbook/server/agent/variables/definition-artifact";
 import {resolveApplicationRoot, resolveSystemNbookRoot, resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {resolveStateRoot} from "nbook/server/runtime/installation-paths";
 
 type ProfileCommand = "status" | "check" | "compile" | "preview";
 
@@ -475,7 +476,7 @@ async function prepareVariableTypeEnvironment(target: Awaited<ReturnType<typeof 
 
     await collectVariableDefinitionTypes(options.system ? SYSTEM_VARIABLE_ROOT : USER_VARIABLE_ROOT, knownPaths, typeFiles);
     if (options.projectPath) {
-        await collectVariableDefinitionTypes(path.resolve(process.cwd(), options.projectPath, ".nbook", "agent", "variables"), knownPaths, typeFiles);
+        await collectVariableDefinitionTypes(path.resolve(resolveStateRoot(), options.projectPath, ".nbook", "agent", "variables"), knownPaths, typeFiles);
     }
     await collectProfileSessionTypes(target, knownPaths, typeFiles, tempRoot);
 

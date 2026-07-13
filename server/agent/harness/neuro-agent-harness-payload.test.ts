@@ -2,8 +2,8 @@ import {randomUUID} from "node:crypto";
 import {rm} from "node:fs/promises";
 import {resolve} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
-import {fauxAssistantMessage, fauxToolCall, registerFauxProvider} from "@earendil-works/pi-ai";
-import type {FauxProviderRegistration} from "@earendil-works/pi-ai";
+import {fauxAssistantMessage, fauxToolCall} from "@earendil-works/pi-ai";
+import {createFauxModels, type FauxModelsFixture} from "nbook/server/agent/test-utils/faux-models";
 import {Type} from "typebox";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
@@ -14,15 +14,16 @@ import type {AgentMessage, JsonValue, Message as RuntimeMessage} from "nbook/ser
 
 describe("NeuroAgentHarness invocation payload", () => {
     let root: string;
-    let faux: FauxProviderRegistration;
+    let faux: FauxModelsFixture;
     let harness: NeuroAgentHarness;
 
     beforeEach(() => {
         root = resolve(".agent", "agent-harness-payload-test", randomUUID());
-        faux = registerFauxProvider();
+        faux = createFauxModels();
         harness = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
         });
     });
 

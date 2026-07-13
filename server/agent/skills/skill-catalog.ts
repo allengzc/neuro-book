@@ -1,6 +1,7 @@
 import {existsSync} from "node:fs";
 import {readFile, readdir} from "node:fs/promises";
 import {join, resolve} from "node:path";
+import {resolveSystemNbookRoot, resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
 
 export type SkillCatalogSource = "system" | "user";
 
@@ -21,8 +22,8 @@ const DISABLED_LEGACY_SKILL_KEYS = new Set(["anti-ai-slop"]);
  */
 export class SkillCatalog {
     constructor(
-        private readonly systemRoot = resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "skills"),
-        private readonly userRoot = resolve(process.cwd(), "workspace", ".nbook", "agent", "skills"),
+        private readonly systemRoot = resolve(resolveSystemNbookRoot(), "agent", "skills"),
+        private readonly userRoot = resolve(resolveUserNbookRoot(), "agent", "skills"),
     ) {}
 
     /**

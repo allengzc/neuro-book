@@ -16,7 +16,10 @@ FROM runtime-base AS deps
 WORKDIR /app
 
 COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile
+COPY packages/neuro-book-manager/package.json ./packages/neuro-book-manager/package.json
+RUN cp bun.lock /tmp/bun.lock \
+    && bun install --frozen-lockfile --linker hoisted \
+    && cmp bun.lock /tmp/bun.lock
 
 FROM runtime-base AS build
 WORKDIR /app

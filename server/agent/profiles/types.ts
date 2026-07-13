@@ -5,7 +5,7 @@ import type {SessionWritePlan} from "nbook/server/agent/session/write-plan";
 import type {ProfileDslNode} from "nbook/server/agent/profiles/profile-dsl";
 import type {SkillCatalogItem} from "nbook/server/agent/skills/skill-catalog";
 import type {ClientStateSnapshot, ProfileVariableAccessor, VariableDefinition} from "nbook/server/agent/variables/types";
-import type {SessionSummarizerInitialSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import type {ProfileRuntimeDefaults} from "nbook/shared/agent/profile-runtime-settings";
 import type {AgentRuntimeDefinition, NormalizedAgentRuntimeDefinition, RuntimeSessionFacade} from "nbook/server/agent/profiles/define-agent-runtime";
 import type {AgentInvokeCaller} from "nbook/server/agent/harness/types";
 import type {ProfileTools} from "nbook/server/agent/profiles/profile-tools";
@@ -70,7 +70,6 @@ export type AgentCatalogItem = {
     loadStatus: AgentProfileLoadStatus;
     hasSettingsForm: boolean;
     /** 是否声明专用 summarizer 策略；决定无用户覆盖时的默认开关，不控制设置 UI 可见性。 */
-    hasSummarizer: boolean;
     canResetHome: boolean;
     issue?: AgentProfileIssue;
 };
@@ -80,16 +79,11 @@ export type AgentCatalogSnapshot = {
     issues: AgentProfileIssue[];
 };
 
-export type ProfileCommonSettings = {
-    /** Profile 通用文件变更提醒预算；手工构造 prepare context 时可省略并回退 512。 */
-    fileChangeDiffMaxChars?: number;
-};
-
 type ProfileSettingsContext<TSettings> = TSettings extends undefined
-    ? {settings: ProfileCommonSettings & LowCodeJsonObject}
+    ? {settings: LowCodeJsonObject}
     : unknown extends TSettings
-        ? {settings: ProfileCommonSettings & LowCodeJsonObject}
-    : {settings: ProfileCommonSettings & TSettings};
+        ? {settings: LowCodeJsonObject}
+    : {settings: TSettings};
 
 type StaticSettings<TSettingsSchema extends TSchema | undefined> = [TSettingsSchema] extends [TSchema]
     ? Static<TSettingsSchema>
@@ -134,25 +128,7 @@ export type ProfileTurnPlan = {
     stateWrites?: SessionEntryDraft[];
 };
 
-export type ProfileCompactionPlan = {
-    enabled?: boolean;
-    triggerPercent?: number;
-    triggerTokens?: number;
-    reserveTokens?: number;
-    keepRecentTokens?: number;
-    keepRecentPercent?: number;
-    prompt?: string;
-    summaryPrefix?: string;
-};
-
-export type KnownAgentProfileInputs = {
-    summarizer: Omit<Static<typeof SessionSummarizerInitialSchema>, "sourceSessionId">;
-};
-
-export type AgentProfileSummarizerConfig<TKey extends string = string> = {
-    profileKey: TKey;
-    input?: TKey extends keyof KnownAgentProfileInputs ? KnownAgentProfileInputs[TKey] : JsonValue;
-};
+export type AgentProfileRuntimeDefaults<TKey extends string = string> = ProfileRuntimeDefaults;
 
 export type SidecarProfilePassStage = "prepareRun" | "settleRun";
 
@@ -222,8 +198,8 @@ export type AgentProfileDefinition<
      */
     skills?: {include: readonly string[]};
     sidecars?: readonly SidecarProfilePass<Static<TInitialSchema>, JsonValue>[];
-    summarizer?: AgentProfileSummarizerConfig<TSummarizerKey>;
-    compaction?: ProfileCompactionPlan;
+    /** Harness 通用运行策略的最低优先级出厂默认；用户配置始终可以覆盖。 */
+    runtimeDefaults?: AgentProfileRuntimeDefaults<TSummarizerKey>;
     runtime?: AgentRuntimeDefinition<Static<TInitialSchema>> | NormalizedAgentRuntimeDefinition<Static<TInitialSchema>>;
     /** profile 自带的 session.* 变量定义，随 profile `.compiled` artifact 加载。 */
     variableDefinitions?: readonly VariableDefinition[];

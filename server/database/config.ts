@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import * as yaml from "yaml";
+import {resolveBootConfigPath, resolveStateRoot} from "nbook/server/runtime/installation-paths";
 
 export type DatabaseKind = "sqlite";
 
@@ -11,7 +12,6 @@ export type DatabaseRuntimeConfig = {
 };
 
 const DEFAULT_SQLITE_URL = "file:./workspace/.nbook/neuro-book.sqlite";
-const BOOT_CONFIG_PATH = path.resolve(process.cwd(), "config.yaml");
 
 /**
  * 解析当前进程实际使用的数据库配置。
@@ -66,12 +66,12 @@ export function resolveSqliteFilePath(url: string): string {
         throw new Error("SQLite DATABASE_URL 必须指向文件路径，不能使用空路径或内存库。");
     }
 
-    return path.resolve(process.cwd(), rawPath);
+    return path.resolve(resolveStateRoot(), rawPath);
 }
 
 function readBootDatabaseConfig(): {kind?: unknown; url?: unknown} {
     try {
-        const text = fs.readFileSync(BOOT_CONFIG_PATH, "utf-8");
+        const text = fs.readFileSync(resolveBootConfigPath(), "utf-8");
         const expanded = expandEnvTemplates(text);
         const parsed = yaml.parse(expanded) as {database?: {kind?: unknown; url?: unknown}} | null;
         return parsed?.database && typeof parsed.database === "object" ? parsed.database : {};

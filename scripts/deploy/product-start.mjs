@@ -8,7 +8,8 @@ import {fileURLToPath} from "node:url";
 
 const productRoot = resolveProductRoot();
 const entry = resolve(productRoot, ".output", "server", "index.mjs");
-const productEnv = ensureProductEnv(productRoot);
+const stateRoot = resolveStateRoot(productRoot);
+const productEnv = ensureProductEnv(stateRoot);
 
 await prepareSystemAssets(productRoot, productEnv);
 
@@ -18,6 +19,8 @@ const child = spawn(process.execPath, [entry, ...process.argv.slice(2)], {
         ...productEnv,
         ...process.env,
         NODE_ENV: process.env.NODE_ENV || "production",
+        NEURO_BOOK_APPLICATION_ROOT: productRoot,
+        NEURO_BOOK_STATE_ROOT: stateRoot,
     },
     stdio: "inherit",
     windowsHide: false,
@@ -63,6 +66,15 @@ function resolveProductRoot() {
         }
         current = parent;
     }
+}
+
+/** Manager 可把运行状态放在 Product Root 外，例如 Windows Portable data/。 */
+function resolveStateRoot(root) {
+    const configured = process.env.NEURO_BOOK_STATE_ROOT?.trim();
+    if (!configured) {
+        return root;
+    }
+    return resolve(root, configured);
 }
 
 /**

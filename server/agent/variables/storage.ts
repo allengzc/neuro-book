@@ -4,6 +4,7 @@ import type {JsonValue} from "nbook/server/agent/messages/types";
 import {applyVariableJsonPatch} from "nbook/server/agent/variables/json-patch";
 import type {VariableJsonPatchOperation, VariableNamespace} from "nbook/server/agent/variables/types";
 import {resolveAgentNbookRoot} from "nbook/server/agent/variables/workspace-paths";
+import {resolveStateRoot} from "nbook/server/runtime/installation-paths";
 
 type VariableFile = {
     schemaVersion: 1;
@@ -73,7 +74,7 @@ export class VariableFileStorage {
         if (!projectWorkspace) {
             throw new Error("project.* 变量需要本轮 client.currentProjectWorkspace。");
         }
-        return join(resolve(process.cwd(), projectWorkspace), ".nbook", "agent", "variables.json");
+        return join(resolve(resolveStateRoot(), projectWorkspace), ".nbook", "agent", "variables.json");
     }
 }
 

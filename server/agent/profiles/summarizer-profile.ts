@@ -17,6 +17,9 @@ export const summarizerProfile = defineAgentProfile({
     tools: toolset(
         builtin.result.main({dataSchema: SessionSummarizerOutputSchema}),
     ),
+    runtimeDefaults: {
+        compaction: {enabled: false},
+    },
     runtime: defineAgentRuntime({
         hooks: [
             agentRuntimeBuiltins.profilePrompt(),

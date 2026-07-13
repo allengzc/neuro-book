@@ -3,8 +3,8 @@ import {join} from "node:path";
 import {tmpdir} from "node:os";
 import {Type} from "typebox";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
-import {fauxAssistantMessage, fauxToolCall, registerFauxProvider} from "@earendil-works/pi-ai";
-import type {FauxProviderRegistration} from "@earendil-works/pi-ai";
+import {fauxAssistantMessage, fauxToolCall} from "@earendil-works/pi-ai";
+import {createFauxModels, type FauxModelsFixture} from "nbook/server/agent/test-utils/faux-models";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
@@ -23,13 +23,13 @@ describe("subject memory tools", () => {
     let workspaceRoot: string;
     let harness: NeuroAgentHarness;
     let context: ToolExecutionContext;
-    let faux: FauxProviderRegistration;
+    let faux: FauxModelsFixture;
 
     beforeEach(async () => {
         root = await mkdtemp(join(tmpdir(), "nbook-subject-memory-tools-test-"));
         workspaceRoot = join(root, "workspace");
         await mkdir(workspaceRoot, {recursive: true});
-        faux = registerFauxProvider({
+        faux = createFauxModels({
             models: [{
                 id: "subject-memory-faux",
                 contextWindow: 128_000,
@@ -44,6 +44,7 @@ describe("subject memory tools", () => {
             repo: new JsonlSessionRepository(root),
             profiles,
             modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
         harness.profiles.register(memoryCuratorProfile, false);
@@ -74,7 +75,6 @@ describe("subject memory tools", () => {
 
     afterEach(async () => {
         await harness.drainBackgroundTasks();
-        faux.unregister();
         await rm(root, {recursive: true, force: true});
     });
 

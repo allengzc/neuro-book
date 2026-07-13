@@ -92,7 +92,12 @@ export type AgentSummary = {
     workspaceRoot: string;
     title?: string;
     summary?: string;
-    status: "idle" | "detached";
+    status: "idle";
+};
+
+export type DetachAgentResult = {
+    sessionId: number;
+    status: "detached" | "already_detached" | "not_linked";
 };
 
 export type SessionRecentMessage = {

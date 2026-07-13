@@ -923,7 +923,6 @@ describe("assets builtin v3 profiles", () => {
                     polishingWorkflow: "自定义润色流程：先按 stop-slop 检查，再逐句修正。",
                     adultStylePrompt: "自定义成人风格：强调温柔互动和关系变化。",
                     fileChangeAwareness: "minimal",
-                    fileChangeDiffMaxChars: 512,
                 },
                 vars: createTestVariableAccessor(),
                 catalog: {profiles: [], issues: []},
@@ -1009,7 +1008,6 @@ describe("assets builtin v3 profiles", () => {
                 leaderPersonaPreset: "personas/caihui-lite.md",
                 customTopSystemPrompt: "最高规则：先确认用户意图。",
                 fileChangeAwareness: "full",
-                fileChangeDiffMaxChars: 512,
             },
             vars: createTestVariableAccessor(),
             catalog: snapshot,
@@ -1067,7 +1065,6 @@ describe("assets builtin v3 profiles", () => {
                     leaderPersonaPreset: "personas/caihui-lite.md",
                     customTopSystemPrompt: "",
                     fileChangeAwareness: "full",
-                    fileChangeDiffMaxChars: 512,
                 },
                 home,
                 vars: createTestVariableAccessor(),
@@ -1177,7 +1174,6 @@ function defaultWriterSettings() {
         polishingWorkflow: "润色时使用 .nbook/agent/skills/stop-slop/SKILL.md 作为自查流程，并优先在原文基础上做最小必要修改。",
         adultStylePrompt: "",
         fileChangeAwareness: "minimal" as const,
-        fileChangeDiffMaxChars: 512,
     };
 }
 

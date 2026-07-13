@@ -1,5 +1,12 @@
 # Agent 变更收件箱与提示词顺序收口
 
+## 2026-07-12：FileChangeNotice 预算归 Harness
+
+- `<FileChangeNotice>` 只保留 `mode + appendingIndex`，Profile turn plan 不再携带 diff 上限。
+- 单文件 diff 上限属于 Harness runtime：系统默认 512，Global/Project 均支持通用默认和 Profile 局部覆盖，范围 0–8192。
+- Harness 在物化 notice 时注入最终有效值；真实 provider、Preview、安全路径、inline/reference 降级和游标结算使用同一配置链。
+- `settingsForm` 只管理 Profile 业务字段；旧 `ctx.settings.fileChangeDiffMaxChars`、prepare fallback 补值和同名保留键合同均已删除。
+
 > 状态：已实施并验收（2026-07-10，自动化门禁与 `$playwright-cli` 浏览器终验全绿）。本任务承接 Task 95 的文件变更 UI / Agent 感知后续，并修正 Profile prompt 的运行时顺序。
 
 > 2026-07-11 提示词与通用设置优化：`<file-change-notice>` 正文统一改为英文，文件条目使用 Git 风格 added/modified/deleted/renamed/restored/reverted 状态，并保留 hunk、diff 统计、安全阻断、预算和 at-least-once 游标语义。`<FileChangeNotice>` 只保留 `mode`，单文件 diff 上限迁入每个 Profile 的通用运行设置。Reminder runtime state 分离观察 baseline 与实际注入轮次；空 linked agents 不生成消息，但清空后重新关联同一 Agent 会再次提醒。Runtime Location 与 Workspace Focus 明确区分稳定访问能力和当前默认焦点。

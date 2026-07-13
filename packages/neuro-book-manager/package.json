@@ -1,0 +1,55 @@
+{
+    "name": "@notnotype/neuro-book-manager",
+    "version": "0.1.0-canary.9",
+    "description": "NeuroBook installation, runtime, toolchain and update manager.",
+    "license": "AGPL-3.0-only",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/notnotype/neuro-book.git",
+        "directory": "packages/neuro-book-manager"
+    },
+    "type": "module",
+    "bin": {
+        "neuro-book": "dist/neuro-book.mjs"
+    },
+    "exports": {
+        ".": "./dist/neuro-book.mjs",
+        "./schema": "./dist/schema.mjs"
+    },
+    "files": [
+        "dist",
+        "README.md"
+    ],
+    "engines": {
+        "bun": ">=1.3.0"
+    },
+    "imports": {
+        "#manager/*": "./src/*.ts"
+    },
+    "scripts": {
+        "build": "bun scripts/build.mjs",
+        "test": "bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts",
+        "typecheck": "bun ../../node_modules/typescript/bin/tsc --noEmit -p tsconfig.json",
+        "pack:check": "bun run build && bun scripts/pack-check.mjs"
+    },
+    "devDependencies": {
+        "@clack/prompts": "^1.0.0",
+        "@types/blessed": "^0.1.27",
+        "@types/bun": "^1.3.14",
+        "@types/node": "^25.6.0",
+        "@types/semver": "^7.7.1",
+        "blessed": "^0.1.81",
+        "commander": "^14.0.2",
+        "fflate": "^0.8.3",
+        "typebox": "^1.1.38",
+        "typescript": "^5.9.3",
+        "vitest": "^4.1.2",
+        "yaml": "^2.8.2"
+    },
+    "publishConfig": {
+        "access": "public"
+    },
+    "dependencies": {
+        "semver": "^7.8.5"
+    }
+}

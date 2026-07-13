@@ -1,8 +1,7 @@
 import fs from "node:fs/promises";
-import path from "node:path";
 import {defineNitroPlugin} from "nitropack/runtime";
-import {WORKSPACE_CONTAINER_ROOT} from "nbook/server/workspace-files/novel-workspace";
+import {resolveStateWorkspaceRoot} from "nbook/server/runtime/installation-paths";
 
 export default defineNitroPlugin(async () => {
-    await fs.mkdir(path.resolve(process.cwd(), WORKSPACE_CONTAINER_ROOT), {recursive: true});
+    await fs.mkdir(resolveStateWorkspaceRoot(), {recursive: true});
 });

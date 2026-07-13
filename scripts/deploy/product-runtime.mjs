@@ -7,7 +7,6 @@ import {dirname, join, relative, resolve} from "node:path";
 import {createRequire} from "node:module";
 import {fileURLToPath, pathToFileURL} from "node:url";
 
-import {runCapture} from "../utils/process.mjs";
 import {normalizeProfileManifestProfiles} from "./profile-artifact-manifest.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -51,7 +50,6 @@ async function stageProduct() {
     await writeProductPackageJson();
     await writeProductEnv();
     await copyNbookRuntimePackage();
-    await stageSourceSnapshot();
     await prepareProductSystemAssets();
     await pruneProductProfileArtifacts();
     await assertProductTsxVendor();
@@ -347,40 +345,6 @@ function assertNbookRuntimePackage(packageRoot) {
             ...missing.map((path) => `- ${path}`),
         ].join("\n"));
     }
-}
-
-/**
- * 在 Product Root 携带完整源码快照（git tracked 文件）到 `source/`。
- *
- * 快照不含 node_modules 和构建产物，随包分发但部署机不 install；
- * 后续排障时用户可让 Agent 在 `source/` 内 `bun install` + 重新构建。
- */
-async function stageSourceSnapshot() {
-    const stdout = await runCapture("git", ["ls-files", "-z"], {cwd: REPO_ROOT});
-    const files = stdout.split("\0").filter(Boolean);
-    if (files.length === 0) {
-        throw new Error("git ls-files 没有返回任何文件，无法生成源码快照。请在 Git checkout 内运行 product:stage。");
-    }
-    const sourceRoot = resolve(PRODUCT_ROOT, "source");
-    await rm(sourceRoot, {recursive: true, force: true});
-    // 开发机 worktree 可能有已删除但未 git rm 的 index 条目；快照按 worktree 实际内容为准。
-    const skipped = [];
-    let staged = 0;
-    for (const file of files) {
-        const source = resolve(REPO_ROOT, file);
-        if (!existsSync(source)) {
-            skipped.push(file);
-            continue;
-        }
-        const target = resolve(sourceRoot, file);
-        await mkdir(dirname(target), {recursive: true});
-        await cp(source, target);
-        staged += 1;
-    }
-    if (skipped.length > 0) {
-        console.warn(`Source snapshot skipped ${skipped.length} tracked files missing from worktree (deleted locally?): ${skipped.slice(0, 5).join(", ")}${skipped.length > 5 ? " ..." : ""}`);
-    }
-    console.log(`Source snapshot staged: ${staged} files -> product/source`);
 }
 
 /**

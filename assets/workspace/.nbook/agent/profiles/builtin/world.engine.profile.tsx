@@ -34,7 +34,6 @@ export default defineAgentProfile({
         builtin.agent.getSession,
         builtin.world.execute("readwrite"),
     ),
-    compaction: {},
     context(ctx) {
         return (
             <ProfilePrompt>

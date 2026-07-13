@@ -15,7 +15,10 @@ Profile 定义一个 Agent 的行为边界。NeuroBook v3 中，profile 就是 a
 - `tools`：这个 profile 的根工具绑定对象，决定模型可见工具 schema 和最大工具权限。
 - `toolKeys`：可选，收窄主 run 实际可执行工具；不声明时等于根 `tools` 的全部 key。
 - `context(ctx)`：用 TSX DSL 生成 system、history、dynamic context 和 reminder。
-- compaction / summary / runtime hooks：控制压缩、摘要、旁路和生命周期行为。
+- `runtimeDefaults`：只声明摘要、压缩和文件变更预算的出厂默认；Harness 会在运行时叠加 Global / Project 的通用值与 Profile 覆盖。
+- runtime hooks：控制旁路和生命周期行为。
+
+运行策略不属于 `settingsForm`。最终优先级固定为：Harness 默认 < Profile `runtimeDefaults` < Global 通用值 < Global Profile 覆盖 < Project 通用值 < Project Profile 覆盖。判别联合（例如 compaction trigger 与 keep-recent）由更高层整体替换，其余策略按字段继承。
 
 需要结构化结果时，profile 通过 `report_result` 返回。
 

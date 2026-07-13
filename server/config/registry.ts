@@ -68,12 +68,20 @@ export const CONFIG_REGISTRY: ConfigItemMeta[] = [
         description: "所有 Agent Profile 共同继承的模型参数默认值。",
     },
     {
+        key: "agent.profileRuntimeDefaults",
+        scope: "global-workspace",
+        effect: "next-run",
+        merge: "deep-merge",
+        secret: false,
+        description: "所有 Agent Profile 共同继承的摘要、压缩和文件变更提醒运行策略。",
+    },
+    {
         key: "agent.profiles",
         scope: "global-workspace",
         effect: "next-run",
         merge: "deep-merge",
         secret: false,
-        description: "Agent Profile 默认模型参数。",
+        description: "Agent Profile 模型、自定义 settings 与通用运行策略覆盖。",
     },
     {
         key: "ui.theme",

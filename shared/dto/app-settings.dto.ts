@@ -1,4 +1,5 @@
 import {z} from "zod";
+import {PiSimpleRequestOptionsSchema} from "nbook/shared/dto/pi-request-options.dto";
 
 const ProviderIdSchema = z.string().trim().min(1, "providerId 不能为空").regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, "providerId 格式不合法");
 const ModelIdSchema = z.string().trim().min(1, "modelId 不能为空");
@@ -8,25 +9,52 @@ const NullableTextSchema = z.string().trim().nullable().optional().transform((va
 });
 const ProviderOptionTextSchema = z.string().trim().default("");
 const ProviderTimeoutMsSchema = z.number().int("timeoutMs 必须是整数").positive("timeoutMs 必须大于 0").nullable().default(null);
-const ProviderRequestOptionsSchema = z.record(z.string(), z.json()).default({});
 const DefaultModelKeySchema = z.string().trim().min(1, "默认模型不能为空").nullable().default(null);
 const AgentProfileKeySchema = z.string().trim().min(1, "profileKey 不能为空");
 const TemperatureSchema = z.number().nonnegative("temperature 不能小于 0").nullable().default(null);
 const TopKSchema = z.number().int("topK 必须是整数").positive("topK 必须大于 0").nullable().default(null);
 const ContextWindowTokensSchema = z.number().int("contextWindowTokens 必须是整数").positive("contextWindowTokens 必须大于 0").nullable().default(null);
-export const ThinkingLevelSchema = z.enum(["off", "minimal", "low", "medium", "high", "xhigh"]);
+export const ThinkingLevelSchema = z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 const ReasoningEffortSchema = ThinkingLevelSchema.nullable().default(null);
 const ModelInputKindSchema = z.enum(["text", "image"]);
 const PiModelApiSchema = z.string().trim().min(1, "api 不能为空").nullable().default(null);
+export const SupportedPiApiSchema = z.enum([
+    "openai-completions",
+    "openai-responses",
+    "anthropic-messages",
+    "google-generative-ai",
+    "bedrock-converse-stream",
+]);
 const PiModelBaseUrlSchema = NullableTextSchema;
 const PiModelInputSchema = z.array(ModelInputKindSchema).min(1, "input 至少需要声明一种输入类型").nullable().default(null);
 const PiModelReasoningSchema = z.boolean().nullable().default(null);
 const PiModelMaxTokensSchema = z.number().int("maxTokens 必须是整数").positive("maxTokens 必须大于 0").nullable().default(null);
+const PiPriceSchema = z.number().finite("价格必须是有限数字").nonnegative("价格不能小于 0");
+const PiModelCostTierSchema = z.object({
+    inputTokensAbove: z.number().int("tier threshold 必须是整数").nonnegative("tier threshold 不能小于 0"),
+    input: PiPriceSchema,
+    output: PiPriceSchema,
+    cacheRead: PiPriceSchema,
+    cacheWrite: PiPriceSchema,
+});
 const PiModelCostObjectSchema = z.object({
-    input: z.number().default(0),
-    output: z.number().default(0),
-    cacheRead: z.number().default(0),
-    cacheWrite: z.number().default(0),
+    input: PiPriceSchema,
+    output: PiPriceSchema,
+    cacheRead: PiPriceSchema,
+    cacheWrite: PiPriceSchema,
+    tiers: z.array(PiModelCostTierSchema).default([]),
+}).superRefine((cost, ctx) => {
+    const thresholds = new Set<number>();
+    for (const [index, tier] of cost.tiers.entries()) {
+        if (thresholds.has(tier.inputTokensAbove)) {
+            ctx.addIssue({
+                code: "custom",
+                path: ["tiers", index, "inputTokensAbove"],
+                message: `tier threshold 重复：${tier.inputTokensAbove}`,
+            });
+        }
+        thresholds.add(tier.inputTokensAbove);
+    }
 });
 const PiModelCostSchema = PiModelCostObjectSchema.nullable().default(null);
 const PiModelCompatSchema = z.record(z.string(), z.json()).nullable().default(null);
@@ -39,7 +67,7 @@ export const ModelProviderOptionsDtoSchema = z.object({
     baseURL: ProviderOptionTextSchema,
     proxy: ProviderOptionTextSchema,
     timeoutMs: ProviderTimeoutMsSchema,
-    requestOptions: ProviderRequestOptionsSchema,
+    requestOptions: PiSimpleRequestOptionsSchema,
 });
 
 /**
@@ -134,6 +162,13 @@ export const UpdateModelSettingsRequestDtoSchema = z.object({
     const enabledModelKeys = new Set<string>();
 
     for (const provider of value.providers) {
+        if (provider.api && !SupportedPiApiSchema.safeParse(provider.api).success) {
+            ctx.addIssue({
+                code: "custom",
+                path: ["providers", provider.id, "api"],
+                message: `不支持的 Pi API：${provider.api}`,
+            });
+        }
         if (providerIdSet.has(provider.id)) {
             ctx.addIssue({
                 code: "custom",
@@ -146,6 +181,13 @@ export const UpdateModelSettingsRequestDtoSchema = z.object({
 
         const modelIdSet = new Set<string>();
         for (const model of provider.models) {
+            if (model.api && !SupportedPiApiSchema.safeParse(model.api).success) {
+                ctx.addIssue({
+                    code: "custom",
+                    path: ["providers", provider.id, "models", model.id, "api"],
+                    message: `不支持的 Pi API：${model.api}`,
+                });
+            }
             if (modelIdSet.has(model.id)) {
                 ctx.addIssue({
                     code: "custom",

@@ -41,7 +41,6 @@ export default defineAgentProfile({
         builtin.task.create,
         builtin.task.setStatus,
     ),
-    compaction: {},
     context(ctx) {
         return (
             <ProfilePrompt>

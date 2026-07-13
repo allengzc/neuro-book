@@ -1,5 +1,4 @@
-import {getModels, getProviders} from "@earendil-works/pi-ai";
-import type {KnownProvider, Model} from "@earendil-works/pi-ai";
+import {builtinProviders} from "@earendil-works/pi-ai/providers/all";
 import {PiBuiltinCatalogDtoSchema, type PiBuiltinCatalogDto} from "nbook/shared/dto/app-settings.dto";
 
 /**
@@ -7,12 +6,12 @@ import {PiBuiltinCatalogDtoSchema, type PiBuiltinCatalogDto} from "nbook/shared/
  */
 export default defineEventHandler((): PiBuiltinCatalogDto => {
     return PiBuiltinCatalogDtoSchema.parse({
-        providers: getProviders().map((providerId) => {
-            const models = getModels(providerId as KnownProvider) as Model<any>[];
+        providers: builtinProviders().map((provider) => {
+            const models = provider.getModels();
             return {
-                id: providerId,
-                name: providerId,
-                baseUrl: models[0]?.baseUrl ?? "",
+                id: provider.id,
+                name: provider.name,
+                baseUrl: provider.baseUrl ?? models[0]?.baseUrl ?? "",
                 models: models.map((model) => ({
                     id: model.id,
                     name: model.name,

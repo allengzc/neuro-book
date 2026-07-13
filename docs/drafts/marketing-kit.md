@@ -168,7 +168,7 @@
 - 🎭 SillyTavern 角色卡迁移：inspect → unpack → import 三段式，原卡和 worldbook 完整归档，稳定设定迁入世界书。
 - 📦 Windows 解压即用：内置 Bun runtime 和预构建产物，双击启动，一键升级且保留数据。
 - 🧩 提示词三层透明（技术受众）：上下文可预览（不做黑箱）→ 常用调整走低代码选项 → 深度定制写 TSX Profile，而且有「用户资产助手」Agent 协助你改——让 Agent 帮你改 Agent。
-- 🐳 服务器一行部署：`bunx --bun --package github:notnotype/neuro-book neuro-book-deploy`，低内存服务器拉预构建镜像。
+- 🐳 服务器一行部署：`bunx --bun @notnotype/neuro-book-manager@canary install --profile ghcr`，低内存服务器拉取 digest 固定的预构建镜像。
 - 🛠️ 可编程 Agent 底座（技术受众）：Profile 声明行为边界，TSX 类型安全地写上下文模板，Sidecar 旁路任务不污染主上下文。
 - 📝 结构化编辑器：TipTap 富文本 + Markdown 扩展语法；@引用插入的是角色 / 章节**实体**而不是纯文本字符串——引用跟着实体走，改名不断链。
 

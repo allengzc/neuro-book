@@ -1,5 +1,19 @@
 # Pi Agent Harness Migration
 
+## 2026-07-12：Agent 关联生命周期收口
+
+Agent 关系正式分为 append-only 历史账本与唯一当前有效关系投影。`agent.link.*` 会激活或重新激活目标关系，`agent.detach.*` 只解除已存在关系，不再制造 `unknown` 幽灵记录；关系索引同时维护 archived Session 集合，Runtime、Profile、`get_agent`、`get_session`、snapshot、relations API 与前端关联面板统一排除 detached 或任一端 archived 的关系。公开 `AgentLinkedSessionDto` 不再暴露 `detached`，解除关系后双方列表立即消失，历史 link/detach entry 仍完整保留用于回放与排障。
+
+Session Control Plane 使用单一进程内关系变更队列串行 create/link、detach 与 archive。带 parent 的 create 在队列内完成 parent 归档校验、child 创建和唯一正式 link 写入；archive 在同一队列内读取最新索引，解除全部入站与出站关系后再追加 `session_archived`。手动归档和 Project Workspace 批量归档共用同一路径，受影响对端会收到 snapshot refresh。旧的已归档 Session 即使缺少历史 detach entry，也不会进入任何当前关系消费者；重复归档会补齐旧数据缺失的 detach。
+
+多 Session 写入继续复用 `SessionWriteExecutor` 的有序锁，但 JSONL 跨文件写入不是原子事务：detach 先于 archive 按顺序追加，失败后可安全重试，不宣称 batch commit。关系强一致保证限于当前单进程 Harness，与 EventHub 的部署边界一致；没有为尚不存在的多实例写入增加分布式锁。`detachAgent` 返回 `detached` / `already_detached` / `not_linked` 判别状态，工具不再把重复或无效解绑报告为成功。
+
+验证：关系账本与前端 session/API/stream 定向测试共 37 项通过（其中关系账本 3 项）；全仓 typecheck 的本轮关联改动零新增错误。新增 Harness 用例覆盖 detach 判别、create/archive 并发串行、旧 archived target 单一投影和归档级联，但当前测试收集被无关的 `shared/dto/config.dto.ts` 缺失 `MAX_AGENT_DIFF_MAX_CHARS` 阻断；全仓 typecheck 另有 Profile Runtime 设置面板缺少 `sources` props 的既有并行红灯。
+
+## 2026-07-12：运行策略所有权收口
+
+Summarizer、Compaction 与 FileChangeNotice diff 预算统一由 Harness 消费。Profile 仅通过 `runtimeDefaults` 声明出厂默认；配置层提供 Global/Project 通用默认与 Profile 覆盖。Compaction 默认开启（summarizer system Profile 默认关闭），自动摘要默认关闭，手动 summarize/compact 强制执行最终策略。trigger 与 keep-recent 使用无冲突判别联合并按原子值替换。
+
 ## User Request
 
 - 全面重构当前 Agent 系统，逐步替换 LangChain provider/message/tool 边界，转向 `earendil-works/pi`。

@@ -3,6 +3,7 @@ import type {MarkdownEditorPreferences, MonacoEditorPreferences} from "nbook/sha
 import type {ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
 import type {ModelInputKind} from "nbook/shared/dto/app-settings.dto";
 import type {CustomThemeDto} from "nbook/shared/theme/theme-vars";
+import type {ProfileRuntimeSettingsPatch} from "nbook/shared/agent/profile-runtime-settings";
 
 export type ConfigScope = "boot" | "global" | "global-workspace";
 export type ConfigEffect = "hot" | "next-run" | "next-session" | "restart-required";
@@ -29,34 +30,16 @@ export type AgentProfileSettingsConfig = {
     [key: string]: JsonValue;
 };
 
-/**
- * 后台会话摘要开关。enabled 缺省沿用 Profile 策略声明决定的默认值。
- */
-export type AgentProfileSummarizerConfig = {
-    enabled?: boolean;
-};
-
-export type AgentProfileFileChangeNoticeConfig = {
-    diffMaxChars: number;
-};
-
-export type StoredAgentProfileFileChangeNoticeConfig = {
-    diffMaxChars?: number;
-};
-
 export type AgentProfileConfig = {
     model: AgentProfileModelConfig;
     settings: AgentProfileSettingsConfig;
-    /** 缺省表示未配置：声明 summarizer 策略的 Profile 默认开启，否则默认关闭。 */
-    summarizer?: AgentProfileSummarizerConfig;
-    fileChangeNotice: AgentProfileFileChangeNoticeConfig;
+    runtime?: ProfileRuntimeSettingsPatch;
 };
 
 export type StoredAgentProfileConfig = {
     model: Partial<AgentProfileModelConfig>;
     settings?: AgentProfileSettingsConfig;
-    summarizer?: AgentProfileSummarizerConfig;
-    fileChangeNotice?: StoredAgentProfileFileChangeNoticeConfig;
+    runtime?: ProfileRuntimeSettingsPatch;
 };
 
 export type StoredAgentProfileModelDefaultsConfig = Partial<AgentProfileModelConfig>;
@@ -77,6 +60,13 @@ export type ConfiguredModelConfig = {
         output: number;
         cacheRead: number;
         cacheWrite: number;
+        tiers: Array<{
+            inputTokensAbove: number;
+            input: number;
+            output: number;
+            cacheRead: number;
+            cacheWrite: number;
+        }>;
     } | null;
     compat: Record<string, JsonValue> | null;
     contextWindowTokens: number | null;
@@ -181,6 +171,7 @@ export type EffectiveConfig = {
             userAssets: string | null;
         };
         profileModelDefaults: AgentProfileModelConfig;
+        profileRuntimeDefaults?: ProfileRuntimeSettingsPatch;
         profiles: Record<string, AgentProfileConfig>;
     };
     ui: {
@@ -245,6 +236,7 @@ export type StoredGlobalConfig = {
             userAssets?: string | null;
         };
         profileModelDefaults?: StoredAgentProfileModelDefaultsConfig;
+        profileRuntimeDefaults?: ProfileRuntimeSettingsPatch;
         profiles?: Record<string, StoredAgentProfileConfig>;
     };
     ui?: Partial<EffectiveConfig["ui"]>;
@@ -267,6 +259,7 @@ export type StoredProjectConfig = {
     agent?: {
         defaultProfileKey?: string | null;
         profileModelDefaults?: StoredAgentProfileModelDefaultsConfig;
+        profileRuntimeDefaults?: ProfileRuntimeSettingsPatch;
         profiles?: Record<string, StoredAgentProfileConfig>;
     };
     editor?: {

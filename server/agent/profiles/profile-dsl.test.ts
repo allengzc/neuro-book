@@ -28,19 +28,19 @@ import {
     TaskReminder,
     ToolCall,
     ToolResult,
-    validateCompactionPlan,
     validateProfileTurnPlan,
     Watch,
     WorkspaceFocusReminder,
 } from "nbook/server/agent/profiles/profile-dsl";
 import {defineAgentProfile as defineRuntimeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {validateProfileRuntimeSettingsPatch} from "nbook/server/agent/profiles/profile-runtime-settings";
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
 import type {ProfileTools} from "nbook/server/agent/profiles/profile-tools";
 import type {AgentProfileDefinition, ProfilePrepareContext, SidecarProfilePass} from "nbook/server/agent/profiles/types";
 import type {AgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
-import {defineLowCodeForm, type LowCodeFormDefinition} from "nbook/server/low-code-form";
+import {defineLowCodeForm} from "nbook/server/low-code-form";
 
 type LegacyTestSidecar<TInput = JsonValue> = Omit<SidecarProfilePass<TInput, JsonValue>, "toolKeys"> & {
     toolKeys?: readonly string[];
@@ -92,7 +92,7 @@ function defineAgentProfile<
 }
 
 describe("profile TSX DSL", () => {
-    it("直接调用 prepare 时按 defaults < 调用方 settings 合并并补齐通用设置", async () => {
+    it("直接调用 prepare 时只按 defaults < 调用方 settings 合并 Profile 自定义设置", async () => {
         const SettingsSchema = Type.Object({
             customPrompt: Type.String(),
             untouched: Type.String(),
@@ -125,7 +125,6 @@ describe("profile TSX DSL", () => {
         expect(contextSettings).toMatchObject({
             customPrompt: "用户提示",
             untouched: "保留默认值",
-            fileChangeDiffMaxChars: 512,
         });
 
         let prepareSettings: Record<string, unknown> | undefined;
@@ -148,58 +147,11 @@ describe("profile TSX DSL", () => {
         expect(prepareSettings).toMatchObject({
             customPrompt: "用户提示",
             untouched: "保留默认值",
-            fileChangeDiffMaxChars: 0,
         });
+        expect(prepareSettings).not.toHaveProperty("fileChangeDiffMaxChars");
     });
 
-    it("settingsForm 不能声明 Profile 通用设置保留键", () => {
-        const expectRejected = (profileKey: string, settingsForm: LowCodeFormDefinition) => {
-            expect(() => defineRuntimeAgentProfile({
-                manifest: {key: profileKey, name: "Reserved Settings"},
-                initialSchema: Type.Object({}),
-                tools: profileToolsFromKeys([]),
-                settingsForm,
-                context() {
-                    return ProfilePrompt({children: System({children: "ok"})});
-                },
-            })).toThrow("settingsForm 不能声明通用设置 fileChangeDiffMaxChars");
-        };
-
-        expectRejected("test.reserved-settings-schema", defineLowCodeForm({
-            schema: Type.Object({
-                customPrompt: Type.String(),
-                fileChangeDiffMaxChars: Type.Optional(Type.Integer()),
-            }),
-            defaults: {customPrompt: ""},
-            fields: [],
-        }));
-        expectRejected("test.reserved-settings-defaults", defineLowCodeForm({
-            schema: Type.Object({customPrompt: Type.String()}, {additionalProperties: true}),
-            defaults: {customPrompt: "", fileChangeDiffMaxChars: 256} as never,
-            fields: [],
-        }));
-        expectRejected("test.reserved-settings-field", defineLowCodeForm({
-            schema: Type.Object({customPrompt: Type.String()}),
-            defaults: {customPrompt: ""},
-            fields: [{path: "fileChangeDiffMaxChars", component: "number", label: "Diff"}],
-        }));
-
-        expect(() => defineRuntimeAgentProfile({
-            manifest: {key: "test.non-reserved-settings", name: "Non-reserved Settings"},
-            initialSchema: Type.Object({}),
-            tools: profileToolsFromKeys([]),
-            settingsForm: defineLowCodeForm({
-                schema: Type.Object({customPrompt: Type.String()}),
-                defaults: {customPrompt: ""},
-                fields: [{path: "customPrompt", component: "text", label: "Prompt"}],
-            }),
-            context() {
-                return ProfilePrompt({children: System({children: "ok"})});
-            },
-        })).not.toThrow();
-    });
-
-    it("profileKey 为 summarizer 时会把 input 收窄为 profile 作者可填参数", () => {
+    it("Profile 可以声明 summarizer 出厂默认值", () => {
         const profile = defineAgentProfile({
             manifest: {
                 key: "test.summarizer-typing",
@@ -207,9 +159,10 @@ describe("profile TSX DSL", () => {
             },
             initialSchema: Type.Object({}),
             allowedToolKeys: [],
-            summarizer: {
-                profileKey: "summarizer",
-                input: {
+            runtimeDefaults: {
+                summarizer: {
+                    enabled: true,
+                    profileKey: "summarizer",
                     trigger: "afterInvocation",
                     interval: {
                         kind: "sourceInvocation",
@@ -223,26 +176,8 @@ describe("profile TSX DSL", () => {
             },
         });
 
-        defineAgentProfile({
-            manifest: {
-                key: "test.summarizer-typing-invalid",
-                name: "Summarizer Typing Invalid",
-            },
-            initialSchema: Type.Object({}),
-            allowedToolKeys: [],
-            summarizer: {
-                profileKey: "summarizer",
-                input: {
-                    // @ts-expect-error sourceSessionId 由 harness 注入，profile 作者不能填写。
-                    sourceSessionId: 1,
-                },
-            },
-            context() {
-                return ProfilePrompt({children: Message({children: "ok"})});
-            },
-        });
-
-        expect(profile.summarizer?.input).toMatchObject({
+        expect(profile.runtimeDefaults?.summarizer).toMatchObject({
+            enabled: true,
             trigger: "afterInvocation",
             interval: {
                 kind: "sourceInvocation",
@@ -307,12 +242,11 @@ describe("profile TSX DSL", () => {
         expect(plan.turnContexts).toEqual([{
             kind: "file-change-notice",
             mode: "full",
-            diffMaxChars: 640,
             appendingIndex: 1,
         }]);
     });
 
-    it("使用 profile 顶层 compaction 配置", () => {
+    it("使用 profile runtimeDefaults compaction 配置", () => {
         const profile = defineAgentProfile({
             manifest: {
                 key: "test.compaction",
@@ -320,11 +254,13 @@ describe("profile TSX DSL", () => {
             },
             initialSchema: Type.Object({}),
             allowedToolKeys: [],
-            compaction: {
-                triggerPercent: 0.75,
-                keepRecentTokens: 12_000,
-                prompt: "compact prompt",
-                summaryPrefix: "summary prefix",
+            runtimeDefaults: {
+                compaction: {
+                    trigger: {kind: "percent", value: 0.75},
+                    keepRecent: {kind: "tokens", value: 12_000},
+                    prompt: "compact prompt",
+                    summaryPrefix: "summary prefix",
+                },
             },
             context() {
                 return ProfilePrompt({
@@ -333,32 +269,31 @@ describe("profile TSX DSL", () => {
             },
         });
 
-        expect(profile.compaction).toEqual({
-            triggerPercent: 0.75,
-            keepRecentTokens: 12_000,
+        expect(profile.runtimeDefaults?.compaction).toEqual({
+            trigger: {kind: "percent", value: 0.75},
+            keepRecent: {kind: "tokens", value: 12_000},
             prompt: "compact prompt",
             summaryPrefix: "summary prefix",
         });
     });
 
     it("校验 Compaction 参数合同", async () => {
-        expect(() => validateCompactionPlan("test.dsl", {
-            triggerPercent: 0.8,
-            triggerTokens: 1000,
-        })).toThrow("triggerPercent");
+        expect(() => validateProfileRuntimeSettingsPatch("test.dsl", {
+            compaction: {trigger: {kind: "percent", value: 1.2}},
+        })).toThrow("compaction.trigger.value");
 
-        expect(() => validateCompactionPlan("test.dsl", {
-            keepRecentPercent: 0.5,
-            keepRecentTokens: 1000,
-        })).toThrow("keepRecentPercent");
-
-        expect(() => validateCompactionPlan("test.dsl", {
-            triggerPercent: 1.2,
-        })).toThrow("(0, 1]");
-
-        expect(() => validateCompactionPlan("test.dsl", {
-            keepRecentTokens: 0,
-        })).toThrow("正整数");
+        expect(() => validateProfileRuntimeSettingsPatch("test.dsl", {
+            compaction: {keepRecent: {kind: "tokens", value: 0}},
+        })).toThrow("compaction.keepRecent.value");
+        expect(() => validateProfileRuntimeSettingsPatch("test.dsl", {
+            summarizer: {interval: {kind: "unknown", value: 1}},
+        } as never)).toThrow("summarizer.interval.kind");
+        expect(() => validateProfileRuntimeSettingsPatch("test.dsl", {
+            compaction: {trigger: {kind: "autoReserve", value: 1}},
+        } as never)).toThrow("compaction.trigger");
+        expect(() => validateProfileRuntimeSettingsPatch("test.dsl", {
+            compaction: {keepRecent: {kind: "tokens"}},
+        } as never)).toThrow("compaction.keepRecent.value");
     });
 
     it("拒绝旧 PreparedTurn 字段和 Message system role", async () => {
@@ -810,7 +745,6 @@ describe("profile TSX DSL", () => {
                     builtin: true,
                     loadStatus: "loaded",
                     hasSettingsForm: false,
-                    hasSummarizer: false,
                     canResetHome: false,
                 }],
                 issues: [],
@@ -989,7 +923,6 @@ describe("profile TSX DSL", () => {
                     builtin: true,
                     loadStatus: "loaded",
                     hasSettingsForm: false,
-                    hasSummarizer: false,
                     canResetHome: false,
                 }],
                 issues: [],

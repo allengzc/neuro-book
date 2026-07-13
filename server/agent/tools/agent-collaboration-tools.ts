@@ -189,8 +189,13 @@ export const agentCollaborationTools = {
         async executeWithContext(context, _toolCallId, params: unknown) {
             const detach = params as DetachAgentInput;
             const result = await context.harness.detachAgent(detach.sessionId, context.sessionId);
+            const text = result.status === "detached"
+                ? `detached ${detach.sessionId}`
+                : result.status === "already_detached"
+                    ? `agent ${detach.sessionId} was already detached`
+                    : `agent ${detach.sessionId} was not linked`;
             return {
-                content: [{type: "text", text: result.detached ? `detached ${detach.sessionId}` : `agent ${detach.sessionId} was not linked`}],
+                content: [{type: "text", text}],
                 details: result,
             };
         },

@@ -35,7 +35,7 @@ features:
   - title: 领域化 Agent 协作
     details: leader 可编排检索、写作、研究与世界推进，writer、retrieval、RP profiles 各司其职，避免把剧情裁决、正文写作和角色记忆维护塞进一次模型调用。
   - title: 本地部署与可控数据
-    details: 支持 Windows Release Zip、local-git、GHCR 和 source Docker 模式，默认使用 SQLite 与本地 workspace 保存数据，模型 Provider 和项目内容由用户掌控。
+    details: 由 NeuroBook Manager 统一支持 Windows Portable、GHCR、Product Bun 和 Source Profile，默认使用 SQLite 与本地 Workspace Root 保存数据。
 ---
 
 ## 从哪里开始
@@ -51,7 +51,7 @@ features:
 - [介绍](/introduction)：NeuroBook 是什么，适合谁，和普通 AI 聊天工具有什么区别。
 - [快速开始](/quick-start)：最短路径跑起应用并创建管理员。
 - [基础教程](/tutorials/)：从第一个项目到前三章、角色卡导入和世界模拟。
-- [部署方式](/deployment)：Windows Release Zip、local-git、ghcr、source 的选择和边界。
+- [部署方式](/deployment)：Windows Portable、GHCR、Product Bun 和 Source Profile 的选择与边界。
 - [Agent](/agent/)：Agent、session、profile、Skill 和 linked agent 的产品心智模型。
 - [Profile](/profile/)：内置 profile 分工、writer 边界和 RP profiles。
 - [Profile TSX](/profile-tsx/)：profile 作者使用的 TSX DSL、节点和示例。

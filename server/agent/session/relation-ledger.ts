@@ -46,18 +46,20 @@ export function applyRelationLedgerChange(
     change: SessionRelationLedgerChange,
 ): void {
     if (change.kind === "link") {
-        const current = linkedAgents.get(change.targetSessionId);
         linkedAgents.set(change.targetSessionId, {
             sessionId: change.targetSessionId,
             profileKey: change.profileKey,
-            detached: current?.detached ?? false,
+            detached: false,
         });
         return;
     }
     const current = linkedAgents.get(change.targetSessionId);
+    if (!current) {
+        return;
+    }
     linkedAgents.set(change.targetSessionId, {
         sessionId: change.targetSessionId,
-        profileKey: current?.profileKey ?? "unknown",
+        profileKey: current.profileKey,
         detached: true,
     });
 }

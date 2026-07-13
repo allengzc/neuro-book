@@ -4,9 +4,10 @@ import * as yaml from "yaml";
 import {parseAppConfigText} from "nbook/server/utils/app-config";
 import {normalizeGlobalConfig} from "nbook/server/config/normalizer";
 import type {StoredGlobalConfig, StoredProviderConfig} from "nbook/server/config/types";
+import {resolveBootConfigPath, resolveStateWorkspaceRoot} from "nbook/server/runtime/installation-paths";
 
-const BOOT_CONFIG_PATH = path.resolve(process.cwd(), "config.yaml");
-const GLOBAL_CONFIG_PATH = path.resolve(process.cwd(), "workspace", ".nbook", "config.json");
+const BOOT_CONFIG_PATH = resolveBootConfigPath();
+const GLOBAL_CONFIG_PATH = path.join(resolveStateWorkspaceRoot(), ".nbook", "config.json");
 
 /**
  * 迁移旧 config.yaml 中的业务配置到 Workspace Root `.nbook/config.json`。

@@ -46,6 +46,7 @@ const thinkingLevelOptions = computed<Array<{value: ThinkingLevelDto | null; lab
     {value: "medium", label: t("agent.composer.medium")},
     {value: "high", label: t("agent.composer.high")},
     {value: "xhigh", label: t("agent.composer.xhigh")},
+    {value: "max", label: t("agent.composer.max")},
 ]);
 
 const actionDisabled = computed(() => props.readonly || props.running || props.loadingSession || props.sessionModelSaving);

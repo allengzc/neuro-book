@@ -317,9 +317,8 @@ export type AgentSessionProfileGroup = "all" | "leader";
 export type AgentSessionStatusFilter = "all" | "active" | "running" | "waiting" | "idle" | "interrupted" | "archived";
 export type AgentSessionRelationFilter = "all" | "top" | "child";
 
-export type AgentLinkedSessionDto = AgentSessionSummaryDto & {
-    detached: boolean;
-};
+/** 当前有效关联的 Agent session；历史 detach 状态不会进入该 DTO。 */
+export type AgentLinkedSessionDto = AgentSessionSummaryDto;
 
 export type AgentSessionRelationsDto = {
     sessionId: number;

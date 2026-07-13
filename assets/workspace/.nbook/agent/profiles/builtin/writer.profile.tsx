@@ -253,7 +253,6 @@ export default defineAgentProfile({
         ...plotReadBindings,
         builtin.result.main(),
     ),
-    compaction: {},
     async context(ctx) {
         return buildWriterPrompt(ctx);
     },

@@ -24,6 +24,7 @@ import {
     validateWorkspaceContentNodes,
 } from "nbook/server/workspace-files/workspace-files";
 import {initProjectDatabaseAtRoot, PROJECT_DATABASE_RELATIVE_PATH, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
+import {resolveWorkspaceContainerRoot as resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-assets-root";
 
 type WorkspaceNodeNewOptions = {
     title?: string;
@@ -738,14 +739,7 @@ function formatProjectDisplayPath(absolutePath: string, workspaceRoot: string): 
  * 推断 Workspace Root 的绝对路径，兼容从仓库根、Workspace Root 或某个 Project Workspace 内执行。
  */
 function resolveWorkspaceContainerRoot(): string {
-    const cwd = path.resolve(INVOCATION_CWD);
-    if (path.basename(cwd) === WORKSPACE_ROOT_NAME) {
-        return cwd;
-    }
-    if (path.basename(path.dirname(cwd)) === WORKSPACE_ROOT_NAME) {
-        return path.dirname(cwd);
-    }
-    return path.join(cwd, WORKSPACE_ROOT_NAME);
+    return resolveRuntimeWorkspaceRoot(INVOCATION_CWD);
 }
 
 /**

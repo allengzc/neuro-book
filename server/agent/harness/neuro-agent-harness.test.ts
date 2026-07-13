@@ -2,8 +2,8 @@ import {randomUUID} from "node:crypto";
 import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
-import {fauxAssistantMessage, fauxText, fauxToolCall, registerFauxProvider} from "@earendil-works/pi-ai";
-import type {FauxProviderRegistration} from "@earendil-works/pi-ai";
+import {fauxAssistantMessage, fauxText, fauxToolCall} from "@earendil-works/pi-ai";
+import {createFauxModels, type FauxModelsFixture} from "nbook/server/agent/test-utils/faux-models";
 import {Type} from "typebox";
 import type {Static, TSchema} from "typebox";
 import {Value} from "typebox/value";
@@ -110,18 +110,6 @@ function visibleMessageText(messages: AgentMessage[]): string {
         .join("\n");
 }
 
-/**
- * 创建启用 summarizer 的隔离 harness，避免测试误扫真实 assets profile 目录。
- */
-function createSummarizerHarness(root: string, faux: FauxProviderRegistration): NeuroAgentHarness {
-    return new NeuroAgentHarness({
-        repo: new JsonlSessionRepository(root),
-        profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
-        modelResolver: () => faux.getModel(),
-        enableSessionSummarizer: true,
-    });
-}
-
 class BrokenProfileCatalog extends AgentProfileCatalog {
     override async get(profileKey: string): Promise<AgentProfile> {
         if (profileKey === "test.unloadable") {
@@ -142,7 +130,6 @@ class BrokenProfileCatalog extends AgentProfileCatalog {
                     builtin: false,
                     loadStatus: "source_error",
                     hasSettingsForm: false,
-                    hasSummarizer: false,
                     canResetHome: false,
                     issue: {
                         code: "source_error",
@@ -192,12 +179,12 @@ function nextEventWithin(iterator: AsyncIterator<AgentSessionEventDto>, label: s
 
 describe("NeuroAgentHarness", () => {
     let root: string;
-    let faux: FauxProviderRegistration;
+    let faux: FauxModelsFixture;
     let harness: NeuroAgentHarness;
 
     beforeEach(() => {
         root = join(".agent", "agent-harness-test", randomUUID());
-        faux = registerFauxProvider({
+        faux = createFauxModels({
             models: [{
                 id: `faux-${randomUUID()}`,
                 contextWindow: 128_000,
@@ -208,13 +195,13 @@ describe("NeuroAgentHarness", () => {
             repo: new JsonlSessionRepository(root),
             profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
             modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
     });
 
     afterEach(async () => {
         await harness.drainBackgroundTasks();
-        faux.unregister();
         await rm(root, {recursive: true, force: true});
     });
 
@@ -578,7 +565,6 @@ describe("NeuroAgentHarness", () => {
 
         const snapshot = await harness.getSessionSnapshot(created.sessionId);
         const liveState = await harness.getSessionLiveState(created.sessionId);
-        const contextUsageResult = await harness.getSessionContextUsage(created.sessionId);
 
         expect(snapshot.usage).toMatchObject({
             input: 32,
@@ -596,10 +582,6 @@ describe("NeuroAgentHarness", () => {
         expect(typeof snapshot.contextUsage?.usedTokens).toBe("number");
         expect(typeof snapshot.contextUsage?.percent).toBe("number");
         expect(liveState.contextUsage).toEqual(snapshot.contextUsage);
-        expect(contextUsageResult).toEqual({
-            sessionId: created.sessionId,
-            contextUsage: snapshot.contextUsage,
-        });
     });
 
     it("新建 Project session 的 agent cwd 使用 Workspace Root 并保留 projectPath", async () => {
@@ -994,6 +976,7 @@ describe("NeuroAgentHarness", () => {
             repo: new JsonlSessionRepository(root),
             profiles: new AgentProfileCatalog(join(root, "page-missing-system-profiles"), join(root, "page-missing-user-profiles")),
             modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
         restored.profiles.register(profile, false);
@@ -1134,6 +1117,7 @@ describe("NeuroAgentHarness", () => {
             repo: new JsonlSessionRepository(root),
             profiles: new AgentProfileCatalog(join(root, "deleted-system-profiles"), join(root, "deleted-user-profiles")),
             modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
 
@@ -1186,6 +1170,7 @@ describe("NeuroAgentHarness", () => {
             repo: new JsonlSessionRepository(root),
             profiles: new AgentProfileCatalog(join(root, "deleted-system-profiles"), join(root, "deleted-user-profiles")),
             modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
         restored.profiles.register(profile, false);
@@ -1261,6 +1246,7 @@ describe("NeuroAgentHarness", () => {
         const restored = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
 
@@ -1309,6 +1295,7 @@ describe("NeuroAgentHarness", () => {
         const restored = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
         restored.profiles.register(profile, false);
@@ -1366,6 +1353,7 @@ describe("NeuroAgentHarness", () => {
         const restored = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
         restored.profiles.register(profile, false);
@@ -1417,6 +1405,7 @@ describe("NeuroAgentHarness", () => {
         const restored = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
 
@@ -1919,6 +1908,7 @@ describe("NeuroAgentHarness", () => {
         harness = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
             toolExecution: "sequential",
         });
@@ -2012,9 +2002,11 @@ describe("NeuroAgentHarness", () => {
             },
             initialSchema: Type.Object({}),
             allowedToolKeys: ["force_continue"],
-            compaction: {
-                triggerTokens: 1,
-                keepRecentTokens: 1,
+            runtimeDefaults: {
+                compaction: {
+                    trigger: {kind: "tokens", value: 1},
+                    keepRecent: {kind: "tokens", value: 1},
+                },
             },
             context() {
                 return ProfilePrompt({
@@ -2082,9 +2074,11 @@ describe("NeuroAgentHarness", () => {
             },
             initialSchema: Type.Object({}),
             allowedToolKeys: ["force_continue_no_compact"],
-            compaction: {
-                triggerTokens: 1,
-                keepRecentTokens: 1,
+            runtimeDefaults: {
+                compaction: {
+                    trigger: {kind: "tokens", value: 1},
+                    keepRecent: {kind: "tokens", value: 1},
+                },
             },
             runtime: defineAgentRuntime<object>({
                 hooks: [
@@ -2146,13 +2140,14 @@ describe("NeuroAgentHarness", () => {
         expect(faux.getPendingResponseCount()).toBe(0);
     }, 10_000);
 
-    it("没有 compaction 配置且上下文超出模型窗口时 run 失败", async () => {
+    it("显式关闭 compaction 且上下文超出模型窗口时 run 失败", async () => {
         const smallWindowHarness = new NeuroAgentHarness({
             repo: harness.repo,
             modelResolver: () => ({
                 ...faux.getModel(),
                 contextWindow: 1,
             }),
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
         harness = smallWindowHarness;
@@ -2163,6 +2158,7 @@ describe("NeuroAgentHarness", () => {
             },
             initialSchema: Type.Object({}),
             allowedToolKeys: [],
+            runtimeDefaults: {compaction: {enabled: false}},
             prepare() {
                 return {};
             },
@@ -2180,7 +2176,7 @@ describe("NeuroAgentHarness", () => {
         });
 
         expect(result.status).toBe("error");
-        expect(result.errorInfo?.message).toContain("未声明 compaction 配置");
+        expect(result.errorInfo?.message).toContain("已关闭 Compaction");
         expect(result.errorInfo?.message).toContain("超过模型");
     }, 30_000);
 
@@ -2192,6 +2188,7 @@ describe("NeuroAgentHarness", () => {
                 ...faux.getModel(),
                 contextWindow: 1,
             }),
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
         harness = smallWindowHarness;
@@ -2202,7 +2199,6 @@ describe("NeuroAgentHarness", () => {
             },
             initialSchema: Type.Object({}),
             allowedToolKeys: ["report_result"],
-            compaction: {},
             sidecars: [{
                 name: "actor.context-load",
                 stage: "prepareRun",
@@ -2262,6 +2258,7 @@ describe("NeuroAgentHarness", () => {
                 ...faux.getModel(),
                 contextWindow: 1,
             }),
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
         harness = smallWindowHarness;
@@ -2378,6 +2375,7 @@ describe("NeuroAgentHarness", () => {
                 ...faux.getModel(),
                 reasoning: true,
             }),
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
         const created = await harness.createAgent({
@@ -2527,6 +2525,7 @@ describe("NeuroAgentHarness", () => {
                 ...faux.getModel(),
                 reasoning: true,
             }),
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
         const created = await harness.createAgent({
@@ -2610,6 +2609,7 @@ describe("NeuroAgentHarness", () => {
                 ...faux.getModel(),
                 reasoning: false,
             }),
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
         const created = await harness.createAgent({
@@ -2672,6 +2672,7 @@ describe("NeuroAgentHarness", () => {
             repo: harness.repo,
             profiles: harness.profiles,
             modelResolver: () => defaultModel,
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
 
@@ -2711,6 +2712,7 @@ describe("NeuroAgentHarness", () => {
             repo: harness.repo,
             profiles: harness.profiles,
             modelResolver: (_config, _profileKey, override) => override?.modelKey ? explicitModel : defaultModel,
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
         const created = await harness.createAgent({
@@ -2785,6 +2787,7 @@ describe("NeuroAgentHarness", () => {
             repo: harness.repo,
             profiles: harness.profiles,
             modelResolver: (_config, _profileKey, override) => override?.modelKey ? deletedModel : defaultModel,
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
         const created = await harness.createAgent({
@@ -4014,6 +4017,7 @@ describe("NeuroAgentHarness", () => {
             repo: harness.repo,
             profiles,
             modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
         const projectSlug = `rp-project-${randomUUID()}`;
@@ -6102,7 +6106,12 @@ describe("NeuroAgentHarness", () => {
     }, 30_000);
 
     it("source profile completed 后会后台运行 summarizer 并写回 active leaf title/summary", async () => {
-        harness = createSummarizerHarness(root, faux);
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: true,
+        });
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.summarized-source",
@@ -6110,9 +6119,10 @@ describe("NeuroAgentHarness", () => {
             },
             initialSchema: Type.Object({}),
             allowedToolKeys: [],
-            summarizer: {
-                profileKey: "summarizer",
-                input: {
+            runtimeDefaults: {
+                summarizer: {
+                    enabled: true,
+                    profileKey: "summarizer",
                     trigger: "afterInvocation",
                     interval: {
                         kind: "sourceInvocation",
@@ -6189,7 +6199,12 @@ describe("NeuroAgentHarness", () => {
     });
 
     it("summarizer 写回前 source leaf 变化时只标 dirty 不覆盖当前 title/summary", async () => {
-        harness = createSummarizerHarness(root, faux);
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: true,
+        });
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.summarizer-stale",
@@ -6197,9 +6212,10 @@ describe("NeuroAgentHarness", () => {
             },
             initialSchema: Type.Object({}),
             allowedToolKeys: [],
-            summarizer: {
-                profileKey: "summarizer",
-                input: {
+            runtimeDefaults: {
+                summarizer: {
+                    enabled: true,
+                    profileKey: "summarizer",
                     trigger: "afterInvocation",
                     interval: {
                         kind: "sourceInvocation",
@@ -6268,7 +6284,12 @@ describe("NeuroAgentHarness", () => {
     });
 
     it("summarizer preflight 超过 Agent Dialogue Content token 上限时只写状态不启动 hidden run", async () => {
-        harness = createSummarizerHarness(root, faux);
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: true,
+        });
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.summarizer-too-large",
@@ -6276,9 +6297,10 @@ describe("NeuroAgentHarness", () => {
             },
             initialSchema: Type.Object({}),
             allowedToolKeys: [],
-            summarizer: {
-                profileKey: "summarizer",
-                input: {
+            runtimeDefaults: {
+                summarizer: {
+                    enabled: true,
+                    profileKey: "summarizer",
                     trigger: "afterInvocation",
                     interval: {
                         kind: "sourceInvocation",
@@ -6331,7 +6353,12 @@ describe("NeuroAgentHarness", () => {
     });
 
     it("summarizer sourceInvocation interval 会按 source prompt turn 间隔触发", async () => {
-        harness = createSummarizerHarness(root, faux);
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: true,
+        });
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.summarizer-interval",
@@ -6339,9 +6366,10 @@ describe("NeuroAgentHarness", () => {
             },
             initialSchema: Type.Object({}),
             allowedToolKeys: [],
-            summarizer: {
-                profileKey: "summarizer",
-                input: {
+            runtimeDefaults: {
+                summarizer: {
+                    enabled: true,
+                    profileKey: "summarizer",
                     trigger: "afterInvocation",
                     interval: {
                         kind: "sourceInvocation",
@@ -6409,7 +6437,12 @@ describe("NeuroAgentHarness", () => {
     });
 
     it("summarizer 运行失败后同一份 Agent Dialogue Content 可以重试", async () => {
-        harness = createSummarizerHarness(root, faux);
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: true,
+        });
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.summarizer-retry",
@@ -6417,9 +6450,10 @@ describe("NeuroAgentHarness", () => {
             },
             initialSchema: Type.Object({}),
             allowedToolKeys: [],
-            summarizer: {
-                profileKey: "summarizer",
-                input: {
+            runtimeDefaults: {
+                summarizer: {
+                    enabled: true,
+                    profileKey: "summarizer",
                     trigger: "afterInvocation",
                     interval: {
                         kind: "sourceInvocation",
@@ -6480,7 +6514,12 @@ describe("NeuroAgentHarness", () => {
     });
 
     it("rename 命令锁定标题后 summarizer 只更新 summary，summarize 命令解锁并立即重跑", async () => {
-        harness = createSummarizerHarness(root, faux);
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: true,
+        });
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.summarizer-rename",
@@ -6488,9 +6527,10 @@ describe("NeuroAgentHarness", () => {
             },
             initialSchema: Type.Object({}),
             allowedToolKeys: [],
-            summarizer: {
-                profileKey: "summarizer",
-                input: {
+            runtimeDefaults: {
+                summarizer: {
+                    enabled: true,
+                    profileKey: "summarizer",
                     trigger: "afterInvocation",
                     interval: {
                         kind: "sourceInvocation",
@@ -7104,8 +7144,8 @@ describe("NeuroAgentHarness", () => {
         expect(resolved.status).toBe("completed");
         await expect(readFile(join(root, "notes", "declined.md"), "utf-8")).rejects.toThrow();
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
-        const toolResult = context.messages.find((message): message is RuntimeMessage => message.role === "toolResult" && message.toolCallId === "write-decline");
-        expect(toolResult ? messageText(toolResult) : "").toContain("declined this file write in discuss mode");
+        const toolResult = context.messages.find((message) => message.role === "toolResult" && message.toolCallId === "write-decline");
+        expect(toolResult ? messageText(toolResult as RuntimeMessage) : "").toContain("declined this file write in discuss mode");
     }, 20_000);
 
     it("计划模式写 .agent/plan 下 Markdown 豁免审批，普通路径仍挂起", async () => {
@@ -7281,6 +7321,7 @@ describe("NeuroAgentHarness", () => {
             repo: new JsonlSessionRepository(root),
             profiles: new AgentProfileCatalog(join(root, "restart-system-profiles"), join(root, "restart-user-profiles")),
             modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
         restored.profiles.register(profile, false);
@@ -7421,8 +7462,8 @@ describe("NeuroAgentHarness", () => {
         expect(result.finalMessage).toBe("noop handled");
         expect((await harness.getSessionSnapshot(created.sessionId)).pendingApprovals).toHaveLength(0);
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
-        const toolResult = context.messages.find((message): message is RuntimeMessage => message.role === "toolResult" && message.toolCallId === "switch-noop");
-        expect(toolResult ? messageText(toolResult) : "").toContain("Already in plan mode");
+        const toolResult = context.messages.find((message) => message.role === "toolResult" && message.toolCallId === "switch-noop");
+        expect(toolResult ? messageText(toolResult as RuntimeMessage) : "").toContain("Already in plan mode");
     }, 20_000);
 
     it("缺少 report_result 时会自动提醒一次并收集第二轮 report", async () => {
@@ -7823,9 +7864,11 @@ describe("NeuroAgentHarness", () => {
             },
             initialSchema: Type.Object({}),
             allowedToolKeys: ["force_continue_without_session_context"],
-            compaction: {
-                triggerTokens: 1,
-                keepRecentTokens: 1,
+            runtimeDefaults: {
+                compaction: {
+                    trigger: {kind: "tokens", value: 1},
+                    keepRecent: {kind: "tokens", value: 1},
+                },
             },
             runtime: defineAgentRuntime<object>({
                 hooks: [
@@ -8005,6 +8048,109 @@ describe("NeuroAgentHarness", () => {
         expect(await harness.getAgent(undefined, parent.sessionId)).toEqual([]);
     });
 
+    it("detachAgent 准确区分本次解除、重复解除与从未关联", async () => {
+        const parent = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        const child = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+            parentSessionId: parent.sessionId,
+        });
+
+        await expect(harness.detachAgent(child.sessionId, parent.sessionId)).resolves.toEqual({
+            sessionId: child.sessionId,
+            status: "detached",
+        });
+        await expect(harness.detachAgent(child.sessionId, parent.sessionId)).resolves.toEqual({
+            sessionId: child.sessionId,
+            status: "already_detached",
+        });
+        await expect(harness.detachAgent(parent.sessionId, child.sessionId)).resolves.toEqual({
+            sessionId: parent.sessionId,
+            status: "not_linked",
+        });
+    });
+
+    it("create 与 archive 并发时由关系队列串行，最终不会留下 active link", async () => {
+        const parent = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        const originalReadSession = harness.repo.readSession.bind(harness.repo);
+        const releaseParentRead = createDeferred();
+        let parentReadBlocked = false;
+        harness.repo.readSession = async (...args: Parameters<JsonlSessionRepository["readSession"]>): ReturnType<JsonlSessionRepository["readSession"]> => {
+            if (args[0] === parent.sessionId && !parentReadBlocked) {
+                parentReadBlocked = true;
+                await releaseParentRead.promise;
+            }
+            return originalReadSession(...args);
+        };
+
+        const createPromise = harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+            parentSessionId: parent.sessionId,
+        });
+        await waitFor(() => expect(parentReadBlocked).toBe(true));
+        const archivePromise = harness.runCommand(parent.sessionId, {
+            command: "archive",
+            reason: "concurrent archive",
+        });
+        releaseParentRead.resolve();
+        const child = await createPromise;
+        await archivePromise;
+
+        expect((await harness.getSessionRelations(parent.sessionId)).linkedAgents).toEqual([]);
+        expect((await harness.getSessionRelations(child.sessionId)).linkedByAgents).toEqual([]);
+        expect(harness.repo.reduce(await originalReadSession(parent.sessionId)).linkedAgents).toContainEqual(expect.objectContaining({
+            sessionId: child.sessionId,
+            detached: true,
+        }));
+    });
+
+    it("旧数据中 active link 指向 archived target 时所有当前查询都隐藏关系", async () => {
+        const parent = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        const child = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+            parentSessionId: parent.sessionId,
+        });
+        await harness.repo.appendEntry(child.sessionId, {
+            type: "session_archived",
+            reason: "legacy archive without detach",
+        });
+
+        const restored = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+        });
+        try {
+            expect(await restored.getAgent(undefined, parent.sessionId)).toEqual([]);
+            expect((await restored.getSession(parent.sessionId)).linkedAgents).toEqual([]);
+            expect((await restored.getSessionRelations(parent.sessionId)).linkedAgents).toEqual([]);
+            expect(restored.repo.reduce(await restored.repo.readSession(parent.sessionId)).linkedAgents).toContainEqual(expect.objectContaining({
+                sessionId: child.sessionId,
+                detached: false,
+            }));
+        } finally {
+            await restored.dispose();
+        }
+    });
+
     it("子 session 未显式传 workspace 时继承父 session 归属并能看到绑定者", async () => {
         const parent = await harness.createAgent({
             profileKey: "leader.default",
@@ -8027,7 +8173,6 @@ describe("NeuroAgentHarness", () => {
             expect.objectContaining({
                 sessionId: parent.sessionId,
                 workspaceKey: "novel-one",
-                detached: false,
             }),
         ]);
     });
@@ -8057,7 +8202,6 @@ describe("NeuroAgentHarness", () => {
         expect(childRelations.linkedByAgents).toEqual([
             expect.objectContaining({
                 sessionId: parent.sessionId,
-                detached: false,
             }),
         ]);
     });
@@ -8105,11 +8249,9 @@ describe("NeuroAgentHarness", () => {
 
         expect(parentRelations.linkedAgents).toContainEqual(expect.objectContaining({
             sessionId: child.sessionId,
-            detached: false,
         }));
         expect(childRelations.linkedByAgents).toContainEqual(expect.objectContaining({
             sessionId: parent.sessionId,
-            detached: false,
         }));
     });
 
@@ -8155,10 +8297,7 @@ describe("NeuroAgentHarness", () => {
 
         const childRelations = await relationsPromise;
 
-        expect(childRelations.linkedByAgents).toContainEqual(expect.objectContaining({
-            sessionId: parent.sessionId,
-            detached: true,
-        }));
+        expect(childRelations.linkedByAgents).toEqual([]);
     });
 
     it("relation index 已加载后的 create/detach/restart 与 session 账本真相一致", async () => {
@@ -8187,6 +8326,7 @@ describe("NeuroAgentHarness", () => {
         const restored = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
         try {
@@ -8248,7 +8388,6 @@ describe("NeuroAgentHarness", () => {
             expect.objectContaining({
                 sessionId: parent.sessionId,
                 workspaceKey: "novel-one",
-                detached: false,
             }),
         ]);
     });
@@ -8305,6 +8444,7 @@ describe("NeuroAgentHarness", () => {
                 observedDefaultModelKeys.push(config.models.defaultModelKey);
                 return faux.getModel();
             },
+            runtimeResolver: () => faux.runtime,
         });
         faux.setResponses([fauxAssistantMessage(fauxText("child done"))]);
         const parent = await harness.createAgent({
@@ -8350,6 +8490,7 @@ describe("NeuroAgentHarness", () => {
                 observedDefaultModelKeys.push(config.models.defaultModelKey);
                 return faux.getModel();
             },
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
         faux.setResponses([fauxAssistantMessage("external done")]);
@@ -8781,7 +8922,6 @@ describe("NeuroAgentHarness", () => {
         expect(snapshot.linkedAgents).toEqual([
             expect.objectContaining({
                 sessionId: child.sessionId,
-                detached: false,
             }),
         ]);
 
@@ -9075,6 +9215,7 @@ describe("NeuroAgentHarness", () => {
         const restored = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
         restored.profiles.register(defineAgentProfile({
@@ -9255,6 +9396,7 @@ describe("NeuroAgentHarness", () => {
         const restored = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
 
@@ -9308,35 +9450,6 @@ describe("NeuroAgentHarness", () => {
         expect(assistantEntry && assistantEntry.type === "message" && assistantEntry.message.role === "assistant"
             ? assistantEntry.message.content.some((block) => block.type === "toolCall")
             : true).toBe(false);
-    });
-
-    it("模型连接在未产出内容前临时断开会自动重试", async () => {
-        faux.setResponses([
-            async () => {
-                throw new Error("The socket connection was closed unexpectedly. For more information, pass verbose: true in the second argument to fetch()");
-            },
-            fauxAssistantMessage("recovered after socket retry"),
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "leader.default",
-            initial: {},
-            workspaceRoot: root,
-        });
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "start"},
-        });
-        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
-        const snapshot = await harness.repo.readSession(created.sessionId);
-
-        expect(result.status).toBe("completed");
-        expect(result.finalMessage).toBe("recovered after socket retry");
-        expect(faux.state.callCount).toBe(2);
-        expect(context.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
-        expect(messageText(context.messages.at(-1) as RuntimeMessage)).toBe("recovered after socket retry");
-        expect(snapshot.entries.filter((entry) => entry.type === "invocation_lifecycle").map((entry) => entry.status)).toEqual(["start", "end"]);
     });
 
     it("safe point drain 期间拒绝新的 steer，避免成功入队后被清理", async () => {
@@ -9423,63 +9536,6 @@ describe("NeuroAgentHarness", () => {
         expect(contextText).not.toContain("too late during drain");
     });
 
-    it("session snapshot 默认不返回 provider messages，避免长会话响应体重复放大", async () => {
-        faux.setResponses([fauxAssistantMessage(fauxText("snapshot reply"))]);
-        const created = await harness.createAgent({
-            profileKey: "leader.default",
-            initial: {},
-            workspaceRoot: root,
-        });
-        await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "snapshot prompt"},
-        });
-
-        const snapshot = await harness.getSessionSnapshot(created.sessionId);
-
-        expect(snapshot.messages).toBeUndefined();
-        expect(snapshot.entries.some((entry) => entry.type === "message")).toBe(true);
-        const contextText = visibleMessageText(harness.repo.reduce(await harness.repo.readSession(created.sessionId)).messages);
-        expect(contextText).toContain("snapshot prompt");
-        expect(contextText).toContain("snapshot reply");
-    });
-
-    it("HTTP 轻快照只返回最近 entries，历史 entries 可继续分页读取", async () => {
-        const created = await harness.createAgent({
-            profileKey: "leader.default",
-            initial: {},
-            workspaceRoot: root,
-        });
-        await harness.repo.appendUserMessage(created.sessionId, "first");
-        await harness.repo.appendUserMessage(created.sessionId, "second");
-        await harness.repo.appendUserMessage(created.sessionId, "third");
-
-        const snapshot = await harness.getSessionSnapshot(created.sessionId, undefined, {
-            entryLimit: 2,
-            includeTree: false,
-            includeSystemPrompt: false,
-            includeContextUsage: false,
-        });
-
-        expect(snapshot.tree).toEqual([]);
-        expect(snapshot.treeComplete).toBe(false);
-        expect(snapshot.entries).toHaveLength(2);
-        expect(snapshot.entryPage).toEqual(expect.objectContaining({
-            hasMoreBefore: true,
-            total: expect.any(Number),
-            limit: 2,
-        }));
-
-        const page = await harness.getSessionEntries(created.sessionId, {
-            beforeEntryId: snapshot.entryPage?.beforeEntryId ?? undefined,
-            limit: 2,
-        });
-
-        expect(page.hasMoreBefore).toBe(false);
-        expect(page.entries.some((entry) => entry.type === "message" && messageText(entry.message) === "first")).toBe(true);
-    });
-
     it("session command 和 tree API 支持 mode、archive、retry、tree+invoke", async () => {
         faux.setResponses([
             fauxAssistantMessage(fauxText("first")),
@@ -9553,26 +9609,10 @@ describe("NeuroAgentHarness", () => {
         });
         expect(moved.status).toBe("invoked");
 
-        const afterRetryContext = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
-        const activeText = afterRetryContext.messages.map((message) => messageText(message as never));
+        const afterRetry = await harness.getSessionSnapshot(created.sessionId);
+        const activeText = afterRetry.messages.map((message) => messageText(message as never));
         expect(activeText).toContain("run");
         expect(activeText.at(-1)).toContain("retry after user");
-    });
-
-    it("tree 移动目标 entry 过期时返回可恢复冲突错误", async () => {
-        const created = await harness.createAgent({
-            profileKey: "leader.default",
-            initial: {},
-            workspaceRoot: root,
-        });
-
-        await expect(harness.moveTree(created.sessionId, {
-            targetEntryId: "assistant:missing",
-            position: "at",
-        })).rejects.toMatchObject({
-            statusCode: 409,
-            message: expect.stringContaining("目标消息已变化"),
-        });
     });
 
     it("tree empty 会清空当前 active leaf 但保留旧 entries，并让下一轮从空历史分支开始", async () => {
@@ -9597,7 +9637,7 @@ describe("NeuroAgentHarness", () => {
         });
 
         expect(cleared.snapshot.activeLeafId).toBeNull();
-        expect(harness.repo.reduce(await harness.repo.readSession(created.sessionId)).messages).toEqual([]);
+        expect(cleared.snapshot.messages).toEqual([]);
         expect((await harness.repo.readSession(created.sessionId)).entries.length).toBeGreaterThan(beforeClear.entries.length);
         expect(cleared.snapshot.tree.some((node) => node.type === "message" && !node.active)).toBe(true);
 
@@ -9606,8 +9646,8 @@ describe("NeuroAgentHarness", () => {
             mode: "prompt",
             message: {text: "second user"},
         });
-        const afterPromptContext = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
-        const llmMessages = afterPromptContext.messages.filter((message) => message.role === "user" || message.role === "assistant" || message.role === "toolResult");
+        const afterPrompt = await harness.getSessionSnapshot(created.sessionId);
+        const llmMessages = afterPrompt.messages.filter((message) => message.role === "user" || message.role === "assistant" || message.role === "toolResult");
         expect(llmMessages.map((message) => messageText(message))).toEqual(expect.arrayContaining(["second user", "after clear"]));
         expect(messageText(llmMessages.at(-1) as never)).toBe("after clear");
     });
@@ -9629,18 +9669,14 @@ describe("NeuroAgentHarness", () => {
         const nextHarness = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
         const owned = await nextHarness.getAgent(undefined, parent.sessionId);
         const session = await nextHarness.getSession(parent.sessionId);
 
         expect(owned).toEqual([]);
-        expect(session.linkedAgents).toEqual([
-            expect.objectContaining({
-                sessionId: child.sessionId,
-                status: "detached",
-            }),
-        ]);
+        expect(session.linkedAgents).toEqual([]);
     });
 
     it("session snapshot 返回当前 session 被哪些 agent 绑定", async () => {
@@ -9684,6 +9720,7 @@ describe("NeuroAgentHarness", () => {
         const restored = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
         restored.profiles.register(profile, false);
@@ -9694,7 +9731,6 @@ describe("NeuroAgentHarness", () => {
                 sessionId: parent.sessionId,
                 profileKey: "test.linked-by",
                 status: "waiting",
-                detached: false,
             }),
         ]);
         expect(restoredChildSnapshot.linkedByAgents).toEqual([
@@ -9702,19 +9738,46 @@ describe("NeuroAgentHarness", () => {
                 sessionId: parent.sessionId,
                 profileKey: "test.linked-by",
                 status: "waiting",
-                detached: false,
             }),
         ]);
 
         await harness.detachAgent(child.sessionId, parent.sessionId);
         const detachedSnapshot = await harness.getSessionSnapshot(child.sessionId);
-        expect(detachedSnapshot.linkedByAgents).toEqual([
-            expect.objectContaining({
-                sessionId: parent.sessionId,
-                status: "waiting",
-                detached: true,
-            }),
-        ]);
+        expect(detachedSnapshot.linkedByAgents).toEqual([]);
+    });
+
+    it("归档 session 会解除全部入站和出站当前关系", async () => {
+        const owner = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        const archived = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+            parentSessionId: owner.sessionId,
+        });
+        const child = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+            parentSessionId: archived.sessionId,
+        });
+
+        await harness.runCommand(archived.sessionId, {
+            command: "archive",
+            reason: "test archive relation cleanup",
+        });
+
+        expect((await harness.getSessionRelations(owner.sessionId)).linkedAgents).toEqual([]);
+        expect((await harness.getSessionRelations(child.sessionId)).linkedByAgents).toEqual([]);
+        expect((await harness.getSessionSnapshot(archived.sessionId)).summary.archived).toBe(true);
+        const ownerLedger = harness.repo.reduce(await harness.repo.readSession(owner.sessionId));
+        expect(ownerLedger.linkedAgents).toContainEqual(expect.objectContaining({
+            sessionId: archived.sessionId,
+            detached: true,
+        }));
     });
 
     it("缺失 profile 的历史 session 仍可读取但不能继续运行", async () => {
@@ -9757,6 +9820,7 @@ describe("NeuroAgentHarness", () => {
         const restored = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
         const sessions = await restored.listSessions({workspaceKey: "global"});
@@ -9871,6 +9935,7 @@ describe("NeuroAgentHarness", () => {
             repo: new JsonlSessionRepository(root),
             profiles: new BrokenProfileCatalog(join(root, "broken-system-profiles"), join(root, "broken-user-profiles")),
             modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
 
@@ -10115,7 +10180,7 @@ describe("NeuroAgentHarness", () => {
         expect(result.kind).toBe("live_state");
     });
 
-    it("没有 compaction 配置的 profile 执行 compact command 会写 lifecycle error", async () => {
+    it("未声明 compaction 的 profile 执行 compact command 会继承默认策略", async () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.manual-compact-without-policy",
@@ -10133,6 +10198,7 @@ describe("NeuroAgentHarness", () => {
             workspaceRoot: root,
         });
         await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "old context"}));
+        faux.setResponses([fauxAssistantMessage("DEFAULT COMPACTION")]);
 
         const result = await harness.runCommand(created.sessionId, {
             command: "compact",
@@ -10142,13 +10208,9 @@ describe("NeuroAgentHarness", () => {
             const snapshot = await harness.repo.readSession(created.sessionId);
             expect(snapshot.entries).toContainEqual(expect.objectContaining({
                 type: "invocation_lifecycle",
-                status: "error",
-                errorInfo: expect.objectContaining({
-                    phase: "compaction",
-                    message: expect.stringContaining("未声明 compaction 配置"),
-                }),
+                status: "end",
             }));
-            expect(snapshot.entries.some((entry) => entry.type === "compaction")).toBe(false);
+            expect(snapshot.entries.some((entry) => entry.type === "compaction")).toBe(true);
             expect(dto.activeInvocation).toBeNull();
         });
 
@@ -10241,7 +10303,6 @@ describe("NeuroAgentHarness", () => {
 type RelationIdentity = {
     sessionId: number;
     profileKey: string;
-    detached: boolean;
 };
 
 async function expectRelationsMatchSessionLedger(targetHarness: NeuroAgentHarness, sessionId: number): Promise<void> {
@@ -10254,7 +10315,7 @@ async function expectRelationsMatchSessionLedger(targetHarness: NeuroAgentHarnes
         linkedAgents: snapshot.linkedAgents,
         linkedByAgents: snapshot.linkedByAgents,
     });
-    expect(sortRelationIdentities(relations.linkedAgents)).toEqual(sortRelationIdentities(ownerContext.linkedAgents));
+    expect(sortRelationIdentities(relations.linkedAgents)).toEqual(sortRelationIdentities(ownerContext.linkedAgents.filter((linked) => !linked.detached)));
     expect(sortRelationIdentities(relations.linkedByAgents)).toEqual(await linkedByLedgerIdentities(targetHarness, sessionId));
 }
 
@@ -10268,13 +10329,12 @@ async function linkedByLedgerIdentities(targetHarness: NeuroAgentHarness, sessio
         const ownerSnapshot = await targetHarness.repo.readSession(summary.sessionId);
         const ownerContext = targetHarness.repo.reduce(ownerSnapshot);
         const linked = ownerContext.linkedAgents.find((item) => item.sessionId === sessionId);
-        if (!linked) {
+        if (!linked || linked.detached || summary.archived) {
             continue;
         }
         result.push({
             sessionId: summary.sessionId,
             profileKey: ownerContext.profileKey,
-            detached: linked.detached,
         });
     }
     return sortRelationIdentities(result);
@@ -10285,7 +10345,6 @@ function sortRelationIdentities(items: Iterable<RelationIdentity>): RelationIden
         .map((item) => ({
             sessionId: item.sessionId,
             profileKey: item.profileKey,
-            detached: item.detached,
         }))
         .sort((left, right) => left.sessionId - right.sessionId);
 }

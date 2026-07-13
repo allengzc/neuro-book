@@ -1,4 +1,4 @@
-name: Release Container
+name: Release Product Assets
 
 on:
   release:
@@ -16,31 +16,24 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    outputs:
+      app-digest: ${{ steps.app-build.outputs.digest }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract runtime metadata
-        id: runtime-meta
+      - id: runtime-meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.RUNTIME_IMAGE_NAME }}
           tags: |
             type=raw,value=${{ github.event.release.tag_name }}
             type=raw,value=latest,enable=${{ !github.event.release.prerelease }}
-          labels: |
-            org.opencontainers.image.title=neuro-book-runtime
-            org.opencontainers.image.description=NeuroBook Bun runtime with agent shell tools
 
       - name: Build and push runtime image
         uses: docker/build-push-action@v6
@@ -50,23 +43,19 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ${{ steps.runtime-meta.outputs.tags }}
-          labels: ${{ steps.runtime-meta.outputs.labels }}
           cache-from: type=gha,scope=runtime
           cache-to: type=gha,mode=max,scope=runtime
 
-      - name: Extract app metadata
-        id: app-meta
+      - id: app-meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.APP_IMAGE_NAME }}
           tags: |
             type=raw,value=${{ github.event.release.tag_name }}
             type=raw,value=latest,enable=${{ !github.event.release.prerelease }}
-          labels: |
-            org.opencontainers.image.title=neuro-book
-            org.opencontainers.image.description=NeuroBook prebuilt app image with source and Nitro runtime vendor
 
-      - name: Build and push app image
+      - id: app-build
+        name: Build and push app image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -79,35 +68,166 @@ jobs:
             type=gha,scope=app
           cache-to: type=gha,mode=max,scope=app
 
-  windows-portable:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run release:source
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source
+          path: dist/neuro-book-source.zip
+
+  product-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile --linker hoisted
+      - run: bun run nuxt:build
+      - run: bun run release:product:linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: product-linux
+          path: dist/neuro-book-product-linux-x64-glibc.tar.gz
+
+  product-windows:
     runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile --linker hoisted
+      - run: bun run nuxt:build
+      - run: bun run release:product:windows
+      - run: bun run package:windows-portable
+      - uses: actions/upload-artifact@v4
+        with:
+          name: product-windows
+          path: |
+            dist/neuro-book-product-windows-x64.zip
+            dist/neuro-book-windows-x64.zip
+
+  assemble:
+    needs: [build-and-push, source, product-linux, product-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Build release manifest
+        shell: bash
+        env:
+          GHCR_DIGEST: ${{ needs.build-and-push.outputs.app-digest }}
+        run: |
+          manager_version="$(bun -e 'console.log(require("./packages/neuro-book-manager/package.json").version)')"
+          if [[ "${manager_version}" == *-* ]]; then manager_tag=canary; else manager_tag=latest; fi
+          published_manager="$(npm view "@notnotype/neuro-book-manager@${manager_tag}" version)"
+          test "${published_manager}" = "${manager_version}"
+          bun scripts/release/release-assets.ts manifest \
+            --tag "${{ github.event.release.tag_name }}" \
+            --revision "${{ github.sha }}" \
+            --manager-version "${manager_version}" \
+            --source dist/neuro-book-source.zip \
+            --windows-product dist/neuro-book-product-windows-x64.zip \
+            --linux-product dist/neuro-book-product-linux-x64-glibc.tar.gz \
+            --portable dist/neuro-book-windows-x64.zip \
+            --ghcr-ref "${APP_IMAGE_NAME}:${{ github.event.release.tag_name }}" \
+            --ghcr-digest "${GHCR_DIGEST}" \
+            --output dist/release-manifest.json
+      - name: Upload candidate release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-candidate
+          path: |
+            dist/neuro-book-source.zip
+            dist/neuro-book-product-windows-x64.zip
+            dist/neuro-book-product-linux-x64-glibc.tar.gz
+            dist/neuro-book-windows-x64.zip
+            dist/release-manifest.json
+            dist/SHA256SUMS
+
+  verify-linux:
+    needs: [assemble, build-and-push]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile --linker hoisted
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-candidate
+          path: candidate-assets
+      - name: Verify assets and native packages
+        run: bun scripts/release/release-assets.ts verify --dir candidate-assets --tag "${{ github.event.release.tag_name }}" --revision "${{ github.sha }}"
+      - name: Verify GHCR digest and source revision
+        env:
+          IMAGE: ${{ env.APP_IMAGE_NAME }}@${{ needs.build-and-push.outputs.app-digest }}
+        run: |
+          docker pull "${IMAGE}"
+          test "$(docker image inspect "${IMAGE}" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')" = "${{ github.sha }}"
+      - name: Public Manager CLI smoke
+        shell: bash
+        run: |
+          version="${{ github.event.release.tag_name }}"
+          version="${version#v}"
+          if [[ "${version}" == *-* ]]; then manager_tag=canary; channel=canary; else manager_tag=latest; channel=stable; fi
+          bunx --bun "@notnotype/neuro-book-manager@${manager_tag}" --version
+          bunx --bun "@notnotype/neuro-book-manager@${manager_tag}" status --help
+
+  verify-windows:
+    needs: [assemble]
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-candidate
+          path: candidate-assets
+      - name: Verify Portable executables and doctor
+        shell: pwsh
+        run: |
+          Expand-Archive -LiteralPath candidate-assets/neuro-book-windows-x64.zip -DestinationPath portable
+          $manifest = Get-Content -Raw portable/.deploy/installation.json | ConvertFrom-Json
+          & (Join-Path portable $manifest.components.managerRuntime.path) --version
+          & (Join-Path portable $manifest.components.tools.rg.path) --version
+          & (Join-Path portable $manifest.components.tools.git.path) --version
+          & (Join-Path portable $manifest.components.tools.git.bashPath) --version
+          $doctor = & portable/.runtime/bin/neuro-book.cmd doctor --json | ConvertFrom-Json
+          if (-not $doctor.healthy) { throw "Portable doctor 未通过" }
+
+  verify:
+    needs: [verify-linux, verify-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Release verification completed."
+
+  publish:
+    needs: [verify]
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Build Product payload
-        env:
-          GITHUB_REF_NAME: ${{ github.event.release.tag_name }}
-        run: |
-          bun run nuxt:build
-          bun run product:stage
-
-      - name: Build Windows portable zip
-        env:
-          GITHUB_REF_NAME: ${{ github.event.release.tag_name }}
-        run: bun run package:windows-portable
-
-      - name: Upload Windows portable release assets
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-candidate
+          path: dist
+      - name: Publish verified release assets
         uses: softprops/action-gh-release@v2
         with:
           files: |
+            dist/neuro-book-source.zip
+            dist/neuro-book-product-windows-x64.zip
+            dist/neuro-book-product-linux-x64-glibc.tar.gz
             dist/neuro-book-windows-x64.zip
+            dist/release-manifest.json
             dist/SHA256SUMS

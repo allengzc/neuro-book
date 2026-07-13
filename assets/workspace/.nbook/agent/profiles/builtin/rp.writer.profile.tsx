@@ -35,7 +35,6 @@ export default defineAgentProfile({
         builtin.file.bash,
         builtin.result.main(),
     ),
-    compaction: {},
     async context(ctx) {
         return buildRpWriterPrompt(ctx);
     },

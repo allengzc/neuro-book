@@ -4,6 +4,7 @@ import {VariableRegistry, builtinVariableDefinitions} from "nbook/server/agent/v
 import {loadCompiledVariableDefinitions} from "nbook/server/agent/variables/definition-artifact";
 import type {VariableAccessorIssue} from "nbook/server/agent/variables/types";
 import {resolveAgentNbookRoot} from "nbook/server/agent/variables/workspace-paths";
+import {resolveStateRoot} from "nbook/server/runtime/installation-paths";
 
 /**
  * 创建 profile 运行时变量 registry。内建变量由 VariableRegistry 自带，
@@ -38,7 +39,7 @@ export async function createVariableRegistryForSession(input: {
     issues.push(...globalLoaded.issues);
     if (input.currentProjectWorkspace) {
         const projectLoaded = await loadCompiledVariableDefinitions({
-            definitionRoot: resolve(process.cwd(), input.currentProjectWorkspace, ".nbook", "agent", "variables"),
+            definitionRoot: resolve(resolveStateRoot(), input.currentProjectWorkspace, ".nbook", "agent", "variables"),
             namespace: "project",
         });
         definitions.push(...projectLoaded.definitions);

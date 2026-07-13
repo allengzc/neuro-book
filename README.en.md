@@ -93,19 +93,23 @@ Check manuscripts the way eslint checks code. 340 rules cover filler words, mech
 .\Start Neuro Book.cmd
 ```
 
-The package bundles the Bun runtime, prebuilt artifacts, and a full source snapshot — no dependency install, no build; first start initializes data and works password-free by default. Run `.\Create Admin.cmd` anytime to create an administrator and enable password protection, then restart NeuroBook. Upgrade later with `.\Update Neuro Book.cmd`; everything in `data/` is preserved.
+The package bundles Bun, rg, PortableGit with Bash, a prebuilt `.output`, and the full source tree. It does not install application dependencies or build on the user's machine. NeuroBook Manager initializes the `data/` state directory on first start; run `.\Create Admin.cmd` when an administrator is needed. `.\Update Neuro Book.cmd` performs transactional updates while preserving everything in `data/`.
 
 **Server / Docker:**
 
 ```bash
-bunx --bun --package github:notnotype/neuro-book neuro-book-deploy
+bunx --bun @notnotype/neuro-book-manager@canary
 ```
+
+With no arguments, Manager opens a guided installer that explains deployment profiles and asks for the directory, update channel, port, and authentication policy. After installation, `neuro-book manage` opens a multi-instance TUI. The instance index lives at `~/.neuro-book-manager/config.json`; deployment truth remains in each instance's `.deploy/installation.json`. Automation should use `install --profile ghcr --yes`.
+
+Use `@canary` during the canary phase. Do not use `bunx run @notnotype/neuro-book-manager`: `bunx run` resolves the package name as a local script or path, so Manager never starts. A GitHub Release is installable only after its final `release-manifest.json` is published; Manager safely skips releases that are still assembling or were cancelled.
 
 | Option | Best for |
 | --- | --- |
 | Windows Product Portable | Windows users — unzip and run |
 | ghcr | Server Docker deployments, prebuilt image, low-memory friendly |
-| Product Bun | Machines that already have Bun, run without source |
+| Product Bun | Machines that already have Bun, full source plus a prebuilt Product |
 | Source Dev | Developers — source development and tests |
 
 Full deployment, update, administrator, and model configuration instructions: [docs/deployment.md](docs/deployment.md). To have another AI Agent assist with deployment or troubleshooting, just send it [docs/operator-bridge.md](docs/operator-bridge.md).

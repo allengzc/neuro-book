@@ -63,6 +63,7 @@ type EffectiveModelMetadata = {
     input: ModelInputKind[];
     maxTokens: number | null;
     contextWindowTokens: number | null;
+    cost: NonNullable<ConfiguredModelDto["cost"]>;
 };
 
 type ManualModelDraft = {
@@ -340,6 +341,13 @@ function modelInputEnabled(model: ModelDraft, inputKind: ModelInputKind): boolea
  */
 function resetModelCost(model: ModelDraft): void {
     clearModelCostDraft(model.cost);
+}
+
+/**
+ * 启用原子价格覆盖，并复制当前有效的 Pi registry 基础价格与 tiers。
+ */
+function enableModelCostOverride(model: ModelDraft): void {
+    model.cost = createModelCostDraft(resolveEffectiveModelMetadata(model).cost);
 }
 
 /**
@@ -1036,6 +1044,11 @@ function findPiModelForDraft(model: ModelDraft, provider: ProviderDraft | null =
         ?? null;
 }
 
+/** 当前编辑模型从 Pi registry 继承的价格；无匹配项时不伪造零价格。 */
+const editingModelInheritedCost = computed(() => editingModel.value
+    ? findPiModelForDraft(editingModel.value)?.cost ?? null
+    : null);
+
 /**
  * 计算模型最终生效的 Pi 元数据，用于把“继承”显示成具体值。
  */
@@ -1051,6 +1064,7 @@ function resolveEffectiveModelMetadata(model: ModelDraft, provider: ProviderDraf
         input: parsedInput ?? piModel?.input ?? ["text"],
         maxTokens: parsedMaxTokens ?? piModel?.maxTokens ?? null,
         contextWindowTokens: parsedContextWindow ?? piModel?.contextWindowTokens ?? null,
+        cost: piModel?.cost ?? {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, tiers: []},
     };
 }
 
@@ -2284,6 +2298,7 @@ defineExpose({
         v-model="modelEditDialogOpen"
         :editing-model="editingModel"
         :active-provider="activeProvider"
+        :inherited-cost="editingModelInheritedCost"
         :model-api-options="modelApiOptions"
         :model-input-options="modelInputOptions"
         :derive-group="deriveGroup"
@@ -2298,6 +2313,7 @@ defineExpose({
         @toggle-model-input="toggleModelInput"
         @reset-model-input="($event) => { $event.input = ''; }"
         @reset-model-cost="resetModelCost"
+        @enable-model-cost="enableModelCostOverride"
     />
 </template>
 

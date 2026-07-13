@@ -4,7 +4,8 @@
 
 ## Terms
 
-- **Portable Root**：Windows release zip 解压后的程序根目录，初始包含启动引导器和 Node.js runtime，并在首次启动时把源码和 `.git` 物化到 `app/`；它不是 Workspace Root。
+- **Installation Root**：NeuroBook 源码与 `.output`、`.runtime`、`.deploy` 组件的统一程序根；它不是 Workspace Root。
+- **State Root**：运行状态的物理根。默认等于 Installation Root；Windows Portable 为 `Installation Root/data/`。
 - **Workspace Root**：应用运行数据根目录，默认是 `workspace/`。它只是数据容器，不直接表示某本小说或某个项目。
 - **Workspace Root `.nbook`**：Workspace Root 的全局控制区，默认是 `workspace/.nbook/`。它保存 Global Config、用户 assets、全局 Agent 资源覆盖层和后续全局运行状态。
 - **Project Workspace**：一个具体内容项目的工作区，当前主要是单本小说，默认是 `workspace/{project}/`。它保存 manuscript、lorebook 等项目内容。
@@ -17,6 +18,8 @@
 ## Path Mapping
 
 - `assets/workspace/.nbook` 是系统模板层，映射到运行时 `workspace/.nbook`。
+- `NEURO_BOOK_STATE_ROOT` 决定 State Root；Workspace Root、Boot Config、Product Env 和日志都从 State Root 解析。
+- Windows Portable 的物理 Workspace Root 是 `data/workspace/`，但 Project Path 仍固定为 `workspace/{project-slug}`。
 - 用户的 `workspace/.nbook` 可以覆盖系统 `assets/workspace/.nbook`。
 - `assets/workspace/global.config.example.json` 对应运行时 `workspace/.nbook/config.json` 的示例。
 - `assets/workspace/workspace.config.example.json` 对应运行时 `workspace/{project}/.nbook/config.json` 的示例。
@@ -29,7 +32,7 @@
 
 - 不要把 Workspace Root 缩写成 workspace 来表达 Project Workspace。
 - 不要把 Project Workspace 缩写成 workspace。
-- 不要把 **Portable Root** 称为 Workspace Root；Portable Root 是程序目录，Workspace Root 是运行数据目录。
+- 不要把 **Installation Root** 或 **State Root** 称为 Workspace Root；前者是程序组件根，后者是状态物理根，Workspace Root 是项目数据容器。
 - 当讨论单本小说/项目的文件根时，使用 **Project Workspace**。
 - 当讨论全局用户资产、全局配置、Agent profiles/skills 覆盖层时，使用 **Workspace Root `.nbook`**。
 - 当讨论前端入口时，`user-assets` 只表示 Studio 挂载目标，不表示新的配置 scope。

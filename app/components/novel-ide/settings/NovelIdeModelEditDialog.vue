@@ -3,8 +3,8 @@ import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue
 import Dialog from "nbook/app/components/common/Dialog.vue";
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
-import {hasModelCostOverride, type ModelCostDraft} from "nbook/app/components/novel-ide/settings/model-cost-draft";
-import type {ModelInputKind} from "nbook/shared/dto/app-settings.dto";
+import {hasModelCostOverride, parseModelCostDraft, type ModelCostDraft} from "nbook/app/components/novel-ide/settings/model-cost-draft";
+import type {ConfiguredModelDto, ModelInputKind} from "nbook/shared/dto/app-settings.dto";
 
 type ModelDraft = {
     name: string;
@@ -32,6 +32,8 @@ const props = defineProps<{
     modelValue: boolean;
     editingModel: ModelDraft | null;
     activeProvider: ProviderDraft | null;
+    /** 当前模型从 Pi registry 继承的原始价格；registry 无匹配模型时为空。 */
+    inheritedCost: NonNullable<ConfiguredModelDto["cost"]> | null;
     modelApiOptions: SelectOption[];
     modelInputOptions: Array<{value: ModelInputKind; label: string; iconClass: string}>;
     deriveGroup: (modelId: string) => string;
@@ -50,6 +52,7 @@ const emit = defineEmits<{
     (e: "toggle-model-input", model: ModelDraft, inputKind: ModelInputKind): void;
     (e: "reset-model-input", model: ModelDraft): void;
     (e: "reset-model-cost", model: ModelDraft): void;
+    (e: "enable-model-cost", model: ModelDraft): void;
 }>();
 
 const {t} = useI18n();
@@ -67,6 +70,32 @@ const costFields = computed<Array<{key: keyof Pick<ModelCostDraft, "input" | "ou
     {key: "cacheWrite", label: t("settings.panels.modelEdit.costCacheWrite"), placeholder: "0"},
 ]);
 
+const costValidationError = computed(() => {
+    const model = props.editingModel;
+    if (!model || !hasModelCostOverride(model.cost)) {
+        return "";
+    }
+    try {
+        parseModelCostDraft(model.cost);
+        return "";
+    } catch (error) {
+        return error instanceof Error ? error.message : String(error);
+    }
+});
+
+/**
+ * 新增一档长上下文价格，默认复制基础价格以减少漏填。
+ */
+function addCostTier(model: ModelDraft): void {
+    model.cost.tiers.push({
+        inputTokensAbove: "",
+        input: model.cost.input,
+        output: model.cost.output,
+        cacheRead: model.cost.cacheRead,
+        cacheWrite: model.cost.cacheWrite,
+    });
+}
+
 /**
  * 判断当前模型是否覆盖 Pi registry 价格。
  */
@@ -79,6 +108,13 @@ function modelCostSourceLabel(model: ModelDraft): string {
  */
 function modelCostUnitLabel(model: ModelDraft): string {
     return "USD / 1M tokens";
+}
+
+/**
+ * 格式化只读继承价格。
+ */
+function formatInheritedPrice(value: number): string {
+    return Number.isFinite(value) ? String(value) : "-";
 }
 
 /**
@@ -145,10 +181,6 @@ function updateOpen(value: boolean): void {
                                 <label class="text-xs font-semibold text-[var(--text-secondary)]">{{ t("settings.panels.modelEdit.apiFormat") }}</label>
                                 <div class="flex flex-col gap-2 rounded-lg border border-[var(--border-color)] border-opacity-50 bg-[var(--bg-input)] bg-opacity-20 p-2">
                                     <FormSelect v-model="props.editingModel.api" :options="[{value: '', label: props.modelApiInheritLabel(props.editingModel)}, ...props.modelApiOptions]" />
-                                    <div class="flex items-center gap-2">
-                                        <span class="text-[10px] text-[var(--text-muted)] shrink-0 font-medium pl-1">{{ t("settings.panels.modelEdit.customFormat") }}</span>
-                                        <FormInput v-model="props.editingModel.api" :placeholder="t('settings.panels.modelEdit.inheritPlaceholder')" class="bg-[var(--bg-input)] shadow-sm flex-1" />
-                                    </div>
                                 </div>
                             </div>
                             <div class="space-y-1.5">
@@ -268,13 +300,65 @@ function updateOpen(value: boolean): void {
                                 </div>
                                 <span class="shrink-0 text-[9px] font-bold uppercase tracking-wider bg-[var(--bg-hover)] border border-[var(--border-color)] px-1.5 py-0.5 rounded" :class="hasModelCostOverride(props.editingModel.cost) ? 'text-[var(--accent-text)]' : 'text-[var(--text-muted)]'">{{ modelCostSourceLabel(props.editingModel) }}</span>
                             </div>
-                            <div class="grid grid-cols-2 gap-2">
+                            <div v-if="!hasModelCostOverride(props.editingModel.cost)" class="space-y-2 rounded-lg border border-[var(--border-color)] border-opacity-30 bg-[var(--bg-input)] bg-opacity-15 p-3">
+                                <p class="text-[10px] leading-normal text-[var(--text-muted)]">{{ t("settings.panels.modelEdit.inheritedCostDescription") }}</p>
+                                <template v-if="props.inheritedCost">
+                                    <!-- Pi registry 基础价格摘要 -->
+                                    <div class="grid grid-cols-2 gap-2">
+                                        <div v-for="field in costFields" :key="field.key" class="rounded-md border border-[var(--border-color)] border-opacity-30 px-2 py-1.5">
+                                            <div class="text-[9px] text-[var(--text-muted)]">{{ field.label }}</div>
+                                            <div class="mt-0.5 text-[10px] font-medium text-[var(--text-main)]">{{ formatInheritedPrice(props.inheritedCost[field.key]) }}</div>
+                                        </div>
+                                    </div>
+                                    <!-- Pi registry 长上下文 tier 摘要 -->
+                                    <div class="space-y-1.5">
+                                        <div class="text-[10px] font-medium text-[var(--text-secondary)]">{{ t("settings.panels.modelEdit.inheritedCostTierCount", {count: props.inheritedCost.tiers.length}) }}</div>
+                                        <div v-for="tier in props.inheritedCost.tiers" :key="tier.inputTokensAbove" class="rounded-md border border-[var(--border-color)] border-opacity-30 px-2 py-1.5 text-[9px] text-[var(--text-muted)]">
+                                            <div class="font-medium text-[var(--text-secondary)]">{{ t("settings.panels.modelEdit.inheritedCostThreshold", {threshold: tier.inputTokensAbove}) }}</div>
+                                            <div class="mt-1 grid grid-cols-2 gap-x-2 gap-y-0.5">
+                                                <span v-for="field in costFields" :key="field.key">{{ field.label }}: {{ formatInheritedPrice(tier[field.key]) }}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+                                <p v-else class="text-[10px] text-[var(--status-warning)]">{{ t("settings.panels.modelEdit.inheritedCostUnavailable") }}</p>
+                                <button type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--accent-main)] px-2 text-[10px] font-medium text-[var(--accent-text)] transition-colors hover:bg-[var(--accent-bg)]" @click="emit('enable-model-cost', props.editingModel)">
+                                    <span class="i-lucide-pencil h-3 w-3"></span>
+                                    {{ t("settings.panels.modelEdit.enableCostOverride") }}
+                                </button>
+                            </div>
+                            <div v-else class="grid grid-cols-2 gap-2">
                                 <div v-for="field in costFields" :key="field.key" class="space-y-1">
                                     <label class="text-[10px] font-medium text-[var(--text-muted)]">{{ field.label }}</label>
                                     <FormInput v-model="props.editingModel.cost[field.key]" type="number" min="0" step="0.000001" :placeholder="field.placeholder" class="bg-[var(--bg-input)] shadow-sm" />
                                 </div>
                             </div>
-                            <div class="flex items-center justify-between gap-3 rounded-lg border border-[var(--border-color)] border-opacity-30 bg-[var(--bg-input)] bg-opacity-15 p-2">
+                            <div v-if="hasModelCostOverride(props.editingModel.cost)" class="space-y-2">
+                                <div class="flex items-center justify-between gap-2">
+                                    <span class="text-[10px] font-semibold text-[var(--text-secondary)]">{{ t("settings.panels.modelEdit.costTiers") }}</span>
+                                    <button type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--border-color)] px-2 text-[10px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="addCostTier(props.editingModel)">
+                                        <span class="i-lucide-plus h-3 w-3"></span>
+                                        {{ t("settings.panels.modelEdit.addCostTier") }}
+                                    </button>
+                                </div>
+                                <div v-for="(tier, index) in props.editingModel.cost.tiers" :key="index" class="rounded-lg border border-[var(--border-color)] border-opacity-40 p-2 space-y-2">
+                                    <div class="flex items-center justify-between gap-2">
+                                        <label class="text-[10px] font-medium text-[var(--text-muted)]">{{ t("settings.panels.modelEdit.costTierThreshold") }}</label>
+                                        <button type="button" class="text-[var(--status-danger)]" :title="t('settings.panels.modelEdit.removeCostTier')" @click="props.editingModel.cost.tiers.splice(index, 1)">
+                                            <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
+                                        </button>
+                                    </div>
+                                    <FormInput v-model="tier.inputTokensAbove" type="number" min="0" step="1" placeholder="200000" class="bg-[var(--bg-input)] shadow-sm" />
+                                    <div class="grid grid-cols-2 gap-2">
+                                        <div v-for="field in costFields" :key="field.key" class="space-y-1">
+                                            <label class="text-[10px] text-[var(--text-muted)]">{{ field.label }}</label>
+                                            <FormInput v-model="tier[field.key]" type="number" min="0" step="0.000001" class="bg-[var(--bg-input)] shadow-sm" />
+                                        </div>
+                                    </div>
+                                </div>
+                                <p v-if="costValidationError" class="text-[10px] text-[var(--status-danger)]">{{ costValidationError }}</p>
+                            </div>
+                            <div v-if="hasModelCostOverride(props.editingModel.cost)" class="flex items-center justify-between gap-3 rounded-lg border border-[var(--border-color)] border-opacity-30 bg-[var(--bg-input)] bg-opacity-15 p-2">
                                 <span class="min-w-0 text-[10px] leading-normal text-[var(--text-muted)]">{{ t("settings.panels.modelEdit.costDescription") }}</span>
                                 <button type="button" class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-[var(--border-color)] px-2 text-[10px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('settings.panels.modelEdit.clearCostTitle')" @click="emit('reset-model-cost', props.editingModel)">
                                     <span class="i-lucide-rotate-ccw h-3 w-3"></span>

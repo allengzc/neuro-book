@@ -2,8 +2,9 @@ import {mkdtemp, readFile, readdir, rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
-import {streamSimple, fauxAssistantMessage, fauxText, registerFauxProvider} from "@earendil-works/pi-ai";
-import type {AssistantMessageEvent, Context, FauxProviderRegistration} from "@earendil-works/pi-ai";
+import {fauxAssistantMessage, fauxText} from "@earendil-works/pi-ai";
+import type {AssistantMessageEvent, Context} from "@earendil-works/pi-ai";
+import {createFauxModels, type FauxModelsFixture} from "nbook/server/agent/test-utils/faux-models";
 import {PiRequestRecorder} from "nbook/server/agent/observability/pi-request-recorder";
 import type {PiTraceRecord} from "nbook/server/agent/observability/pi-request-recorder";
 import {tracedStreamSimple, sanitizeResponseHeaders} from "nbook/server/agent/observability/traced-provider";
@@ -28,16 +29,15 @@ async function readBucket(root: string, sessionId: number): Promise<PiTraceRecor
 describe("tracedStreamSimple", () => {
     let root: string;
     let recorder: PiRequestRecorder;
-    let faux: FauxProviderRegistration;
+    let faux: FauxModelsFixture;
 
     beforeEach(async () => {
         root = await mkdtemp(join(tmpdir(), "traced-provider-"));
         recorder = new PiRequestRecorder({tracesRoot: join(root, ".nbook", "agent", "traces")});
-        faux = registerFauxProvider({models: [{id: `faux-${Date.now()}`, contextWindow: 128_000, maxTokens: 8_000}]});
+        faux = createFauxModels({models: [{id: `faux-${Date.now()}`, contextWindow: 128_000, maxTokens: 8_000}]});
     });
 
     afterEach(async () => {
-        faux.unregister();
         await rm(root, {recursive: true, force: true});
     });
 
@@ -52,11 +52,11 @@ describe("tracedStreamSimple", () => {
     it("透传事件与 result 与原始流一致，并落一条记录", async () => {
         // 原始流的事件序列（消费一次响应）。
         faux.setResponses([() => fauxAssistantMessage(fauxText("HELLO"))]);
-        const rawTypes = await drainTypes(streamSimple(faux.getModel(), context, {}));
+        const rawTypes = await drainTypes(faux.runtime.streamSimple(faux.getModel(), context, {}));
 
         // 相同响应经 traced 包裹后的事件序列，应完全一致。
         faux.setResponses([() => fauxAssistantMessage(fauxText("HELLO"))]);
-        const stream = tracedStreamSimple(faux.getModel(), context, {}, binding());
+        const stream = tracedStreamSimple(faux.runtime, faux.getModel(), context, {}, binding());
         const wrappedTypes = await drainTypes(stream);
         const result = await stream.result();
 
@@ -77,7 +77,7 @@ describe("tracedStreamSimple", () => {
 
     it("关闭时不落记录，流仍可正常消费", async () => {
         faux.setResponses([() => fauxAssistantMessage(fauxText("X"))]);
-        const stream = tracedStreamSimple(faux.getModel(), context, {}, binding({enabled: false}));
+        const stream = tracedStreamSimple(faux.runtime, faux.getModel(), context, {}, binding({enabled: false}));
         const types = await drainTypes(stream);
         expect(types).toContain("done");
         await recorder.flush();
@@ -88,7 +88,7 @@ describe("tracedStreamSimple", () => {
 
     it("即使 caller 不迭代，只 await result() 也落记录（finalize 挂 result）", async () => {
         faux.setResponses([() => fauxAssistantMessage(fauxText("NOITER"))]);
-        const stream = tracedStreamSimple(faux.getModel(), context, {}, binding());
+        const stream = tracedStreamSimple(faux.runtime, faux.getModel(), context, {}, binding());
         await stream.result(); // 不迭代
         await recorder.flush();
         const records = await readBucket(root, 42);
@@ -98,7 +98,7 @@ describe("tracedStreamSimple", () => {
 
     it("binding 缺省时透传原始流、不落记录", async () => {
         faux.setResponses([() => fauxAssistantMessage(fauxText("NOBINDING"))]);
-        const stream = tracedStreamSimple(faux.getModel(), context, {});
+        const stream = tracedStreamSimple(faux.runtime, faux.getModel(), context, {});
         const types = await drainTypes(stream);
         expect(types).toContain("done");
         const dir = join(root, ".nbook", "agent", "traces");

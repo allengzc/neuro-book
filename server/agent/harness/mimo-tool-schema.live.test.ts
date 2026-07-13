@@ -1,8 +1,10 @@
 import {describe, expect, it} from "vitest";
-import {getModel, streamSimple, Type, validateToolArguments} from "@earendil-works/pi-ai";
-import type {AssistantMessage, Message, Model, Tool, ToolCall, ToolResultMessage} from "@earendil-works/pi-ai";
+import {Type, validateToolArguments} from "@earendil-works/pi-ai";
+import type {AssistantMessage, Message, Model, Models, Tool, ToolCall, ToolResultMessage} from "@earendil-works/pi-ai";
+import {builtinModels} from "@earendil-works/pi-ai/providers/all";
 import {loadGlobalEffectiveConfigSync} from "nbook/server/config/config-service";
 import {resolvePiApiKeyForModelFromConfig, resolvePiModelFromConfig} from "nbook/server/agent/harness/model-resolver";
+import {resolvePiModelsFromConfig} from "nbook/server/agent/harness/pi-runtime-resolver";
 import {reportSidecarResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
 import simulatorActorProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/simulator.actor.profile";
 
@@ -29,6 +31,7 @@ type ProbeResult = {
 };
 
 type ResolvedLiveModel = {
+    models: Models;
     model: Model<any>;
     apiKey: string;
     modelKey: string;
@@ -384,13 +387,13 @@ function resolveLiveModel(): ResolvedLiveModel {
         if (!apiKey) {
             throw new Error(`缺少 ${requestedModelKey} 的 API key；请设置 MIMO_TOOL_SCHEMA_API_KEY，或在 Global Config 中配置该 provider。`);
         }
-        return {model, apiKey, modelKey: requestedModelKey};
+        return {models: resolvePiModelsFromConfig(config, model), model, apiKey, modelKey: requestedModelKey};
     } catch (error) {
         if (!apiKeyFromEnv) {
             throw error;
         }
         const model = resolveKnownPiModel(requestedModelKey);
-        return {model, apiKey: apiKeyFromEnv, modelKey: requestedModelKey};
+        return {models: builtinModels(), model, apiKey: apiKeyFromEnv, modelKey: requestedModelKey};
     }
 }
 
@@ -400,12 +403,11 @@ function resolveKnownPiModel(modelKey: string): Model<any> {
     if (!providerId || !modelId) {
         throw new Error(`模型 key 格式错误：${modelKey}`);
     }
-    try {
-        return getModel(providerId as never, modelId as never) as Model<any>;
-    } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`无法从 Pi registry 解析 ${modelKey}；请把模型配置进 Global Config，或使用已知 Pi provider/model。原始错误：${message}`);
+    const model = builtinModels().getModel(providerId, modelId);
+    if (!model) {
+        throw new Error(`无法从 Pi registry 解析 ${modelKey}；请把模型配置进 Global Config，或使用已知 Pi provider/model。`);
     }
+    return model;
 }
 
 async function runSingleToolProbe(live: ResolvedLiveModel, item: MatrixCase, runIndex: number): Promise<ProbeResult> {
@@ -464,7 +466,7 @@ async function runActorLikeScenario(live: ResolvedLiveModel, scenario: ActorScen
 }
 
 async function callModel(live: ResolvedLiveModel, messages: Message[], tools: Tool[], sessionId: string): Promise<AssistantMessage> {
-    const stream = streamSimple(live.model, {
+    const stream = live.models.streamSimple(live.model, {
         systemPrompt: "You are a strict tool-calling assistant. When a tool is available, satisfy the task by calling the tool.",
         messages,
         tools,

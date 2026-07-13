@@ -3,14 +3,13 @@ import {isAbsolute, resolve, join, relative} from "node:path";
 import type {AgentToolCall} from "@earendil-works/pi-agent-core";
 import type {AgentMessage, AssistantMessage, JsonValue, Message, ToolResultMessage} from "nbook/server/agent/messages/types";
 import {createAssistantTextMessage, createTextToolResult, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
-import type {AgentCatalogItem, AgentProfile, ProfileCompactionPlan, ProfilePrepareContext, ProfileTurnPlan} from "nbook/server/agent/profiles/types";
+import type {AgentCatalogItem, AgentProfile, ProfilePrepareContext, ProfileTurnPlan} from "nbook/server/agent/profiles/types";
 import {planModeDirectory, planModeToolDirectory} from "nbook/server/agent/plan-mode-path";
 import {AGENT_MODE_STATE_KEY, AGENT_TASKS_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
 import type {NeuroSessionContext, SessionEntryDraft} from "nbook/server/agent/session/types";
 import type {ProfileVariablePathInput} from "nbook/server/agent/variables/types";
 import type {AgentMode} from "nbook/shared/dto/agent-session.dto";
 import type {FileChangeAwareness} from "nbook/server/agent/profiles/profile-turn-context";
-import {DEFAULT_AGENT_DIFF_MAX_CHARS, MAX_AGENT_DIFF_MAX_CHARS} from "nbook/shared/agent/file-change-policy";
 
 export type ProfileDslChild = ProfileDslNode | string | number | boolean | null | undefined | ProfileDslChild[];
 
@@ -260,9 +259,6 @@ export function validateProfileTurnPlan(profileKey: string, plan: ProfileTurnPla
             context.kind !== "file-change-notice"
             || !Number.isInteger(context.appendingIndex)
             || context.appendingIndex < 0
-            || !Number.isInteger(context.diffMaxChars)
-            || context.diffMaxChars < 0
-            || context.diffMaxChars > MAX_AGENT_DIFF_MAX_CHARS
         ) {
             throw new Error(`profile ${profileKey} turnContexts 非法。`);
         }
@@ -859,7 +855,6 @@ async function renderChild(state: CompileState, zone: RenderZone, child: Profile
                         {
                             kind: "file-change-notice",
                             mode: appendingChild.mode,
-                            diffMaxChars: state.context.settings.fileChangeDiffMaxChars ?? DEFAULT_AGENT_DIFF_MAX_CHARS,
                             appendingIndex: baseIndex + messages.length,
                         },
                     ];
@@ -1529,60 +1524,6 @@ function validateProfileRuntimeStateWrite(profileKey: string, value: JsonValue):
     readWatchStateMap(state.watches);
 }
 
-export function validateCompactionPlan(profileKey: string, plan: ProfileCompactionPlan | undefined): void {
-    if (!plan) {
-        return;
-    }
-    const allowedKeys = new Set(["enabled", "triggerPercent", "triggerTokens", "reserveTokens", "keepRecentTokens", "keepRecentPercent", "prompt", "summaryPrefix"]);
-    const illegalKey = Object.keys(plan).find((key) => !allowedKeys.has(key));
-    if (illegalKey) {
-        throw new Error(`profile ${profileKey} compaction 不允许返回 ${illegalKey}。`);
-    }
-    if (typeof plan.enabled !== "undefined" && typeof plan.enabled !== "boolean") {
-        throw new Error(`profile ${profileKey} compaction.enabled 必须是 boolean。`);
-    }
-    if (plan.triggerPercent !== undefined && plan.triggerTokens !== undefined) {
-        throw new Error(`profile ${profileKey} compaction.triggerPercent 与 triggerTokens 不能同时提供。`);
-    }
-    if (plan.keepRecentPercent !== undefined && plan.keepRecentTokens !== undefined) {
-        throw new Error(`profile ${profileKey} compaction.keepRecentPercent 与 keepRecentTokens 不能同时提供。`);
-    }
-    assertOptionalPercent(profileKey, plan.triggerPercent, "triggerPercent");
-    assertOptionalPercent(profileKey, plan.keepRecentPercent, "keepRecentPercent");
-    assertOptionalPositiveInteger(profileKey, plan.triggerTokens, "triggerTokens");
-    assertOptionalPositiveInteger(profileKey, plan.reserveTokens, "reserveTokens");
-    assertOptionalPositiveInteger(profileKey, plan.keepRecentTokens, "keepRecentTokens");
-    assertOptionalString(profileKey, plan.prompt, "prompt");
-    assertOptionalString(profileKey, plan.summaryPrefix, "summaryPrefix");
-}
-
-function assertOptionalPercent(profileKey: string, value: unknown, name: string): void {
-    if (value === undefined) {
-        return;
-    }
-    if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value > 1) {
-        throw new Error(`profile ${profileKey} compaction.${name} 必须在 (0, 1] 范围内。`);
-    }
-}
-
-function assertOptionalPositiveInteger(profileKey: string, value: unknown, name: string): void {
-    if (value === undefined) {
-        return;
-    }
-    if (!Number.isInteger(value) || Number(value) <= 0) {
-        throw new Error(`profile ${profileKey} compaction.${name} 必须是正整数。`);
-    }
-}
-
-function assertOptionalString(profileKey: string, value: unknown, name: string): void {
-    if (value === undefined) {
-        return;
-    }
-    if (typeof value !== "string" || value.trim().length === 0) {
-        throw new Error(`profile ${profileKey} compaction.${name} 必须是非空字符串。`);
-    }
-}
-
 function assertOptionalStateMap(profileKey: string, value: JsonValue | undefined, key: "reminders" | "watches"): void {
     if (value === undefined) {
         return;
@@ -1809,7 +1750,7 @@ function linkedAgentsSummaryText(session: NeuroSessionContext): string {
 /** 已关联 agent 列表正文；标题由具体消费方决定。 */
 function linkedAgentItemsText(session: NeuroSessionContext): string {
     return session.linkedAgents
-        .map((agent) => `- session ${agent.sessionId}: ${agent.profileKey}${agent.detached ? " (detached)" : ""}`)
+        .map((agent) => `- session ${agent.sessionId}: ${agent.profileKey}`)
         .join("\n");
 }
 

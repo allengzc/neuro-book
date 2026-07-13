@@ -24,7 +24,6 @@ export default defineAgentProfile({
         builtin.web.search,
         builtin.web.fetch,
     ),
-    compaction: {},
     context(ctx) {
         return (
             <ProfilePrompt>

@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 
 const rootDir = fileURLToPath(new URL("./", import.meta.url));
 const serverDir = fileURLToPath(new URL("./server/", import.meta.url));
@@ -110,6 +111,7 @@ export default defineNuxtConfig({
         },
     ],
     nitro: {
+        output: process.env.NEURO_BOOK_OUTPUT_DIR ? {dir: resolve(process.env.NEURO_BOOK_OUTPUT_DIR)} : undefined,
         devStorage: {
             root: {
                 driver: "fs",

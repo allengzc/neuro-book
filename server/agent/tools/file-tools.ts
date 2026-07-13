@@ -12,6 +12,7 @@ import {OutputAccumulator} from "nbook/server/agent/tools/output-accumulator";
 import type {NeuroAgentTool, ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {applyCodexPatch} from "nbook/server/agent/tools/apply-patch";
 import {recordAgentWorkspaceWrite} from "nbook/server/workspace-history/agent-file-recorder";
+import {resolveSystemNbookRoot, resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
 
 const ReadSchema = Type.Object({
     path: Type.String({description: "Path to the file to read (relative or absolute)."}),
@@ -513,10 +514,12 @@ function resolveBashPath(): string {
  * 注入 Agent assets 的 bin 目录。用户覆盖优先于系统内置。
  */
 function createBashEnvironment(): NodeJS.ProcessEnv {
-    const userAgentBin = resolve(process.cwd(), "workspace", ".nbook", "agent", "bin");
-    const systemAgentBin = resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "bin");
-    const userRipgrepConfig = resolve(process.cwd(), "workspace", ".nbook", "agent", "config", "ripgreprc");
-    const systemRipgrepConfig = resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "config", "ripgreprc");
+    const userNbookRoot = resolveUserNbookRoot();
+    const systemNbookRoot = resolveSystemNbookRoot();
+    const userAgentBin = resolve(userNbookRoot, "agent", "bin");
+    const systemAgentBin = resolve(systemNbookRoot, "agent", "bin");
+    const userRipgrepConfig = resolve(userNbookRoot, "agent", "config", "ripgreprc");
+    const systemRipgrepConfig = resolve(systemNbookRoot, "agent", "config", "ripgreprc");
     const ripgrepConfig = existsSync(userRipgrepConfig) ? userRipgrepConfig : systemRipgrepConfig;
     const currentPath = process.env.PATH ?? process.env.Path ?? "";
     return {

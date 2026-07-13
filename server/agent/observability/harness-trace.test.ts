@@ -2,8 +2,8 @@ import {randomUUID} from "node:crypto";
 import {readFile, readdir, rm} from "node:fs/promises";
 import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
-import {fauxAssistantMessage, registerFauxProvider} from "@earendil-works/pi-ai";
-import type {FauxProviderRegistration} from "@earendil-works/pi-ai";
+import {fauxAssistantMessage} from "@earendil-works/pi-ai";
+import {createFauxModels, type FauxModelsFixture} from "nbook/server/agent/test-utils/faux-models";
 import {Type} from "typebox";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
@@ -26,21 +26,21 @@ async function waitForTrace(root: string, sessionId: number, minCount = 1): Prom
 
 describe("harness → pi trace 集成", () => {
     let root: string;
-    let faux: FauxProviderRegistration;
+    let faux: FauxModelsFixture;
     let harness: NeuroAgentHarness;
 
     beforeEach(() => {
         root = join(".agent", "harness-trace-test", randomUUID());
-        faux = registerFauxProvider({models: [{id: `faux-${randomUUID()}`, contextWindow: 128_000, maxTokens: 8_000}]});
+        faux = createFauxModels({models: [{id: `faux-${randomUUID()}`, contextWindow: 128_000, maxTokens: 8_000}]});
         harness = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
     });
 
     afterEach(async () => {
-        faux.unregister();
         await rm(root, {recursive: true, force: true});
     });
 

@@ -1,4 +1,5 @@
 import {resolve} from "node:path";
+import {resolveStateRoot} from "nbook/server/runtime/installation-paths";
 
 /**
  * 返回 Workspace Root 对应的 Agent `.nbook` 目录。
@@ -9,6 +10,6 @@ import {resolve} from "node:path";
 export function resolveAgentNbookRoot(workspaceRoot: string): string {
     const normalized = workspaceRoot.replace(/[\\/]+/g, "/").replace(/\/+$/, "");
     return normalized.endsWith("/.nbook") || normalized === ".nbook"
-        ? resolve(process.cwd(), workspaceRoot)
-        : resolve(process.cwd(), workspaceRoot, ".nbook");
+        ? resolve(resolveStateRoot(), workspaceRoot)
+        : resolve(resolveStateRoot(), workspaceRoot, ".nbook");
 }

@@ -1,5 +1,16 @@
 # 96 - Session 标题所有权与 summarizer 策略调整
 
+## 2026-07-12：通用运行策略统一
+
+- Summarizer 改由 `runtimeDefaults.summarizer` 提供 Profile 出厂默认。
+- Harness 按“系统默认 < Profile 默认 < Global 通用 < Global Profile < Project 通用 < Project Profile”解析最终策略。
+- 自动摘要默认关闭；`leader.default` 与 `leader.assets` 通过 Profile 默认开启。手动 `/summarize` 忽略自动开关，但继续使用最终策略。
+- `summarizer` system session 禁止递归摘要，并通过 Profile 默认关闭 Compaction。
+- Config DTO 返回 Profile 默认、四层显式 patch 与最终有效值，设置 UI 可展示继承来源。
+- 审查修复：Global/Project 通用 runtime defaults 已进入 dirty snapshot；仅修改通用策略也能保存。运行字段采用“空白继承、非法阻止保存”的局部校验，整数不再截断，percent/diff 边界明确。
+- UI 按字段展示 Harness / Profile / Global / Project 的真实继承来源；清除当前覆盖会立即回落到排除本层后的继承值。
+- Profile DSL 与 Config DTO 复用 shared 严格 schema，未知判别 kind、缺失 value、多余字段和非法范围均在定义期拒绝。
+
 ## 用户需求
 
 1. session 支持手动改名，改名后 agent（summarizer / invoke title）不再自动覆盖标题。

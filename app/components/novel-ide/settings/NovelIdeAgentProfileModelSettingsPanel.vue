@@ -5,6 +5,16 @@ import type {
     ThinkingLevelDto,
 } from "nbook/shared/dto/app-settings.dto";
 import NovelIdeModelSelect from "nbook/app/components/novel-ide/settings/NovelIdeModelSelect.vue";
+import ProfileRuntimeSettingsFields from "nbook/app/components/novel-ide/settings/ProfileRuntimeSettingsFields.vue";
+import {
+    buildProfileRuntimeSettingsPatch,
+    createProfileRuntimeSettingsDraft,
+    parseProfileRuntimeSettingsDraft,
+    resolveProfileRuntimeInheritance,
+    type ProfileRuntimeSettingsDraft,
+    type ProfileRuntimeSettingsErrors,
+    type ProfileRuntimeSettingsSources,
+} from "nbook/app/components/novel-ide/settings/profile-runtime-settings";
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect, {type SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
 import LowCodeForm from "nbook/app/components/common/low-code-form/LowCodeForm.vue";
@@ -18,7 +28,7 @@ import {useDialog} from "nbook/app/composables/useDialog";
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
-import type {ConfigAgentProfileSettingsDto, ConfigEditorSnapshotDto, ConfigWorkspaceQueryDto, GlobalConfigDto, ProjectConfigDto} from "nbook/shared/dto/config.dto";
+import type {ConfigAgentProfileSettingsDto, ConfigEditorSnapshotDto, ConfigWorkspaceQueryDto, GlobalConfigDto, ProfileRuntimeSettingsPatchDto, ProjectConfigDto} from "nbook/shared/dto/config.dto";
 import type {LowCodeFormDto, LowCodeFormIssueDto, LowCodeJsonObject, LowCodeResourceMutationDto} from "nbook/shared/dto/low-code-form.dto";
 
 type ConfigSettingsScope = "global" | "project";
@@ -40,11 +50,10 @@ type AgentProfileDraft = {
     model: AgentProfileModelDraft;
     loadStatus: ConfigAgentProfileSettingsDto["agentProfiles"][number]["loadStatus"];
     hasSettingsForm: boolean;
-    hasSummarizer: boolean;
-    /** 后台自动摘要开关草稿；null 表示未覆盖（沿用上级或 Profile 策略默认值）。 */
-    summarizerEnabled: boolean | null;
-    /** 通用单文件 diff 上限草稿；空字符串表示沿用上级或系统默认 512。 */
-    fileChangeDiffMaxChars: string;
+    runtime: ProfileRuntimeSettingsDraft;
+    runtimeEffective: ConfigAgentProfileSettingsDto["agentProfiles"][number]["runtime"]["effective"];
+    runtimeSources: ProfileRuntimeSettingsSources;
+    runtimeErrors: ProfileRuntimeSettingsErrors;
     issue: ConfigAgentProfileSettingsDto["agentProfiles"][number]["issue"];
     sourcePath: string | null;
     buildState: ConfigAgentProfileSettingsDto["agentProfiles"][number]["buildState"];
@@ -72,9 +81,7 @@ type AgentProfileConfigDraft = {
     model: Partial<AgentProfileModelConfigDto>;
     settings?: LowCodeJsonObject;
     resourceMutations?: LowCodeResourceMutationDto[];
-    /** 后台自动摘要覆盖；缺省表示不覆盖（沿用上级配置或 Profile 策略默认值）。 */
-    summarizer?: {enabled?: boolean};
-    fileChangeNotice?: {diffMaxChars?: number};
+    runtime?: ProfileRuntimeSettingsPatchDto;
 };
 
 const loading = ref(false);
@@ -90,6 +97,10 @@ const profileModelDefaults = ref<AgentProfileModelDraft>({
     reasoningEffort: "off",
     stream: true,
 });
+const profileRuntimeDefaults = ref<ProfileRuntimeSettingsDraft>(createProfileRuntimeSettingsDraft(undefined));
+const profileRuntimeDefaultsEffective = ref<ConfigAgentProfileSettingsDto["profileRuntimeDefaults"] | null>(null);
+const profileRuntimeDefaultsSources = ref<ProfileRuntimeSettingsSources | null>(null);
+const profileRuntimeDefaultsErrors = ref<ProfileRuntimeSettingsErrors>({});
 const profiles = ref([]) as Ref<AgentProfileDraft[]>;
 const expandedProfileSettings = ref<Set<string>>(new Set());
 const snapshotText = ref("");
@@ -122,6 +133,7 @@ const reasoningEffortBaseOptions = computed<SelectOption[]>(() => [
     {value: "medium", label: t("settings.panels.profileModels.medium")},
     {value: "high", label: t("settings.panels.profileModels.high")},
     {value: "xhigh", label: t("settings.panels.profileModels.xhigh")},
+    {value: "max", label: t("settings.panels.profileModels.max")},
 ]);
 const defaultProfileOptions = computed<SelectOption[]>(() => {
     const options = profiles.value.map((profile) => ({
@@ -200,6 +212,7 @@ function thinkingLevelLabel(level: ThinkingLevelDto): string {
         case "medium": return t("settings.panels.profileModels.medium");
         case "high": return t("settings.panels.profileModels.high");
         case "xhigh": return t("settings.panels.profileModels.xhigh");
+        case "max": return t("settings.panels.profileModels.max");
     }
 }
 
@@ -255,28 +268,6 @@ function setDefaultStream(value: string): void {
 
 function setProfileStream(profile: AgentProfileDraft, value: string): void {
     profile.model.stream = parseStreamSelectValue(value);
-}
-
-/**
- * 后台自动摘要开关的三态 select 选项：继承（默认/Global）、开启、关闭。
- */
-function summarizerOptionsForProfile(profile: AgentProfileDraft): SelectOption[] {
-    const inheritedEnabled = isProjectScope.value
-        ? editorSnapshot.value?.global.agent?.profiles?.[profile.profileKey]?.summarizer?.enabled ?? profile.hasSummarizer
-        : profile.hasSummarizer;
-    const inheritedLabel = streamLabel(inheritedEnabled);
-    return [
-        {value: "inherit", label: isProjectScope.value ? t("settings.panels.profileModels.inheritGlobal", {value: inheritedLabel}) : t("settings.panels.profileModels.defaultValue", {value: inheritedLabel})},
-        {value: "true", label: t("settings.panels.profileModels.enabled")},
-        {value: "false", label: t("settings.panels.profileModels.disabled")},
-    ];
-}
-
-/**
- * 后台自动摘要三态 select 写回草稿：inherit → null（不覆盖），true/false → 显式开关。
- */
-function setProfileSummarizerEnabled(profile: AgentProfileDraft, value: string): void {
-    profile.summarizerEnabled = parseStreamSelectValue(value);
 }
 
 /**
@@ -349,7 +340,7 @@ function buildSettingsPatch(settings: AgentProfileSettingsDraft | null): LowCode
 /**
  * 判断 JSON object 是否为空。
  */
-function isEmptyObject(value: LowCodeJsonObject | Partial<AgentProfileModelConfigDto>): boolean {
+function isEmptyObject(value: object): boolean {
     return Object.keys(value).length === 0;
 }
 
@@ -360,19 +351,15 @@ function buildProfileConfig(profile: AgentProfileDraft): AgentProfileConfigDraft
     const modelPatch = isProjectScope.value ? buildProjectModelPatch(profile.model) : buildModelPatch(profile.model);
     const settingsPatch = buildSettingsPatch(profile.settings);
     const resourceMutations = profile.settings?.resourceMutations ?? [];
-    // 持久化只看草稿值：profile 临时 compiling/编译失败（hasSummarizer=false）时保存其它设置不丢已存覆盖。
-    const summarizerPatch = profile.summarizerEnabled !== null ? {enabled: profile.summarizerEnabled} : undefined;
-    const diffMaxChars = parseNullableNumber(profile.fileChangeDiffMaxChars, true);
-    const fileChangeNoticePatch = diffMaxChars !== null ? {diffMaxChars} : undefined;
-    if (isEmptyObject(modelPatch) && (!profile.settings || isEmptyObject(settingsPatch)) && resourceMutations.length === 0 && !summarizerPatch && !fileChangeNoticePatch) {
+    const runtimePatch = buildProfileRuntimeSettingsPatch(profile.runtime);
+    if (isEmptyObject(modelPatch) && (!profile.settings || isEmptyObject(settingsPatch)) && resourceMutations.length === 0 && isEmptyObject(runtimePatch)) {
         return null;
     }
     return {
         model: modelPatch,
         ...(profile.settings && !isEmptyObject(settingsPatch) ? {settings: settingsPatch} : {}),
         ...(resourceMutations.length > 0 ? {resourceMutations} : {}),
-        ...(summarizerPatch ? {summarizer: summarizerPatch} : {}),
-        ...(fileChangeNoticePatch ? {fileChangeNotice: fileChangeNoticePatch} : {}),
+        ...(!isEmptyObject(runtimePatch) ? {runtime: runtimePatch} : {}),
     };
 }
 
@@ -402,8 +389,7 @@ function buildGlobalProfileConfigMap(): Record<string, AgentProfileConfigDraft> 
             .map(([profileKey, config]) => [profileKey, {
                 model: config.model ?? {},
                 ...(config.settings !== undefined ? {settings: cloneLowCodeObject(config.settings)} : {}),
-                ...(config.summarizer !== undefined ? {summarizer: config.summarizer} : {}),
-                ...(config.fileChangeNotice !== undefined ? {fileChangeNotice: config.fileChangeNotice} : {}),
+                ...(config.runtime !== undefined ? {runtime: config.runtime} : {}),
             } satisfies AgentProfileConfigDraft]),
     );
     for (const profile of profiles.value) {
@@ -442,6 +428,7 @@ function buildGlobalConfigPayload(): GlobalConfigDto {
             ...(base.agent ?? {}),
             defaultProfileKey: buildGlobalDefaultProfileKey(),
             profileModelDefaults: buildCompleteModelConfig(profileModelDefaults.value),
+            profileRuntimeDefaults: buildProfileRuntimeSettingsPatch(profileRuntimeDefaults.value),
             profiles: buildGlobalProfileConfigMap(),
         },
     };
@@ -458,6 +445,7 @@ function buildProjectConfigPayload(): ProjectConfigDto {
             ...(base.agent ?? {}),
             defaultProfileKey: selectedDefaultProfileKey.value || null,
             profileModelDefaults: buildModelPatch(profileModelDefaults.value),
+            profileRuntimeDefaults: buildProfileRuntimeSettingsPatch(profileRuntimeDefaults.value),
             profiles: buildProfileConfigMap(),
         },
     };
@@ -505,21 +493,33 @@ function applySettings(settings: ConfigAgentProfileSettingsDto): void {
     if (profileModelDefaults.value.stream === null) {
         profileModelDefaults.value.stream = true;
     }
-    profiles.value = settings.agentProfiles.map((profile) => ({
+    profileRuntimeDefaults.value = createProfileRuntimeSettingsDraft(editorSnapshot.value?.global.agent?.profileRuntimeDefaults);
+    const globalDefaultsInheritance = resolveProfileRuntimeInheritance(settings.harnessRuntimeDefaults, []);
+    profileRuntimeDefaultsEffective.value = globalDefaultsInheritance.settings;
+    profileRuntimeDefaultsSources.value = globalDefaultsInheritance.sources;
+    profileRuntimeDefaultsErrors.value = {};
+    profiles.value = settings.agentProfiles.map((profile) => {
+        const inheritance = resolveProfileRuntimeInheritance(settings.harnessRuntimeDefaults, [
+            {source: "profileDefault", patch: profile.runtime.profileDefaults},
+            {source: "globalDefault", patch: profile.runtime.globalDefaultsPatch},
+        ]);
+        return ({
         profileKey: profile.profileKey,
         name: profile.name,
         canResetHome: profile.canResetHome,
         model: cloneModelDraft(editorSnapshot.value?.global.agent?.profiles?.[profile.profileKey]?.model),
         loadStatus: profile.loadStatus,
         hasSettingsForm: profile.hasSettingsForm,
-        hasSummarizer: profile.hasSummarizer,
-        summarizerEnabled: editorSnapshot.value?.global.agent?.profiles?.[profile.profileKey]?.summarizer?.enabled ?? null,
-        fileChangeDiffMaxChars: stringifyNullableNumber(editorSnapshot.value?.global.agent?.profiles?.[profile.profileKey]?.fileChangeNotice?.diffMaxChars ?? null),
+        runtime: createProfileRuntimeSettingsDraft(editorSnapshot.value?.global.agent?.profiles?.[profile.profileKey]?.runtime),
+        runtimeEffective: inheritance.settings,
+        runtimeSources: inheritance.sources,
+        runtimeErrors: {},
         issue: profile.issue,
         sourcePath: profile.sourcePath,
         buildState: profile.buildState,
         settings: cloneSettingsDraft(profile.settings, "global"),
-    }));
+        });
+    });
     snapshotText.value = JSON.stringify(buildGlobalSavePayload());
     scheduleBuildStatusPolling();
 }
@@ -531,8 +531,21 @@ function applyProjectSettings(settings: ConfigAgentProfileSettingsDto): void {
     selectedDefaultProfileKey.value = editorSnapshot.value?.defaultProfileSettings.projectDefaultProfileKey ?? "";
     enabledModels.value = settings.enabledModels;
     profileModelDefaults.value = cloneModelDraft(editorSnapshot.value?.project?.agent?.profileModelDefaults);
+    profileRuntimeDefaults.value = createProfileRuntimeSettingsDraft(editorSnapshot.value?.project?.agent?.profileRuntimeDefaults);
+    const projectDefaultsInheritance = resolveProfileRuntimeInheritance(settings.harnessRuntimeDefaults, [
+        {source: "globalDefault", patch: settings.globalRuntimeDefaultsPatch},
+    ]);
+    profileRuntimeDefaultsEffective.value = projectDefaultsInheritance.settings;
+    profileRuntimeDefaultsSources.value = projectDefaultsInheritance.sources;
+    profileRuntimeDefaultsErrors.value = {};
     profiles.value = settings.agentProfiles.map((profile) => {
         const override = editorSnapshot.value?.project?.agent?.profiles?.[profile.profileKey]?.model;
+        const inheritance = resolveProfileRuntimeInheritance(settings.harnessRuntimeDefaults, [
+            {source: "profileDefault", patch: profile.runtime.profileDefaults},
+            {source: "globalDefault", patch: profile.runtime.globalDefaultsPatch},
+            {source: "globalProfile", patch: profile.runtime.globalProfilePatch},
+            {source: "projectDefault", patch: profile.runtime.projectDefaultsPatch},
+        ]);
         return {
             profileKey: profile.profileKey,
             name: profile.name,
@@ -540,9 +553,10 @@ function applyProjectSettings(settings: ConfigAgentProfileSettingsDto): void {
             model: cloneModelDraft(override),
             loadStatus: profile.loadStatus,
             hasSettingsForm: profile.hasSettingsForm,
-            hasSummarizer: profile.hasSummarizer,
-            summarizerEnabled: editorSnapshot.value?.project?.agent?.profiles?.[profile.profileKey]?.summarizer?.enabled ?? null,
-            fileChangeDiffMaxChars: stringifyNullableNumber(editorSnapshot.value?.project?.agent?.profiles?.[profile.profileKey]?.fileChangeNotice?.diffMaxChars ?? null),
+            runtime: createProfileRuntimeSettingsDraft(editorSnapshot.value?.project?.agent?.profiles?.[profile.profileKey]?.runtime),
+            runtimeEffective: inheritance.settings,
+            runtimeSources: inheritance.sources,
+            runtimeErrors: {},
             issue: profile.issue,
             sourcePath: profile.sourcePath,
             buildState: profile.buildState,
@@ -614,6 +628,7 @@ function buildGlobalSavePayload(): Record<string, unknown> {
     return {
         defaultProfileKey: buildGlobalDefaultProfileKey(),
         profileModelDefaults: buildCompleteModelConfig(profileModelDefaults.value),
+        profileRuntimeDefaults: buildProfileRuntimeSettingsPatch(profileRuntimeDefaults.value),
         profiles: buildGlobalProfileConfigMap(),
     };
 }
@@ -622,8 +637,22 @@ function buildProjectDirtyPayload(): Record<string, unknown> {
     return {
         defaultProfileKey: selectedDefaultProfileKey.value || null,
         profileModelDefaults: buildModelPatch(profileModelDefaults.value),
+        profileRuntimeDefaults: buildProfileRuntimeSettingsPatch(profileRuntimeDefaults.value),
         profiles: buildProjectSavePayload(),
     };
+}
+
+/** 校验所有 runtime 草稿，并将字段问题写回对应编辑区。 */
+function validateRuntimeDrafts(): boolean {
+    const defaults = parseProfileRuntimeSettingsDraft(profileRuntimeDefaults.value);
+    profileRuntimeDefaultsErrors.value = defaults.errors;
+    let valid = Object.keys(defaults.errors).length === 0;
+    for (const profile of profiles.value) {
+        const result = parseProfileRuntimeSettingsDraft(profile.runtime);
+        profile.runtimeErrors = result.errors;
+        valid = valid && Object.keys(result.errors).length === 0;
+    }
+    return valid;
 }
 
 /**
@@ -664,6 +693,10 @@ async function restoreSettings(): Promise<void> {
  */
 async function saveSettings(): Promise<void> {
     if (!dirty.value || saving.value) {
+        return;
+    }
+    if (!validateRuntimeDrafts()) {
+        errorText.value = t("settings.panels.profileModels.runtime.validationFailed");
         return;
     }
 
@@ -732,8 +765,7 @@ function resetProfile(profile: AgentProfileDraft): void {
         reasoningEffort: null,
         stream: null,
     };
-    profile.summarizerEnabled = null;
-    profile.fileChangeDiffMaxChars = "";
+    profile.runtime = createProfileRuntimeSettingsDraft(undefined);
     if (profile.settings) {
         profile.settings.values = isProjectScope.value
             ? {}
@@ -743,7 +775,7 @@ function resetProfile(profile: AgentProfileDraft): void {
     }
 }
 
-function resetProfileModelDefaults(): void {
+function resetProfileDefaults(): void {
     profileModelDefaults.value = isProjectScope.value
         ? cloneModelDraft(undefined)
         : {
@@ -753,6 +785,7 @@ function resetProfileModelDefaults(): void {
             reasoningEffort: "off",
             stream: true,
         };
+    profileRuntimeDefaults.value = createProfileRuntimeSettingsDraft(undefined);
 }
 
 function globalProfileModelDefaults(): AgentProfileModelConfigDto {
@@ -913,7 +946,7 @@ defineExpose({
                         <h4 class="text-sm font-semibold text-[var(--text-main)]">{{ t("settings.panels.profileModels.defaultParameters") }}</h4>
                         <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ isProjectScope ? t("settings.panels.profileModels.projectDefaultDescription") : t("settings.panels.profileModels.globalDefaultDescription") }}</p>
                     </div>
-                    <button class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 text-[11px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="resetProfileModelDefaults">
+                    <button class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 text-[11px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="resetProfileDefaults">
                         <span class="i-lucide-rotate-ccw h-3 w-3"></span>
                         {{ t("settings.panels.profileModels.resetDefault") }}
                     </button>
@@ -947,6 +980,10 @@ defineExpose({
                         <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.stream") }}</label>
                         <FormSelect :model-value="streamSelectValue(profileModelDefaults.stream)" :options="defaultStreamOptions()" @update:model-value="setDefaultStream" />
                     </div>
+                </div>
+                <div v-if="profileRuntimeDefaultsEffective && profileRuntimeDefaultsSources" class="mt-5 border-t border-[var(--border-color)] pt-5">
+                    <h5 class="mb-3 text-xs font-semibold text-[var(--text-main)]">{{ t("settings.panels.profileModels.runtime.defaultsTitle") }}</h5>
+                    <ProfileRuntimeSettingsFields v-model="profileRuntimeDefaults" :inherited="profileRuntimeDefaultsEffective" :sources="profileRuntimeDefaultsSources" :errors="profileRuntimeDefaultsErrors" />
                 </div>
             </section>
 
@@ -1012,16 +1049,11 @@ defineExpose({
                                 <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.stream") }}</label>
                                 <FormSelect :model-value="streamSelectValue(profile.model.stream)" :options="streamOptionsForProfile(profile)" @update:model-value="setProfileStream(profile, $event)" />
                             </div>
+                        </div>
 
-                            <!-- Profile 通用运行设置 -->
-                            <div class="space-y-1.5">
-                                <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.summarizer") }}</label>
-                                <FormSelect :model-value="streamSelectValue(profile.summarizerEnabled)" :options="summarizerOptionsForProfile(profile)" @update:model-value="setProfileSummarizerEnabled(profile, $event)" />
-                            </div>
-                            <div class="space-y-1.5">
-                                <label class="text-xs font-medium text-[var(--text-secondary)]">单文件 diff 字符上限</label>
-                                <FormInput v-model="profile.fileChangeDiffMaxChars" type="number" step="64" min="0" max="8192" :placeholder="isProjectScope ? `继承 Global（${editorSnapshot?.global.agent?.profiles?.[profile.profileKey]?.fileChangeNotice?.diffMaxChars ?? 512}）` : '默认 512'" />
-                            </div>
+                        <div class="mt-4 border-t border-[var(--border-color)] pt-4">
+                            <h5 class="mb-3 text-xs font-semibold text-[var(--text-main)]">{{ t("settings.panels.profileModels.runtime.profileOverrideTitle") }}</h5>
+                            <ProfileRuntimeSettingsFields v-model="profile.runtime" :inherited="profile.runtimeEffective" :sources="profile.runtimeSources" :errors="profile.runtimeErrors" />
                         </div>
 
                         <!-- Profile 自定义低代码设置 -->

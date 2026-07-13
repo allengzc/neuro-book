@@ -3,8 +3,8 @@ import {mkdir, rm} from "node:fs/promises";
 import {join} from "node:path";
 import os from "node:os";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
-import {fauxAssistantMessage, registerFauxProvider} from "@earendil-works/pi-ai";
-import type {FauxProviderRegistration} from "@earendil-works/pi-ai";
+import {fauxAssistantMessage} from "@earendil-works/pi-ai";
+import {createFauxModels, type FauxModelsFixture} from "nbook/server/agent/test-utils/faux-models";
 import {Type} from "typebox";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
@@ -268,7 +268,7 @@ function unseenGroup(path: string, id: number, endHash: string | null = `after-$
 describe("file-change notice 端到端（FauxProvider 黑盒）", () => {
     let agentRoot: string;
     let tempRoot: string;
-    let faux: FauxProviderRegistration;
+    let faux: FauxModelsFixture;
     let harness: NeuroAgentHarness;
 
     beforeEach(async () => {
@@ -279,19 +279,19 @@ describe("file-change notice 端到端（FauxProvider 黑盒）", () => {
         await mkdir(join(tempRoot, "workspace"), {recursive: true});
         setWorkspaceAssetRootContextForTest({workspaceContainerRoot: join(tempRoot, "workspace")});
         agentRoot = join(".agent", "file-change-notice-test", randomUUID());
-        faux = registerFauxProvider({
+        faux = createFauxModels({
             models: [{id: `faux-${randomUUID()}`, contextWindow: 128_000, maxTokens: 8_000}],
         });
         harness = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(agentRoot),
             modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
         });
     });
 
     afterEach(async () => {
         await harness.drainBackgroundTasks();
-        faux.unregister();
         await resetWorkspaceHistoryForTest();
         resetProjectSessionsForTest();
         setWorkspaceAssetRootContextForTest(null);

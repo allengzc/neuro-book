@@ -9,6 +9,8 @@ export type CreateRunFrameInput = {
     projectPath?: RunFrame["projectPath"];
     systemPrompt: RunFrame["systemPrompt"];
     messages: RunFrame["messages"];
+    models: RunFrame["models"];
+    customPiRuntime?: RunFrame["customPiRuntime"];
     model: RunFrame["model"];
     apiKey?: RunFrame["apiKey"];
     timeoutMs?: RunFrame["timeoutMs"];
@@ -22,6 +24,7 @@ export type CreateRunFrameInput = {
     profile: RunFrame["profile"];
     agentMode: RunFrame["agentMode"];
     profileTurnContexts?: RunFrame["profileTurnContexts"];
+    fileChangeDiffMaxChars?: RunFrame["fileChangeDiffMaxChars"];
     pendingProfileTurnContextSettlements?: RunFrame["pendingProfileTurnContextSettlements"];
     thinkingLevel: RunFrame["thinkingLevel"];
     runtimeState: RunFrame["runtimeState"];
@@ -52,6 +55,8 @@ export function createRunFrame(input: CreateRunFrameInput): RunFrame {
         projectPath: input.projectPath,
         systemPrompt: input.systemPrompt,
         messages: input.messages.slice(),
+        models: input.models,
+        customPiRuntime: input.customPiRuntime,
         model: input.model,
         apiKey: input.apiKey,
         timeoutMs: input.timeoutMs,
@@ -65,6 +70,7 @@ export function createRunFrame(input: CreateRunFrameInput): RunFrame {
         profile: input.profile,
         agentMode: input.agentMode,
         profileTurnContexts: input.profileTurnContexts ?? [],
+        fileChangeDiffMaxChars: input.fileChangeDiffMaxChars,
         pendingProfileTurnContextSettlements: input.pendingProfileTurnContextSettlements ?? [],
         thinkingLevel: input.thinkingLevel,
         runtimeState: input.runtimeState,

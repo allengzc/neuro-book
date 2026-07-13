@@ -121,6 +121,15 @@ function normalizeLegacyModels(input: unknown): ConfiguredModelConfig[] {
                     output: typeof model.cost.output === "number" ? model.cost.output : 0,
                     cacheRead: typeof model.cost.cacheRead === "number" ? model.cost.cacheRead : 0,
                     cacheWrite: typeof model.cost.cacheWrite === "number" ? model.cost.cacheWrite : 0,
+                    tiers: Array.isArray(model.cost.tiers)
+                        ? model.cost.tiers.filter(isRecord).map((tier) => ({
+                            inputTokensAbove: typeof tier.inputTokensAbove === "number" ? tier.inputTokensAbove : 0,
+                            input: typeof tier.input === "number" ? tier.input : 0,
+                            output: typeof tier.output === "number" ? tier.output : 0,
+                            cacheRead: typeof tier.cacheRead === "number" ? tier.cacheRead : 0,
+                            cacheWrite: typeof tier.cacheWrite === "number" ? tier.cacheWrite : 0,
+                        }))
+                        : [],
                 }
                 : null,
             compat: isRecord(model.compat) ? model.compat as ConfiguredModelConfig["compat"] : null,

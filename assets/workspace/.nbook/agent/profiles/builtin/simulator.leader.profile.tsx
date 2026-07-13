@@ -39,7 +39,6 @@ export default defineAgentProfile({
         builtin.plot.getSceneContext,
         builtin.plot.getChapter,
     ),
-    compaction: {},
     context(ctx) {
         return (
             <ProfilePrompt>
