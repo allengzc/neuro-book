@@ -2,12 +2,15 @@ import {join} from "node:path";
 
 import type {StagedProduct} from "#manager/component";
 import {pathExists, removePath} from "#manager/files";
-import {run} from "#manager/process";
+import {run, runBun} from "#manager/process";
 import {currentProductPlatform} from "#manager/platform";
 
 /** 使用 Application Runtime 安装源码依赖。 */
 export async function installSourceDependencies(root: string, bun = "bun"): Promise<void> {
-    await run(bun, ["install", "--frozen-lockfile", "--linker", "hoisted"], {cwd: root});
+    await runBun(bun, ["install", "--frozen-lockfile", "--no-save", "--linker", "hoisted"], {
+        cwd: root,
+        env: {...process.env, NODE_ENV: "development"},
+    });
 }
 
 /** 从源码构建 staging Product，并切换根 `.output`。 */

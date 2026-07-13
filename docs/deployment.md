@@ -82,6 +82,11 @@ neuro-book install --profile <profile> [--dir <path>] [--version <version>]
 
 neuro-book instances list [--json]
 neuro-book instances add <path> [--name <name>] [--default]
+neuro-book instances import <path> [--name <name>] [--default]
+neuro-book instances inspect [path] [--json]
+neuro-book instances discover [--root <path>...] [--json]
+neuro-book instances roots list|add|remove
+neuro-book adopt [path] --profile <source-dev|source-product|source-docker>
 neuro-book instances forget <name-or-id>
 neuro-book instances default <name-or-id>
 neuro-book instances config
@@ -111,7 +116,9 @@ Manager 配置默认位于 `~/.neuro-book-manager/config.json`。它只保存：
 - 安装向导偏好，例如 channel 和上次安装目录。
 - 已注册实例的名称、绝对 Installation Root 和默认实例。
 
-配置不复制应用版本、组件 checksum、Runtime 或 Product 状态；这些信息仍只存在于实例的 `.deploy/installation.json`。因此用户级配置损坏或删除不会破坏实例，重新执行 `neuro-book instances add <path>` 即可恢复索引。
+配置不复制应用版本、组件 checksum、Runtime 或 Product 状态；这些信息仍只存在于实例的 `.deploy/installation.json`。配置可保存有限`discoveryRoots`，默认最多向下扫描3层并跳过依赖、构建和Manager目录，不递归整个磁盘。配置损坏或删除不会破坏实例，重新执行 `neuro-book instances import <path>` 即可恢复索引。
+
+无参数入口会按当前目录切换管理、损坏实例处理、接管和部署菜单；非TTY只输出离线检测结果与下一步命令，不产生文件。Candidate Discovery不执行Bun/Docker等环境子进程，其他Git仓库不会进入候选。`instances import`校验Manifest、组件checksum、wrapper、Product、State Root和Operation，但服务或容器停机只产生warning。`adopt`只接受干净且remote/branch/upstream合法的NeuroBook Git checkout；三个Source Profile均先在系统临时目录的短路径detached worktree准备，避免Windows长路径并保证主checkout在提交前不变。
 
 `neuro-book manage` 的 blessed TUI 支持多实例查看、状态、诊断、启动、事务更新、注册、设为默认和忘记记录。安装、启动和更新等长操作会退出 TUI 后在正常终端中继续，避免子进程输出破坏界面。
 

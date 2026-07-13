@@ -14,7 +14,31 @@ export type ReleaseChannel = "stable" | "canary";
 export type ManagerPreferences = {
     channel: ReleaseChannel;
     installDirectory: string;
+    discoveryRoots?: string[];
 };
+
+export type CommandInspection = {available: boolean; version?: string};
+export type InspectionIssue = {code: string; message: string; remediation?: string};
+export type CandidateKind = "managed-installation" | "neuro-book-checkout" | "portable-state" | "invalid-installation" | "unrelated";
+export type GitInspection = {repository: string; branch: string; upstream?: string; revision: string; dirty: boolean};
+export type ProductInspection = {exists: boolean; trusted: boolean; revision?: string};
+export type StateInspection = {root: StateRootPath; configExists: boolean; workspaceExists: boolean; databaseExists: boolean};
+
+/** 目录身份和离线完整性检查；不包含运行状态。 */
+export type OfflineInspection = {
+    root: string;
+    kind: CandidateKind;
+    manifest?: InstallationManifest;
+    git?: GitInspection;
+    product: ProductInspection;
+    state: StateInspection;
+    blockers: InspectionIssue[];
+    warnings: InspectionIssue[];
+};
+
+export type EnvironmentInspection = {bun: CommandInspection; git: CommandInspection; docker: CommandInspection; compose: CommandInspection};
+export type InstanceDiscovery = {candidates: OfflineInspection[]; warnings: InspectionIssue[]};
+export type ImportInspection = OfflineInspection & {importable: boolean};
 
 /** 用户注册的 NeuroBook 实例索引；实例自身状态仍以 installation.json 为准。 */
 export type ManagerInstance = {

@@ -3,7 +3,8 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {assertCleanWorktree, materializeRepository, repositoryRevision} from "#manager/git";
+import {assertCleanWorktree, createStagedWorktree, materializeRepository, removeStagedWorktree, repositoryRevision} from "#manager/git";
+import {pathExists} from "#manager/files";
 import {removePath} from "#manager/files";
 import {run} from "#manager/process";
 
@@ -38,5 +39,27 @@ describe("Git repository materialize", () => {
         await run("git", ["init", "-b", "master"], {cwd: fixture});
         await writeFile(join(fixture, "untracked.txt"), "dirty", "utf8");
         await expect(assertCleanWorktree(fixture)).rejects.toThrow("不会自动 restore");
+    });
+
+    it("创建并清理固定revision的staged checkout", async () => {
+        const fixture = await mkdtemp(join(tmpdir(), "nbook-manager-stage-source-"));
+        const staged = join(tmpdir(), `nbook-manager-stage-${Date.now()}`);
+        roots.push(fixture, staged);
+        await run("git", ["init", "-b", "master"], {cwd: fixture});
+        await run("git", ["config", "user.email", "manager-test@example.com"], {cwd: fixture});
+        await run("git", ["config", "user.name", "Manager Test"], {cwd: fixture});
+        await writeFile(join(fixture, "package.json"), "{\"name\":\"neuro-book\"}\n", "utf8");
+        await run("git", ["add", "package.json"], {cwd: fixture});
+        await run("git", ["commit", "-m", "fixture"], {cwd: fixture});
+        const revision = await repositoryRevision(fixture);
+        await createStagedWorktree(fixture, staged, revision);
+        if (process.platform === "win32") {
+            expect(await readFile(join(staged, "package.json"), "utf8")).toContain("neuro-book");
+            expect(await pathExists(join(staged, ".git"))).toBe(false);
+        } else {
+            expect(await repositoryRevision(staged)).toBe(revision);
+        }
+        await removeStagedWorktree(fixture, staged);
+        expect(await pathExists(staged)).toBe(false);
     });
 });

@@ -3,8 +3,11 @@ import {spawn} from "node:child_process";
 import {existsSync} from "node:fs";
 import {cp, mkdir, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
 import {dirname, relative, resolve} from "node:path";
-import {pathToFileURL} from "node:url";
 import {compileProfileArtifacts} from "nbook/server/agent/profiles/profile-artifact-compiler";
+import {
+    containsAbsoluteNodeModuleFileUrl,
+    patchAbsoluteNodeModuleFileUrls,
+} from "nbook/scripts/build/nitro-runtime-file-url.mjs";
 
 const runtimePackageSeeds = [
     "@clack/core",
@@ -23,7 +26,6 @@ const runtimePackageSeeds = [
     "dotenv",
     "esbuild",
     "fflate",
-    "get-tsconfig",
     "h3",
     "picocolors",
     "pinyin-pro",
@@ -74,11 +76,6 @@ const outputRoot = resolve(process.env.NEURO_BOOK_OUTPUT_DIR ?? ".output");
 const serverRoot = resolve(outputRoot, "server");
 const illegalImportMetaFallback = "file:///_entry.js";
 const importMetaFallbackShape = '{url:"file:///_entry.js",env:process.env}';
-const sourceNodeModulesFileUrl = pathToFileURL(resolve("node_modules")).href.replace(/\/?$/, "/");
-const sourceNodeModulesFileUrlVariants = [
-    sourceNodeModulesFileUrl,
-    sourceNodeModulesFileUrl.replace(/^file:\/\/\//, "file://"),
-];
 
 const timings = [];
 const packageCopyStats = {
@@ -257,23 +254,20 @@ async function assertNoIllegalImportMetaFallbacks(root) {
 }
 
 /**
- * `externals.trace=false` 会让 Nitro 把 external 包写成开发机根 node_modules
- * 的绝对 file URL。产品包不能依赖构建机路径，这里统一改为指向
- * `.output/server/node_modules` 的相对 import。
+ * `externals.trace=false` 会让Nitro把external包写成构建机node_modules的绝对
+ * file URL。Windows构建器可能把同一路径序列化为长路径或8.3短路径，因此不能
+ * 只匹配当前cwd；所有绝对node_modules file URL都必须指向Product vendor。
  */
 async function patchExternalFileUrls(root) {
     let count = 0;
     for (const filePath of await listMjsFiles(root)) {
         const text = await readFile(filePath, "utf8");
-        if (!sourceNodeModulesFileUrlVariants.some((prefix) => text.includes(prefix))) {
+        if (!containsAbsoluteNodeModuleFileUrl(text)) {
             continue;
         }
         const replacementBase = relative(dirname(filePath), resolve(serverRoot, "node_modules")).replaceAll("\\", "/");
         const normalizedBase = replacementBase.startsWith(".") ? replacementBase : `./${replacementBase}`;
-        let next = text;
-        for (const prefix of sourceNodeModulesFileUrlVariants) {
-            next = next.replaceAll(prefix, `${normalizedBase}/`);
-        }
+        const next = patchAbsoluteNodeModuleFileUrls(text, normalizedBase);
         if (next !== text) {
             await writeFile(filePath, next, "utf8");
             count += 1;
@@ -283,20 +277,19 @@ async function patchExternalFileUrls(root) {
 }
 
 /**
- * 防止 product 产物继续引用开发机源码根 node_modules。
+ * 防止Product产物继续引用任意构建机绝对node_modules路径。
  */
 async function assertNoRepoNodeModuleFileUrls(root) {
     const offenders = [];
     for (const filePath of await listMjsFiles(root)) {
         const text = await readFile(filePath, "utf8");
-        if (sourceNodeModulesFileUrlVariants.some((prefix) => text.includes(prefix))) {
+        if (containsAbsoluteNodeModuleFileUrl(text)) {
             offenders.push(relative(process.cwd(), filePath).replaceAll("\\", "/"));
         }
     }
     if (offenders.length > 0) {
         throw new Error([
-            "Nitro build output still references source-root node_modules file URLs.",
-            `Prefixes: ${sourceNodeModulesFileUrlVariants.join(", ")}`,
+            "Nitro build output still references absolute node_modules file URLs.",
             "Files:",
             ...offenders.map((filePath) => `- ${filePath}`),
         ].join("\n"));

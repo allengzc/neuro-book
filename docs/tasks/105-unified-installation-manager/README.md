@@ -433,6 +433,42 @@ uninstall
 - 本轮没有为尚未正式发布的v2增加迁移层，按计划硬切；Release Manifest仍保持schema v2，因为它与Installation Manifest是不同协议，没有为了版本号表面对齐而制造无意义变更。
 - doctor已先收口最关键的本地checksum、revision、wrapper路径和operation健康语义；Docker实际digest/HTTP、Git remote/branch/dirty的完整check仍需在公开A/B资产实机链路中继续补齐和验证，不能提前标记完成。
 
+### 2026-07-13：已有实例发现、接管与上下文入口
+
+- 新增统一只读实例检测Module，识别Manifest v3实例、无Manifest Git checkout、可复用Portable `data/`和普通目录；Git检查覆盖package identity、origin、branch、upstream、revision和dirty，损坏Manifest不会退化成普通checkout。
+- 新增有限发现和搜索根配置：默认最多扫描3层，跳过`.git/node_modules/.output/.runtime/.deploy`等目录，Windows按规范化真实路径去重，权限错误转成warning而不是中断全部扫描。
+- CLI增加`instances inspect/discover/import/roots`和`adopt`。无参数TTY入口按当前上下文进入管理、接管或部署菜单；非TTY只输出检测结果和推荐命令，没有隐式写入。
+- `adopt`只支持source-dev/source-product/source-docker。dirty、未知remote、非法branch/upstream和未知Manager-owned目录会阻断；历史无metadata `.output`不进入Manifest，source-product复用现有安装事务在staged build健康后切换，失败恢复旧Product。
+- TUI在无已注册实例时展示有限搜索发现的待接管候选；实际导入或接管仍要求用户明确确认，不自动修改候选目录。
+- 验证结果：Manager typecheck通过；10个测试文件/29项测试通过；真实当前dirty checkout正确报告阻断和不可信Product；独立干净Git clone的source-product adopt dry-run无写入；Windows与SSH Arch Source Dev实际接管均完成，Manifest v3、wrapper、实例索引和doctor healthy通过，测试目录已清理。
+
+### 实际结果与计划差异
+
+- 没有增加全盘或HOME无限递归扫描；搜索根和深度保持有限，避免Windows性能、权限和符号链接风险。
+- Product可信metadata目前只来自有效Installation Manifest；历史`.output`没有独立revision metadata，因此严格按计划视为不可信，不增加宽松导入或长期warning状态。
+
+### 2026-07-13：实例发现与接管系统性收口
+
+- 将原先同时承担扫描、身份和环境检测的实现拆为Candidate Discovery、Offline Inspection、Instance Import和Source Adoption。Discovery只做廉价身份筛选，其他JavaScript Git仓库不再误报；损坏Manifest稳定返回`invalid-installation`，不会进入部署菜单。
+- `discoveryRoots: []`现在明确关闭自动发现。TUI把registered/discovered建模为联合列表并缓存本轮扫描，候选可直接import或以Source Dev adopt，invalid候选只展示remediation。
+- Import离线门禁覆盖Manifest、Manager/Runtime/Tool checksum和版本、稳定wrapper目标、Product revision、Compose、State Root与未完成Operation；服务或容器停机只产生warning，`--yes`不能绕过blocker。`instances add`和`instances import`共用同一实现。
+- Fresh Install不再接受已有Git checkout；Source Adoption使用独立入口。POSIX继续使用短路径detached worktree；Windows改为从固定revision导出tracked source snapshot，避免Bun linked-worktree误判和复制完整Git对象库。Source Dev先验证staged frozen install再安装主checkout；Source Product在staged source构建并备份SQLite；Source Docker以staged source为context并清理失败镜像。
+- Windows实测发现深层worktree加node_modules会触发Filename too long，已改为系统临时目录短路径。Arch实测发现State Root `logs/`会触发提交前dirty门禁，现只在adoption提交点允许明确的Manager-owned untracked路径，并把根`logs/`加入gitignore；tracked修改仍始终阻断。
+- SSH Arch实际通过Source Dev、Source Product和Source Docker接管；Product完成migration和HTTP健康，Docker完成容器内build/start/HTTP。Compose在POSIX使用当前UID/GID，避免容器把State Root写成root-owned。测试容器和镜像已清理。
+
+### 实际结果与计划差异
+
+- Windows真实验收推翻了“只需缩短linked worktree路径”的早期判断：Bun 1.3.14在linked worktree首次frozen install不可靠，而`clone --no-hardlinks`会复制本仓库数百MB Git对象。最终Windows adapter改为`git archive`固定revision snapshot，依赖安装继续保持`--frozen-lockfile --no-save --linker hoisted`，不使用retry或非frozen降级。
+- 失败重试还暴露Operation已回滚但`.deploy/operations`审计记录和空`.runtime`父目录会被误判为未知状态。Inspection现在只在所有journal均为`committed/rolled-back`且没有未知文件时允许重试；任意损坏、未完成或额外文件仍阻断。
+- `bun.lock`已按当前根包和Manager workspace manifests完整重建为hoisted解析图。重建使Nuxt、Prisma、Vitest等按现有semver范围前进；因此补齐`vue-tsc`直接devDependency、把Prisma adapter/client/CLI统一到7.8.0，并通过完整应用typecheck和Product build验证，而不是只接受锁文件生成成功。
+- Product vendor审查发现新`tsx`已不再依赖`get-tsconfig`，旧required seed会错误阻断Product；该过期seed已删除，实际Nitro external closure仍由产物扫描补齐。
+- Windows Bun 1.3.14还存在稳定复现的嵌套执行缺陷：Bun进程直接spawn `bun install --frozen-lockfile`会误报lock变化，同一命令经PowerShell宿主启动则成功。Manager新增Windows Bun子进程适配器，以环境变量JSON传递参数，避免命令字符串和路径转义；POSIX继续直接执行。新增参数转发和非零退出测试。
+- Windows Source Dev真实接管最终通过：staged snapshot和主checkout均完成frozen/no-save/hoisted安装，HEAD保持不变，Git无用户改动，Manifest v3提交，`doctor.healthy=true`。当前门禁为应用typecheck、完整Nuxt/Product build、Manager typecheck、13个测试文件/39项测试和npm tarball空目录审计全绿。
+- Windows Source Product随后完成真实接管：staged snapshot内安装和构建、SQLite migration、临时HTTP版本健康检查、Source/Product revision一致性及`doctor.healthy=true`均通过，主checkout HEAD保持不变。该Profile按设计不在根生成`node_modules`。
+- 无根`node_modules`前台启动首次暴露Nitro把Windows staged长路径序列化为8.3短路径的情况；旧后处理只匹配当前cwd长路径，因此错误报告“patched 0”并留下`file://C:/Users/NAME~1/.../node_modules`。现改为拒绝并替换所有Windows长/短路径及POSIX绝对node_modules file URL，新增4项跨平台回归；修复后133个文件完成替换，Product无根依赖启动并通过`/api/app/version`。
+- 公开发布检查确认`0.7.5`没有形成GitHub Release。失败run `29215886890`的Source、Linux Product、Windows Product/Portable和GHCR job实际均成功，assemble因无筛选下载把Buildx自动`.dockerbuild` artifacts一起合并而失败。workflow现按名称分别下载`source`、`product-linux`和`product-windows`，但仍需新canary发布才能验证最终assemble/verify/publish和A→B。
+- TUI接管候选当前默认使用Source Dev；完整Profile选择仍由`neuro-book adopt`的Clack入口承担，避免在blessed中复制第二套复杂安装向导。
+
 ## TODO / Follow-ups
 
 - [x] Windows Portable 使用 `data/` State Root，不使用 junction。

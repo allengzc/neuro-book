@@ -20,6 +20,7 @@ const ManagerConfigSchema = Type.Object({
     preferences: Type.Object({
         channel: Type.Union([Type.Literal("stable"), Type.Literal("canary")]),
         installDirectory: Type.String({minLength: 1}),
+        discoveryRoots: Type.Optional(Type.Array(Type.String({minLength: 1}))),
     }, {additionalProperties: false}),
     instances: Type.Array(Type.Object({
         id: Type.String({minLength: 1}),
@@ -43,6 +44,7 @@ export function defaultManagerConfig(): ManagerConfig {
         preferences: {
             channel: prerelease(MANAGER_VERSION) ? "canary" : "stable",
             installDirectory: join(homedir(), "neuro-book"),
+            discoveryRoots: [homedir()],
         },
         instances: [],
     };
@@ -68,7 +70,7 @@ export async function readManagerConfig(path = managerConfigPath()): Promise<Man
     if (config.defaultInstanceId && !ids.has(config.defaultInstanceId)) {
         throw new Error(`Manager 默认实例不存在：${config.defaultInstanceId}`);
     }
-    return config;
+    return {...config, preferences: {...config.preferences, discoveryRoots: normalizedDiscoveryRoots(config.preferences)}};
 }
 
 /** 注册一个已有 installation manifest 的实例，并可更新安装偏好。 */
@@ -106,6 +108,10 @@ export async function registerManagerInstance(options: {
     const preferences: ManagerPreferences = {
         channel: options.preferences?.channel ?? config.preferences.channel,
         installDirectory: resolve(options.preferences?.installDirectory ?? config.preferences.installDirectory),
+        discoveryRoots: normalizedDiscoveryRoots({
+            installDirectory: options.preferences?.installDirectory ?? config.preferences.installDirectory,
+            discoveryRoots: options.preferences?.discoveryRoots ?? config.preferences.discoveryRoots,
+        }),
     };
     const makeDefault = options.makeDefault ?? config.defaultInstanceId === null;
     await writeJsonAtomic(path, {
@@ -162,8 +168,28 @@ export async function updateManagerPreferences(preferences: {
         preferences: {
             channel: preferences.channel ?? config.preferences.channel,
             installDirectory: resolve(preferences.installDirectory ?? config.preferences.installDirectory),
+            discoveryRoots: normalizedDiscoveryRoots(config.preferences),
         },
     };
+    await writeJsonAtomic(path, next);
+    return next;
+}
+
+/** 增加有限实例搜索根。 */
+export async function addDiscoveryRoot(root: string, path = managerConfigPath()): Promise<ManagerConfig> {
+    const config = await readManagerConfig(path);
+    const roots = normalizedDiscoveryRoots({...config.preferences, discoveryRoots: [...(config.preferences.discoveryRoots ?? []), root]});
+    const next = {...config, preferences: {...config.preferences, discoveryRoots: roots}};
+    await writeJsonAtomic(path, next);
+    return next;
+}
+
+/** 删除有限实例搜索根。 */
+export async function removeDiscoveryRoot(root: string, path = managerConfigPath()): Promise<ManagerConfig> {
+    const config = await readManagerConfig(path);
+    const key = normalizeRootKey(root);
+    const roots = normalizedDiscoveryRoots(config.preferences).filter((item) => normalizeRootKey(item) !== key);
+    const next = {...config, preferences: {...config.preferences, discoveryRoots: roots}};
     await writeJsonAtomic(path, next);
     return next;
 }
@@ -187,4 +213,11 @@ function uniqueInstanceName(config: ManagerConfig, requested: string, exceptId?:
 function normalizeRootKey(path: string): string {
     const normalized = resolve(path);
     return process.platform === "win32" ? normalized.toLocaleLowerCase("en-US") : normalized;
+}
+
+function normalizedDiscoveryRoots(preferences: Pick<ManagerPreferences, "installDirectory" | "discoveryRoots">): string[] {
+    const values = preferences.discoveryRoots ?? [resolve(preferences.installDirectory, "..")];
+    const roots = new Map<string, string>();
+    for (const value of values) roots.set(normalizeRootKey(value), resolve(value));
+    return [...roots.values()];
 }

@@ -6,7 +6,7 @@ neuro-book 当前处于快速开发阶段。本轮产品主路径收敛到 **nov
 
 ## Product / Workspace Facts
 
-- 部署代码已收口到独立包 `@notnotype/neuro-book-manager`，公开命令是 `neuro-book`；无参数入口使用Clack完成首次安装引导，`neuro-book manage`提供blessed多实例TUI。用户级`~/.neuro-book-manager/config.json`只保存偏好、默认实例和目录索引，实例部署真相源仍是各Installation Root的`.deploy/installation.json`；命令可用`--root`/`--instance`跨目录操作。Manager canary 已公开到 npm，应用 Release CI 正在完成 Product/Portable/Manifest 闭环。Git 仓库根是 Installation Root，源码位于根目录，`.output`、`.runtime`、`.deploy` 是独立组件；不再使用 `neuro-book-deploy`、`app/source` 或 Product 内嵌 source snapshot。
+- 部署代码已收口到独立包 `@notnotype/neuro-book-manager`，公开命令是 `neuro-book`；实例发现、离线检查、导入和Source接管使用独立Module，无参数入口按当前目录切换实例管理、损坏实例处理、Git checkout接管和新部署菜单，blessed TUI同时展示已注册与待导入/接管候选。用户级配置只保存偏好、默认实例、目录索引和有限搜索根，部署真相源仍是各Installation Root的`.deploy/installation.json`。
 - 推荐顺序为 Windows Portable、GHCR、Product Bun、Source Dev/Source Product、Source Docker。Installation Manifest v3 固定记录 Source/Product/Manager/Manager Runtime/Application Runtime/Tools，并区分archive、bundle与executable checksum；Windows Portable zip 包含根源码、根 `.output`、managed Bun/rg/PortableGit/bash、版本化 Manager 和 `data/` State Root。
 - `NEURO_BOOK_STATE_ROOT` 是状态路径真相源：默认 State Root 等于 Installation Root，Windows Portable 为 `data/`。Workspace Root、Boot Config、Product `.env`、SQLite 相对路径和日志均从 State Root 解析，公开 Project Path 仍为 `workspace/{project}`。
 - 鉴权属于 State Root `config.yaml` 的 Boot Config：服务器 Profile 默认开启，Windows Portable 默认关闭；`Create Admin.cmd` 通过 Manager 调用 Product 管理员脚本。管理员 API 统一走同一访问守卫；关闭时管理员接口也无鉴权。配置中心只读展示当前进程状态，不提供热写。

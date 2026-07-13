@@ -1,5 +1,6 @@
 import {randomUUID} from "node:crypto";
 import {readFile, readdir, rename} from "node:fs/promises";
+import {tmpdir} from "node:os";
 import {join, relative, resolve} from "node:path";
 
 import {migrateApplication} from "#manager/app-commands";
@@ -13,9 +14,9 @@ import {
 } from "#manager/component";
 import {ensureStateFiles} from "#manager/config";
 import {buildSourceDockerImage, startDocker, verifyDockerApplication, writeDockerCompose} from "#manager/docker";
-import {ensureDirectory, removePath, writeTextAtomic} from "#manager/files";
-import {materializeRepository, repositoryRevision} from "#manager/git";
-import {assertNativeProductStopped, statePort, verifyNativeProduct} from "#manager/health";
+import {ensureDirectory, pathExists, removePath, writeTextAtomic} from "#manager/files";
+import {assertCleanWorktree, createStagedWorktree, materializeRepository, removeStagedWorktree, repositoryRevision} from "#manager/git";
+import {assertNativeProductStopped, backupApplicationDatabase, statePort, verifyNativeProduct} from "#manager/health";
 import {withInstallLock} from "#manager/lock";
 import {readInstallationManifest, resolveReleaseManifest, writeInstallationManifest} from "#manager/manifest-store";
 import {backupRuntimeWrappers, commitOperation, createOperation, recoverInterruptedOperations, updateOperation} from "#manager/operation";
@@ -23,7 +24,7 @@ import {assertManagerPlatform, currentProductPlatform} from "#manager/platform";
 import {installationPaths} from "#manager/paths";
 import {buildSourceProduct, installSourceDependencies} from "#manager/product";
 import {profileDefinition} from "#manager/profiles";
-import {commandAvailable, runCapture} from "#manager/process";
+import {commandAvailable, run, runCapture} from "#manager/process";
 import {installManagerExecutable, resolveManagerRuntime, runtimeExecutable, writeManagerWrapper, writeRuntimeWrapper} from "#manager/runtime";
 import {activateManagedTools, installManagedTool, writeManagedToolWrappers} from "#manager/tools";
 import type {
@@ -54,6 +55,8 @@ export type InstallOptions = {
     managerExecutable: string;
 };
 
+export type AdoptSourceOptions = Omit<InstallOptions, "profile"> & {profile: "source-dev" | "source-product" | "source-docker"};
+
 /** 构造安装计划，预检和物化 Source 均早于 State Root 创建。 */
 export function installPlan(options: InstallOptions): OperationPlan {
     const definition = profileDefinition(options.profile);
@@ -71,12 +74,21 @@ export function installPlan(options: InstallOptions): OperationPlan {
 
 /** 执行 Fresh Install；失败只回滚本次创建的 Manager-owned 路径。 */
 export async function install(options: InstallOptions): Promise<InstallationManifest> {
+    return installInternal(options, "fresh");
+}
+
+/** 接管已验证Git checkout；Source准备始终先在detached worktree完成。 */
+export async function installSourceAdoption(options: AdoptSourceOptions): Promise<InstallationManifest> {
+    return installInternal(options, "adopt");
+}
+
+async function installInternal(options: InstallOptions, mode: "fresh" | "adopt"): Promise<InstallationManifest> {
     if (options.dryRun) throw new Error("dry-run 应通过 installPlan 输出，不应调用 install。" );
     assertManagerPlatform();
     const portable = options.profile === "windows-portable";
     const paths = installationPaths(options.root, portable);
     await ensureDirectory(paths.root);
-    await preflightInstallRoot(paths.root, options.profile);
+    await preflightInstallRoot(paths.root, options.profile, mode);
     await ensureDirectory(paths.deploy);
     return withInstallLock(join(paths.deploy, "install.lock"), async () => {
         await recoverInterruptedOperations(paths.root);
@@ -97,8 +109,15 @@ export async function install(options: InstallOptions): Promise<InstallationMani
             nextManifest: null,
         });
         const createdComponents: string[] = [];
+        let stagedWorktree: string | null = null;
         try {
-            const result = await prepareInstallation(options, journal, staging, backup, createdComponents);
+            if (mode === "adopt" && options.profile === "source-product") {
+                await assertNativeProductStopped(paths.state);
+                const database = await backupApplicationDatabase(paths.state, backup);
+                if (database) journal = await updateOperation(journal, "planned", {databasePath: database.databasePath, databaseBackup: database.backupPath});
+            }
+            const result = await prepareInstallation(options, journal, staging, backup, createdComponents, mode);
+            stagedWorktree = result.stagedWorktree;
             journal = result.journal;
             const wrapperBackup = await backupRuntimeWrappers(paths.root, backup);
             journal = await updateOperation(journal, journal.phase, {wrapperBackup, wrappersChanged: true});
@@ -109,9 +128,15 @@ export async function install(options: InstallOptions): Promise<InstallationMani
             await writeManagerWrapper(paths.root, result.manifest.components.manager, result.manifest.components.managerRuntime);
             await writeInstallationManifest(paths.manifest, result.manifest);
             await commitOperation(journal);
+            if (stagedWorktree) await removeStagedWorktree(paths.root, stagedWorktree);
             await removePath(staging);
             return result.manifest;
         } catch (error) {
+            if (stagedWorktree || mode === "adopt") await removeStagedWorktree(paths.root, stagedWorktree ?? join(tmpdir(), `nbook-adopt-worktree-${id}`)).catch(() => undefined);
+            if (mode === "adopt" && options.profile === "source-docker") {
+                const revision = await repositoryRevision(paths.root).catch(() => "");
+                if (revision) await run("docker", ["image", "rm", `neuro-book-source:${revision.slice(0, 12)}`], {cwd: paths.root, stdio: "ignore"}).catch(() => undefined);
+            }
             await recoverInterruptedOperations(paths.root).catch(() => undefined);
             throw error;
         }
@@ -124,7 +149,8 @@ async function prepareInstallation(
     staging: string,
     backup: string,
     createdComponents: string[],
-): Promise<{manifest: InstallationManifest; journal: OperationJournal}> {
+    mode: "fresh" | "adopt",
+): Promise<{manifest: InstallationManifest; journal: OperationJournal; stagedWorktree: string | null}> {
     const portable = options.profile === "windows-portable";
     const paths = installationPaths(options.root, portable);
     const definition = profileDefinition(options.profile);
@@ -142,6 +168,7 @@ async function prepareInstallation(
     let source: SourceComponent;
     let stagedSource: StagedReleaseSource | null = null;
     let stagedProduct: StagedProduct | null = null;
+    let stagedWorktree: string | null = null;
     const release = definition.source === "release" || definition.source === "container"
         ? await resolveReleaseManifest(options.channel, options.version)
         : null;
@@ -162,6 +189,10 @@ async function prepareInstallation(
             repository: "https://github.com/notnotype/neuro-book.git",
             branch: "master",
         };
+        if (mode === "adopt") {
+            stagedWorktree = join(tmpdir(), `nbook-adopt-worktree-${initialJournal.id}`);
+            await createStagedWorktree(paths.root, stagedWorktree, sourceRevision);
+        }
     } else if (definition.source === "release" && release) {
         stagedSource = await stageReleaseSource({
             root: paths.root,
@@ -183,12 +214,16 @@ async function prepareInstallation(
     let product: InstallationComponents["product"];
     if (options.profile === "source-dev") {
         if (!bun) throw new Error("Source Dev 缺少 Application Runtime。" );
+        if (stagedWorktree) await installSourceDependencies(stagedWorktree, bun);
+        const createsNodeModules = !await pathExists(join(paths.root, "node_modules"));
         await installSourceDependencies(paths.root, bun);
+        if (createsNodeModules) journal = await updateOperation(journal, journal.phase, {createdPaths: [...journal.createdPaths, "node_modules"]});
     } else if (options.profile === "source-product") {
         if (!bun) throw new Error("Source Product 缺少 Application Runtime。" );
-        await installSourceDependencies(paths.root, bun);
+        await installSourceDependencies(stagedWorktree ?? paths.root, bun);
         stagedProduct = await buildSourceProduct({
             root: paths.root,
+            sourceRoot: stagedWorktree ?? undefined,
             staging: join(staging, "build"),
             version: appVersion,
             revision: sourceRevision,
@@ -209,7 +244,7 @@ async function prepareInstallation(
         product = stagedProduct.component;
     } else if (options.profile === "source-docker") {
         product = {provider: "container", version: appVersion, revision: sourceRevision, image: `neuro-book-source:${sourceRevision.slice(0, 12)}`};
-        await buildSourceDockerImage(paths.root, product.image);
+        await buildSourceDockerImage(stagedWorktree ?? paths.root, product.image);
     } else if (options.profile === "ghcr" && release) {
         product = {
             provider: "container",
@@ -273,12 +308,21 @@ async function prepareInstallation(
     }
     if (portable) await writePortableLaunchers(paths.root);
     journal = await updateOperation(journal, "healthy");
-    return {manifest, journal};
+    if (mode === "adopt") {
+        await assertCleanWorktree(paths.root, [".deploy", ".runtime", ".output", "workspace", "config.yaml", ".env", "logs", "node_modules"]);
+        if (await repositoryRevision(paths.root) !== sourceRevision) throw new Error("接管期间Git HEAD发生变化，停止提交Manifest。" );
+    }
+    return {manifest, journal, stagedWorktree};
 }
 
-async function preflightInstallRoot(root: string, profile: InstallProfile): Promise<void> {
+async function preflightInstallRoot(root: string, profile: InstallProfile, mode: "fresh" | "adopt"): Promise<void> {
     const entries = await readdir(root);
-    if (entries.length === 0 || entries.includes(".git")) return;
+    if (entries.length === 0) return;
+    if (entries.includes(".git")) {
+        if (mode !== "adopt") throw new Error("目录是已有Git checkout；请使用neuro-book adopt显式接管。" );
+        if (!profile.startsWith("source-")) throw new Error("已有Git checkout只支持Source Profile接管。" );
+        return;
+    }
     const allowed = new Set([".deploy", ".runtime"]);
     if (profile === "windows-portable") allowed.add("data");
     const unknown = entries.filter((entry) => !allowed.has(entry));

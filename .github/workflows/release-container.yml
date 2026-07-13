@@ -124,8 +124,16 @@ jobs:
       - run: bun install --frozen-lockfile
       - uses: actions/download-artifact@v4
         with:
+          name: source
           path: dist
-          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: product-linux
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: product-windows
+          path: dist
       - name: Build release manifest
         shell: bash
         env:

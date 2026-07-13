@@ -44,6 +44,7 @@
     "product:stage": "bun scripts/deploy/product-runtime.mjs stage",
     "product:start": "bun scripts/deploy/product-runtime.mjs start",
     "product:create-admin": "bun scripts/deploy/product-runtime.mjs create-admin",
+    "create-admin": "bun scripts/cli/create-admin.ts",
     "auth:create-admin": "bun scripts/cli/create-admin.ts",
     "studio": "bunx prisma studio --config ./prisma.config.ts",
     "release": "bun scripts/release/release.ts",
@@ -80,8 +81,8 @@
     "@nuxt/kit": "^4.3.1",
     "@nuxtjs/i18n": "^10.4.0",
     "@pinia/nuxt": "^0.11.3",
-    "@prisma/adapter-libsql": "7.3.0",
-    "@prisma/client": "^7.3.0",
+    "@prisma/adapter-libsql": "^7.8.0",
+    "@prisma/client": "^7.8.0",
     "@prosemirror-adapter/vue": "^0.4.6",
     "@tiptap/core": "^3.23.1",
     "@tiptap/extension-image": "^3.23.1",
@@ -131,7 +132,7 @@
     "pinia": "^3.0.4",
     "pinia-plugin-persistedstate": "^4.7.1",
     "pinyin-pro": "^3.28.1",
-    "prisma": "^7.3.0",
+    "prisma": "^7.8.0",
     "proper-lockfile": "4.1.2",
     "redis": "^5.10.0",
     "reflect-metadata": "^0.2.2",
@@ -166,7 +167,8 @@
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vitepress": "^2.0.0-alpha.17",
-    "vitest": "^4.1.2"
+    "vitest": "^4.1.2",
+    "vue-tsc": "^3.3.7"
   },
   "private": true
 }

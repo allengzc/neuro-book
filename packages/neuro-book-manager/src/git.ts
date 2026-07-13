@@ -2,6 +2,7 @@ import {readFile, readdir, rm} from "node:fs/promises";
 import {join, resolve} from "node:path";
 
 import {ensureDirectory, pathExists, removePath, safeTarget} from "#manager/files";
+import {extractZip} from "#manager/download";
 import {run, runCapture} from "#manager/process";
 
 export const DEFAULT_REPOSITORY = "https://github.com/notnotype/neuro-book.git";
@@ -46,9 +47,15 @@ export async function validateRepository(root: string, repository = DEFAULT_REPO
 }
 
 /** 确认 tracked/untracked worktree 均干净。 */
-export async function assertCleanWorktree(root: string): Promise<void> {
-    const status = (await runCapture("git", ["status", "--porcelain"], {cwd: root})).trim();
-    if (status) throw new Error("Git worktree 有未提交或未跟踪改动，Manager 不会自动 restore、stash 或 reset。" );
+export async function assertCleanWorktree(root: string, allowedUntracked: string[] = []): Promise<void> {
+    const lines = (await runCapture("git", ["status", "--porcelain"], {cwd: root})).split(/\r?\n/u).filter(Boolean);
+    const allowed = allowedUntracked.map((path) => path.replaceAll("\\", "/").replace(/\/$/u, ""));
+    const unexpected = lines.filter((line) => {
+        if (!line.startsWith("?? ")) return true;
+        const path = line.slice(3).replaceAll("\\", "/").replace(/\/$/u, "");
+        return !allowed.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+    });
+    if (unexpected.length) throw new Error(`Git worktree 有未提交或未跟踪改动，Manager 不会自动 restore、stash 或 reset：\n${unexpected.join("\n")}`);
 }
 
 /** fetch 并验证 fast-forward，但不修改主 checkout。 */
@@ -63,15 +70,32 @@ export async function fetchUpdateTarget(root: string, branch = DEFAULT_BRANCH): 
     return {previousRevision, targetRevision, branch};
 }
 
-/** 创建用于依赖安装和 build 的 detached staged worktree。 */
+/** 创建用于依赖安装和 build 的固定 revision staged checkout。 */
 export async function createStagedWorktree(root: string, path: string, revision: string): Promise<void> {
     await removePath(path);
     await ensureDirectory(resolve(path, ".."));
+    if (process.platform === "win32") {
+        // Bun 1.3.14 在Windows linked worktree中首次frozen install会误判lockfile变化；
+        // 完整local clone又会复制庞大的Git对象库。tracked snapshot保留固定revision和隔离语义，
+        // 同时不把主checkout的untracked文件或.git对象带进构建上下文。
+        const archivePath = `${path}.zip`;
+        try {
+            await run("git", ["archive", "--format=zip", `--output=${archivePath}`, revision], {cwd: root});
+            await extractZip(archivePath, path);
+        } finally {
+            await removePath(archivePath);
+        }
+        return;
+    }
     await run("git", ["worktree", "add", "--detach", path, revision], {cwd: root});
 }
 
 /** 清理 staged worktree 注册和目录。 */
 export async function removeStagedWorktree(root: string, path: string): Promise<void> {
+    if (process.platform === "win32") {
+        await removePath(path);
+        return;
+    }
     await run("git", ["worktree", "remove", "--force", path], {cwd: root}).catch(async () => removePath(path));
     await run("git", ["worktree", "prune"], {cwd: root});
 }

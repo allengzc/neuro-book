@@ -3,6 +3,8 @@ import {resolve} from "node:path";
 import {startApplication} from "#manager/app-commands";
 import {blessedStatic as blessed} from "#manager/blessed-static";
 import {runInstallGuide} from "#manager/install-guide";
+import {configuredDiscoveryRoots, discoverInstances} from "#manager/instance-discovery";
+import {importInstallation, inspectImport} from "#manager/instance-import";
 import {
     forgetManagerInstance,
     readManagerConfig,
@@ -12,13 +14,15 @@ import {
 import {doctor, installationStatus} from "#manager/maintenance";
 import {readInstallationManifest} from "#manager/manifest-store";
 import {installationPaths} from "#manager/paths";
-import type {InstallationManifest, ManagerConfig, ManagerInstance} from "#manager/types";
+import type {InstallationManifest, ManagerConfig, ManagerInstance, OfflineInspection} from "#manager/types";
 import {updateInstallation} from "#manager/updater";
+import {adoptSourceInstallation} from "#manager/source-adoption";
 
 type InstanceView = {
     instance: ManagerInstance;
     manifest: InstallationManifest | null;
 };
+type ManagerListItem = {kind: "registered"; view: InstanceView} | {kind: "discovered"; inspection: OfflineInspection};
 
 /** 打开 blessed 实例管理界面；长时间运行的安装、更新和启动会退出 TUI 后继续。 */
 export async function runManagerTui(managerExecutable: string): Promise<void> {
@@ -82,7 +86,7 @@ export async function runManagerTui(managerExecutable: string): Promise<void> {
         width: "100%",
         height: 3,
         tags: true,
-        content: " ↑↓ 选择  Enter 状态  d 诊断  s 启动  u 更新  n 新安装  a 注册  f 默认  x 忘记  q 退出",
+        content: " ↑↓ 选择  Enter 状态  d 诊断  s 启动  u 更新  i 导入  o 接管  n 新安装  a 路径导入  f 默认  x 忘记  r 刷新发现  q 退出",
         style: {fg: "black", bg: "white"},
     });
     const question = blessed.question({
@@ -111,6 +115,8 @@ export async function runManagerTui(managerExecutable: string): Promise<void> {
 
     let config: ManagerConfig = await readManagerConfig();
     let views: InstanceView[] = [];
+    let discovered: OfflineInspection[] = [];
+    let items: ManagerListItem[] = [];
     let busy = false;
     let selectedIndex = 0;
 
@@ -118,17 +124,18 @@ export async function runManagerTui(managerExecutable: string): Promise<void> {
     const refresh = async (): Promise<void> => {
         const selectedId = views[selectedIndex]?.instance.id;
         config = await readManagerConfig();
-        header.setContent(` {bold}NeuroBook Manager{/bold}  实例管理  {gray-fg}${config.instances.length} 个实例{/gray-fg}`);
+        const discovery = await discoverInstances(configuredDiscoveryRoots(config), config.instances.map((instance) => instance.root));
+        discovered = discovery.candidates;
+        header.setContent(` {bold}NeuroBook Manager{/bold}  实例管理  {gray-fg}${config.instances.length} 个实例 · ${discovered.length} 个待接管{/gray-fg}`);
         views = await Promise.all(config.instances.map(async (instance) => ({
             instance,
             manifest: await readInstallationManifest(installationPaths(instance.root).manifest),
         })));
-        list.setItems(views.map((view) => instanceLabel(view, config.defaultInstanceId)));
-        selectedIndex = Math.max(0, views.findIndex((view) => view.instance.id === selectedId));
+        items = [...views.map((view): ManagerListItem => ({kind: "registered", view})), ...discovered.map((inspection): ManagerListItem => ({kind: "discovered", inspection}))];
+        list.setItems(items.map((item) => item.kind === "registered" ? instanceLabel(item.view, config.defaultInstanceId) : discoveredLabel(item.inspection)));
+        selectedIndex = Math.max(0, items.findIndex((item) => item.kind === "registered" && item.view.instance.id === selectedId));
         if (views.length) list.select(selectedIndex);
-        detail.setContent(views.length
-            ? formatInstance(views[selectedIndex] ?? views[0]!, config.defaultInstanceId)
-            : "尚未注册实例。\n\n按 n 运行安装向导，或按 a 注册已有 Installation Root。");
+        detail.setContent(items.length ? formatListItem(items[selectedIndex] ?? items[0]!, config.defaultInstanceId) : "尚未注册或发现实例。\n\n按 n 运行安装向导，或按 a 输入已有Installation Root。");
         screen.render();
     };
 
@@ -148,16 +155,17 @@ export async function runManagerTui(managerExecutable: string): Promise<void> {
 
     /** 返回当前选中且 manifest 可读取的实例。 */
     const selected = (): {instance: ManagerInstance; manifest: InstallationManifest} => {
-        const view = views[selectedIndex];
-        if (!view) throw new Error("请先选择一个实例。" );
+        const item = items[selectedIndex];
+        if (!item || item.kind !== "registered") throw new Error("当前选择是待导入/接管候选，不支持该动作。" );
+        const view = item.view;
         if (!view.manifest) throw new Error(`实例目录不存在或 installation.json 无效：${view.instance.root}`);
         return {instance: view.instance, manifest: view.manifest};
     };
 
     list.on("select", (_item, index) => {
         selectedIndex = index;
-        const view = views[index];
-        if (view) detail.setContent(formatInstance(view, config.defaultInstanceId));
+        const item = items[index];
+        if (item) detail.setContent(formatListItem(item, config.defaultInstanceId));
         screen.render();
     });
     list.key("enter", () => void runAction(async () => {
@@ -205,11 +213,32 @@ export async function runManagerTui(managerExecutable: string): Promise<void> {
         prompt.input("输入已有 NeuroBook Installation Root", process.cwd(), (_error, value) => {
             if (!value?.trim()) return;
             void runAction(async () => {
-                await registerManagerInstance({root: resolve(value.trim()), makeDefault: config.instances.length === 0});
+                await importInstallation({root: resolve(value.trim()), makeDefault: config.instances.length === 0, acceptWarnings: true});
                 await refresh();
             });
         });
     });
+    screen.key("i", () => void runAction(async () => {
+        const item = items[selectedIndex];
+        if (!item || item.kind !== "discovered" || item.inspection.kind !== "managed-installation") throw new Error("请选择一个可导入的Manifest实例。" );
+        const inspection = await inspectImport(item.inspection.root);
+        if (!inspection.importable) throw new Error(inspection.blockers.map((issue) => issue.message).join("\n"));
+        question.ask(`离线检查通过，包含${inspection.warnings.length}项运行状态提示。继续导入？`, (_error, confirmed) => {
+            if (!confirmed) return;
+            void runAction(async () => {
+                await importInstallation({root: item.inspection.root, makeDefault: config.instances.length === 0, acceptWarnings: true});
+                await refresh();
+            });
+        });
+    }));
+    screen.key("o", () => void runAction(async () => {
+        const item = items[selectedIndex];
+        if (!item || item.kind !== "discovered" || item.inspection.kind !== "neuro-book-checkout") throw new Error("请选择一个可接管的NeuroBook checkout。" );
+        if (item.inspection.blockers.length) throw new Error(item.inspection.blockers.map((issue) => issue.message).join("\n"));
+        screen.destroy();
+        await adoptSourceInstallation({root: item.inspection.root, profile: "source-dev", channel: config.preferences.channel, port: 3000, authEnabled: true, dryRun: false, managerExecutable});
+    }));
+    screen.key("r", () => void runAction(refresh));
     screen.key("f", () => void runAction(async () => {
         const target = selected();
         await setDefaultManagerInstance(target.instance.id);
@@ -239,6 +268,17 @@ function instanceLabel(view: InstanceView, defaultInstanceId: string | null): st
     const marker = view.instance.id === defaultInstanceId ? "{green-fg}●{/green-fg}" : "○";
     const version = view.manifest ? `${view.manifest.profile} · ${view.manifest.appVersion}` : "{red-fg}不可用{/red-fg}";
     return `${marker} ${view.instance.name}  {gray-fg}${version}{/gray-fg}`;
+}
+
+function discoveredLabel(inspection: OfflineInspection): string {
+    const label = inspection.kind === "managed-installation" ? "待导入" : inspection.kind === "neuro-book-checkout" ? "待接管" : "需处理";
+    return `{yellow-fg}◇{/yellow-fg} ${inspection.root}  {gray-fg}${label}{/gray-fg}`;
+}
+
+function formatListItem(item: ManagerListItem, defaultInstanceId: string | null): string {
+    if (item.kind === "registered") return formatInstance(item.view, defaultInstanceId);
+    const inspection = item.inspection;
+    return [`{bold}${inspection.root}{/bold}`, "", `类型：${inspection.kind}`, `Product：${inspection.product.exists ? inspection.product.trusted ? "可信" : "存在但不可信" : "不存在"}`, ...inspection.blockers.map((issue) => `{red-fg}阻断{/red-fg}：${issue.message}`), ...inspection.warnings.map((issue) => `{yellow-fg}警告{/yellow-fg}：${issue.message}`), "", inspection.kind === "managed-installation" ? "按 i 导入。" : inspection.kind === "neuro-book-checkout" ? "按 o 以Source Dev接管。" : "请按提示人工处理。"].join("\n");
 }
 
 /** 渲染未执行外部检查时的实例基础详情。 */

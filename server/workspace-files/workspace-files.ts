@@ -1,4 +1,4 @@
-import {existsSync} from "node:fs";
+import {existsSync, type Stats} from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import YAML from "yaml";
@@ -1774,7 +1774,7 @@ export async function pathExists(filePath: string): Promise<boolean> {
     }
 }
 
-function formatMode(stat: Awaited<ReturnType<typeof fs.stat>>, isDirectory: boolean): string {
+function formatMode(stat: Stats, isDirectory: boolean): string {
     const prefix = isDirectory ? "d" : "-";
     const mode = Number(stat.mode);
     const bits = [

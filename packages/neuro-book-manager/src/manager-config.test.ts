@@ -4,7 +4,7 @@ import {join} from "node:path";
 
 import {afterEach, describe, expect, it} from "vitest";
 
-import {forgetManagerInstance, readManagerConfig, registerManagerInstance, setDefaultManagerInstance} from "#manager/manager-config";
+import {addDiscoveryRoot, forgetManagerInstance, readManagerConfig, registerManagerInstance, removeDiscoveryRoot, setDefaultManagerInstance} from "#manager/manager-config";
 import {writeInstallationManifest} from "#manager/manifest-store";
 import {installationPaths} from "#manager/paths";
 import type {InstallationManifest} from "#manager/types";
@@ -44,6 +44,24 @@ describe("用户级 Manager 配置", () => {
             root: join(testRoot, "missing"),
             configPath: join(testRoot, "config.json"),
         })).rejects.toThrow("不是 NeuroBook Manager 实例");
+    });
+
+    it("规范化并维护有限搜索根", async () => {
+        const testRoot = await temporaryRoot();
+        const configPath = join(testRoot, "config.json");
+        await addDiscoveryRoot(join(testRoot, "projects"), configPath);
+        await addDiscoveryRoot(join(testRoot, "projects", "."), configPath);
+        expect((await readManagerConfig(configPath)).preferences.discoveryRoots?.filter((root) => root === join(testRoot, "projects"))).toHaveLength(1);
+        await removeDiscoveryRoot(join(testRoot, "projects"), configPath);
+        expect((await readManagerConfig(configPath)).preferences.discoveryRoots).not.toContain(join(testRoot, "projects"));
+    });
+
+    it("显式空搜索根不会回退默认目录", async () => {
+        const testRoot = await temporaryRoot();
+        const configPath = join(testRoot, "config.json");
+        const initial = await readManagerConfig(configPath);
+        for (const root of initial.preferences.discoveryRoots ?? []) await removeDiscoveryRoot(root, configPath);
+        expect((await readManagerConfig(configPath)).preferences.discoveryRoots).toEqual([]);
     });
 });
 

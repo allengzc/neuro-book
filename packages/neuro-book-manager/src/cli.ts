@@ -8,11 +8,15 @@ import {Command} from "commander";
 import {createAdmin, startApplication} from "#manager/app-commands";
 import {runInstallGuide, recommendedProfile} from "#manager/install-guide";
 import {install, installPlan} from "#manager/installer";
+import {configuredDiscoveryRoots, discoverInstances, inspectInstance} from "#manager/instance-discovery";
+import {importInstallation, inspectImport} from "#manager/instance-import";
 import {
+    addDiscoveryRoot,
     findManagerInstance,
     forgetManagerInstance,
     managerConfigPath,
     readManagerConfig,
+    removeDiscoveryRoot,
     registerManagerInstance,
     setDefaultManagerInstance,
 } from "#manager/manager-config";
@@ -21,7 +25,8 @@ import {readInstallationManifest} from "#manager/manifest-store";
 import {discoverInstallationRoot, installationPaths} from "#manager/paths";
 import {parseProfile, profileNames} from "#manager/profiles";
 import {runManagerTui} from "#manager/tui";
-import type {ComponentId, InstallProfile, InstallationManifest, ReleaseChannel} from "#manager/types";
+import {adoptSourceInstallation} from "#manager/source-adoption";
+import type {ComponentId, InstallProfile, InstallationManifest, OfflineInspection, ReleaseChannel} from "#manager/types";
 import {updateInstallation} from "#manager/updater";
 import {MANAGER_VERSION} from "#manager/version-info";
 
@@ -118,15 +123,63 @@ instances.command("list")
             console.log(`${marker} ${instance.name}\n  ${instance.root}\n  id: ${instance.id}`);
         }
     });
+const importCommand = async (path: string, options: {name?: string; default: boolean; yes?: boolean; json?: boolean}): Promise<void> => {
+    const result = await importInstallation({root: path, name: options.name, makeDefault: options.default, acceptWarnings: options.yes});
+    if (options.json) printJson(result);
+    else console.log(`已导入：${result.instance.name} (${result.instance.root})`);
+};
 instances.command("add")
     .description("注册已有 Installation Root，不修改实例文件。")
     .argument("<path>")
     .option("--name <name>", "实例显示名称。")
     .option("--default", "设为默认实例。", false)
-    .action(async (path: string, options: {name?: string; default: boolean}) => {
-        const instance = await registerManagerInstance({root: path, name: options.name, makeDefault: options.default});
-        console.log(`已注册：${instance.name} (${instance.root})`);
+    .option("--yes", "接受离线检查warning。", false)
+    .action(importCommand);
+instances.command("import")
+    .description("导入已有Manifest v3实例，不修改实例文件。")
+    .argument("<path>")
+    .option("--name <name>", "实例显示名称。")
+    .option("--default", "设为默认实例。", false)
+    .option("--yes", "接受离线检查warning。", false)
+    .option("--json", "输出导入检查和结果。", false)
+    .action(importCommand);
+instances.command("inspect")
+    .description("只读检查当前或指定目录。")
+    .argument("[path]", "候选目录。", process.cwd())
+    .option("--json", "输出JSON。", false)
+    .action(async (path: string, options: {json: boolean}) => {
+        const inspection = await inspectInstance(path);
+        options.json ? printJson(inspection) : printInspection(inspection);
     });
+instances.command("discover")
+    .description("在有限搜索根内发现未登记实例。")
+    .option("--root <paths...>", "本次搜索根。")
+    .option("--json", "输出JSON。", false)
+    .action(async (options: {root?: string[]; json: boolean}) => {
+        const config = await readManagerConfig();
+        const result = await discoverInstances(options.root ?? configuredDiscoveryRoots(config), config.instances.map((instance) => instance.root));
+        if (options.json) printJson(result);
+        else {
+            if (!result.candidates.length) console.log("没有发现未登记的NeuroBook实例。");
+            for (const candidate of result.candidates) printInspection(candidate);
+            for (const warning of result.warnings) console.warn(`警告：${warning.message}`);
+        }
+    });
+const instanceRoots = instances.command("roots").description("管理有限实例搜索根。");
+instanceRoots.command("list").action(async () => {
+    const config = await readManagerConfig();
+    const roots = configuredDiscoveryRoots(config);
+    if (!roots.length) console.log("自动发现已关闭。");
+    else for (const root of roots) console.log(root);
+});
+instanceRoots.command("add").argument("<path>").action(async (path: string) => {
+    const config = await addDiscoveryRoot(path);
+    console.log(`已增加搜索根：${resolve(path)}\n共${configuredDiscoveryRoots(config).length}个搜索根。`);
+});
+instanceRoots.command("remove").argument("<path>").action(async (path: string) => {
+    await removeDiscoveryRoot(path);
+    console.log(`已删除搜索根：${resolve(path)}`);
+});
 instances.command("forget")
     .description("从用户级索引忘记实例，不删除 Installation Root。")
     .argument("<name-or-id>")
@@ -144,6 +197,35 @@ instances.command("default")
 instances.command("config")
     .description("显示用户级 Manager 配置路径。")
     .action(() => console.log(managerConfigPath()));
+
+program.command("adopt")
+    .description("接管没有Manifest的NeuroBook Git checkout。")
+    .argument("[path]", "Git checkout。", process.cwd())
+    .option("--profile <profile>", "source-dev、source-product或source-docker。")
+    .option("--port <port>", "Web端口。", parsePort)
+    .option("--auth <mode>", "密码保护：enabled或disabled。", parseAuth)
+    .option("--yes", "使用默认值，不进入交互。", false)
+    .option("--dry-run", "只输出接管计划。", false)
+    .action(async (path: string, options: {profile?: string; port?: number; auth?: boolean; yes: boolean; dryRun: boolean}) => {
+        const inspection = await inspectInstance(path);
+        if (inspection.kind !== "neuro-book-checkout") throw new Error("adopt只接受没有Manifest的NeuroBook Git checkout。" );
+        if (inspection.blockers.length) throw new Error(inspection.blockers.map((issue) => issue.message).join("\n"));
+        let profile = options.profile ? parseAdoptProfile(options.profile) : "source-dev" as const;
+        if (!options.yes && process.stdin.isTTY && process.stdout.isTTY) {
+            profile = await promptResult(p.select({message: "选择接管后的运行方式", initialValue: profile, options: [
+                {value: "source-dev" as const, label: "Source Dev", hint: "保留源码；现有不可信.output不纳入管理"},
+                {value: "source-product" as const, label: "Source Product", hint: "从当前revision事务重建Product"},
+                {value: "source-docker" as const, label: "Source Docker", hint: "容器内构建明确revision镜像"},
+            ]}));
+            const confirmed = await promptResult(p.confirm({message: `接管${inspection.root}为${profile}？`, initialValue: true}));
+            if (!confirmed) { p.cancel("已取消接管，没有修改目录。" ); return; }
+        }
+        const config = await readManagerConfig();
+        const input = {root: inspection.root, profile, channel: config.preferences.channel, port: options.port ?? 3000, authEnabled: options.auth ?? true, dryRun: options.dryRun, managerExecutable};
+        if (options.dryRun) { printJson(installPlan(input)); return; }
+        const {manifest} = await adoptSourceInstallation(input);
+        p.outro(`接管完成：${inspection.root}\nProfile: ${manifest.profile}\nVersion: ${manifest.appVersion}`);
+    });
 
 program.command("update")
     .description("事务更新当前或指定安装。")
@@ -265,7 +347,7 @@ await main();
 async function main(): Promise<void> {
     try {
         if (process.argv.slice(2).length === 0) {
-            await runInstallGuide({managerExecutable});
+            await runContextEntry();
             return;
         }
         await program.parseAsync(process.argv);
@@ -273,6 +355,101 @@ async function main(): Promise<void> {
         p.log.error(error instanceof Error ? error.message : String(error));
         process.exitCode = 1;
     }
+}
+
+/** 无参数入口根据当前目录切换管理、接管和部署菜单。 */
+async function runContextEntry(): Promise<void> {
+    const inspection = await inspectInstance(process.cwd());
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+        printJson({...inspection, nextCommand: inspection.kind === "managed-installation" ? "neuro-book manage" : inspection.kind === "neuro-book-checkout" ? `neuro-book adopt ${JSON.stringify(inspection.root)}` : inspection.kind === "invalid-installation" ? "重新安装当前实例；不要覆盖损坏目录" : "neuro-book install --profile <profile> --yes"});
+        return;
+    }
+    if (inspection.kind === "managed-installation" && inspection.manifest) {
+        p.intro("NeuroBook 实例管理");
+        p.note(`目录：${inspection.root}\nProfile：${inspection.manifest.profile}\n版本：${inspection.manifest.appVersion}`, "当前实例");
+        const action = await promptResult(p.select({message: "要执行什么操作？", options: [
+            {value: "manage", label: "打开实例管理TUI"}, {value: "start", label: "启动当前实例"},
+            {value: "status", label: "查看状态"}, {value: "doctor", label: "运行诊断"},
+            {value: "update", label: "更新当前实例"}, {value: "admin", label: "创建管理员"},
+            {value: "runtime", label: "查看Runtime"}, {value: "tools", label: "查看Tool"}, {value: "instances", label: "查看实例索引"},
+        ]}));
+        if (action === "manage") return runManagerTui(managerExecutable);
+        if (action === "start") return startApplication(inspection.root, inspection.manifest);
+        if (action === "status") return printObject(await installationStatus(inspection.root, inspection.manifest));
+        if (action === "doctor") return printObject(await doctor(inspection.root, inspection.manifest));
+        if (action === "update") { await updateInstallation({root: inspection.root, manifest: inspection.manifest, managerExecutable}); return; }
+        if (action === "runtime") { printJson({managerRuntime: inspection.manifest.components.managerRuntime, applicationRuntime: inspection.manifest.components.applicationRuntime}); return; }
+        if (action === "tools") { printJson(inspection.manifest.components.tools); return; }
+        if (action === "instances") { printJson(await readManagerConfig()); return; }
+        await createAdmin(inspection.root, inspection.manifest);
+        return;
+    }
+    if (inspection.kind === "invalid-installation") {
+        p.intro("NeuroBook实例损坏");
+        printInspection(inspection);
+        const action = await promptResult(p.select({message: "下一步", options: [{value: "manage", label: "管理其他实例"}, {value: "exit", label: "退出并人工处理"}]}));
+        if (action === "manage") await runManagerTui(managerExecutable);
+        return;
+    }
+    if (inspection.kind === "neuro-book-checkout") {
+        p.intro("发现未接管的NeuroBook源码");
+        printInspection(inspection);
+        const action = await promptResult(p.select({message: "下一步", options: [
+            {value: "adopt", label: "接管当前目录"}, {value: "manage", label: "管理其他实例"}, {value: "install", label: "部署新实例"},
+        ]}));
+        if (action === "manage") return runManagerTui(managerExecutable);
+        if (action === "install") return runInstallGuide({managerExecutable});
+        await program.parseAsync([process.argv[0]!, process.argv[1]!, "adopt", inspection.root]);
+        return;
+    }
+    const config = await readManagerConfig();
+    const found = await discoverInstances(configuredDiscoveryRoots(config), config.instances.map((instance) => instance.root));
+    p.intro("NeuroBook Manager");
+    p.note(`已注册实例：${config.instances.length}\n发现未登记实例：${found.candidates.length}`, "环境检测");
+    const action = await promptResult(p.select({message: "你希望做什么？", options: [
+        {value: "install", label: "部署新实例"}, {value: "manage", label: "管理已有实例", disabled: config.instances.length === 0},
+        {value: "discover", label: "查看发现的实例", disabled: found.candidates.length === 0},
+    ]}));
+    if (action === "manage") return runManagerTui(managerExecutable);
+    if (action === "discover") { await handleDiscoveredCandidates(found.candidates); return; }
+    await runInstallGuide({managerExecutable});
+}
+
+async function handleDiscoveredCandidates(candidates: OfflineInspection[]): Promise<void> {
+    const selected = await promptResult(p.select({message: "选择候选实例", options: [...candidates.map((candidate) => ({value: candidate.root, label: candidate.root, hint: candidate.kind})), {value: "__back", label: "返回"}]}));
+    if (selected === "__back") return;
+    const inspection = candidates.find((candidate) => candidate.root === selected);
+    if (!inspection) return;
+    printInspection(inspection);
+    if (inspection.kind === "managed-installation") {
+        const checked = await inspectImport(inspection.root);
+        if (!checked.importable) throw new Error(checked.blockers.map((issue) => issue.message).join("\n"));
+        const confirmed = await promptResult(p.confirm({message: "导入此实例？", initialValue: true}));
+        if (confirmed) await importInstallation({root: inspection.root, acceptWarnings: true});
+        return;
+    }
+    if (inspection.kind === "neuro-book-checkout") {
+        if (inspection.blockers.length) throw new Error(inspection.blockers.map((issue) => issue.message).join("\n"));
+        const confirmed = await promptResult(p.confirm({message: "以Source Dev接管此checkout？", initialValue: true}));
+        if (!confirmed) return;
+        const config = await readManagerConfig();
+        await adoptSourceInstallation({root: inspection.root, profile: "source-dev", channel: config.preferences.channel, port: 3000, authEnabled: true, dryRun: false, managerExecutable});
+    }
+}
+
+function printInspection(inspection: OfflineInspection): void {
+    console.log([`目录：${inspection.root}`, `类型：${inspection.kind}`, inspection.git ? `Git：${inspection.git.branch} ${inspection.git.revision}${inspection.git.dirty ? " dirty" : ""}` : "", `Product：${inspection.product.exists ? inspection.product.trusted ? "可信" : "存在但不可信" : "不存在"}`, ...inspection.blockers.map((item) => `阻断：${item.message}`), ...inspection.warnings.map((item) => `警告：${item.message}`)].filter(Boolean).join("\n"));
+}
+
+function parseAdoptProfile(value: string): "source-dev" | "source-product" | "source-docker" {
+    if (value === "source-dev" || value === "source-product" || value === "source-docker") return value;
+    throw new Error(`接管只支持Source Profile：${value}`);
+}
+
+async function promptResult<T>(result: Promise<T | symbol>): Promise<T> {
+    const value = await result;
+    if (p.isCancel(value)) throw new Error("已取消操作。" );
+    return value as T;
 }
 
 /** 按显式 root、显式实例、当前目录、默认实例的顺序定位安装。 */

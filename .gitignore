@@ -38,6 +38,7 @@ product/
 .agent/manual-retrieval-e2e-build-check/
 .agent/workspace
 /workspace/
+/logs/
 /coverage/
 /.agent/
 docs/.vitepress/dist

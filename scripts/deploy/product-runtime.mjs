@@ -285,6 +285,7 @@ async function writeProductPackageJson() {
         type: "module",
         scripts: {
             start: "bun .output/server/scripts/deploy/product-start.mjs",
+            "create-admin": "bun .output/server/scripts/cli/create-admin.ts",
             "auth:create-admin": "bun .output/server/scripts/cli/create-admin.ts",
             "migrate:deploy": "bun .output/server/scripts/db/prisma-migrate.mjs --deploy",
             "migrate:agent-session-initial": "bun .output/server/scripts/db/migrate-agent-session-initial.ts",

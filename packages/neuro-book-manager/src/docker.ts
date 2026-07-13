@@ -41,6 +41,9 @@ export async function writeDockerCompose(input: {
             ],
             restart: "unless-stopped",
         };
+    if (process.platform !== "win32" && typeof process.getuid === "function" && typeof process.getgid === "function") {
+        Object.assign(service, {user: `${process.getuid()}:${process.getgid()}`});
+    }
     await writeTextAtomic(composePath, stringify({services: {app: service}}));
     return composePath;
 }
