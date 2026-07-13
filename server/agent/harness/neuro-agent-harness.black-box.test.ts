@@ -6,6 +6,7 @@ import {fauxAssistantMessage, fauxText, fauxToolCall, registerFauxProvider} from
 import type {FauxProviderRegistration} from "@earendil-works/pi-ai";
 import {Type} from "typebox";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
+import {AgentSessionEventHub} from "nbook/server/agent/events/session-event-hub";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {defineAgentProfile as defineRuntimeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
@@ -1197,6 +1198,80 @@ describe("NeuroAgentHarness black-box contract", () => {
             await observer.stop();
         }
     });
+
+    it("运行中 transcript anchor 过期后 snapshot cursor 推进到 latestSeq", async () => {
+        let releaseTool = () => {};
+        const toolBlocker = new Promise<void>((resolve) => {
+            releaseTool = resolve;
+        });
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            modelResolver: () => faux.getModel(),
+            enableSessionSummarizer: false,
+            eventHub: new AgentSessionEventHub({
+                replayLimit: 100,
+                pinnedReplayByteLimit: 1200,
+            }),
+        });
+        harness.tools.register({
+            key: "expired_replay_tool",
+            name: "expired_replay_tool",
+            label: "Expired Replay Tool",
+            description: "Waits until released.",
+            parameters: Type.Object({text: Type.String()}),
+            async execute() {
+                await toolBlocker;
+                return {content: [{type: "text", text: "done"}], details: {}};
+            },
+        });
+        registerPlainProfile(harness, {
+            key: "test.blackbox.expired-replay",
+            allowedToolKeys: ["expired_replay_tool"],
+        });
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("expired_replay_tool", {text: "payload"}, {id: "expired-replay-1"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage("done"),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.blackbox.expired-replay",
+            initial: {},
+            workspaceRoot: root,
+        });
+        const running = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+        try {
+            await waitUntil(async () => {
+                const snapshot = await harness.getSessionSnapshot(created.sessionId);
+                return snapshot.activeInvocation !== null;
+            }, "expired replay tool starts");
+            for (let index = 0; index < 3; index += 1) {
+                harness.eventHub.publish({
+                    sessionId: created.sessionId,
+                    kind: "runtime",
+                    event: {
+                        type: "tool_execution_start",
+                        toolCallId: `large-${String(index)}`,
+                        toolName: "test",
+                        args: {payload: "x".repeat(800)},
+                    },
+                });
+            }
+
+            const snapshot = await harness.getSessionSnapshot(created.sessionId);
+
+            expect(snapshot.activeInvocation).not.toBeNull();
+            expect(snapshot.eventCursor.after).toBe(snapshot.latestSeq);
+            expect(snapshot.lastSeq).toBe(snapshot.latestSeq);
+        } finally {
+            releaseTool();
+            await running;
+        }
+    }, 30_000);
 });
 
 async function waitForSessionText(harness: NeuroAgentHarness, sessionId: number, text: string): Promise<NeuroSessionContext> {

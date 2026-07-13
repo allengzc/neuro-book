@@ -13,6 +13,9 @@ const {t} = useI18n();
 interface WriteFileArgs {
     path?: string;
     content?: string;
+    contentPreview?: string;
+    contentBytes?: number;
+    contentOmitted?: boolean;
 }
 
 const parsedArgs = computed<WriteFileArgs>(() => {
@@ -21,7 +24,8 @@ const parsedArgs = computed<WriteFileArgs>(() => {
 });
 
 const filePathText = computed(() => parsedArgs.value.path ?? extractStreamingStringField(props.toolCall.argsText, "path"));
-const contentText = computed(() => parsedArgs.value.content ?? extractStreamingStringField(props.toolCall.argsText, "content"));
+const contentText = computed(() => parsedArgs.value.content ?? parsedArgs.value.contentPreview ?? extractStreamingStringField(props.toolCall.argsText, "content"));
+const contentBytesText = computed(() => typeof parsedArgs.value.contentBytes === "number" ? `${parsedArgs.value.contentBytes} bytes` : "");
 
 </script>
 
@@ -38,6 +42,10 @@ const contentText = computed(() => parsedArgs.value.content ?? extractStreamingS
         
         <!-- Content Preview：content 在流式阶段实时增长 -->
         <div class="rounded-xl border border-[var(--border-color)] bg-[var(--bg-main)]/50 p-4">
+            <div v-if="parsedArgs.contentOmitted && contentBytesText" class="mb-2 flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
+                <span class="i-lucide-scissors h-3.5 w-3.5"></span>
+                {{ t("agent.tool.previewTruncated", {bytes: contentBytesText}) }}
+            </div>
             <div class="text-sm leading-relaxed text-[var(--text-main)]">
                 <AgentMarkdownContent :content="contentText || '...'" />
             </div>
@@ -53,4 +61,3 @@ const contentText = computed(() => parsedArgs.value.content ?? extractStreamingS
         </div>
     </div>
 </template>
-

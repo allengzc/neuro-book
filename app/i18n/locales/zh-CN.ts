@@ -1462,6 +1462,7 @@ const zhCN = {
             patchApplied: "补丁应用成功",
             fileWritten: "文件写入成功",
             fileEdited: "文件修改成功",
+            previewTruncated: "仅显示预览，完整内容 {bytes}",
             interrupted: "工具调用未完成：服务重启或运行中断后，已经无法继续等待这个结果。",
             waitingUserAnswer: "等待用户回答",
             waitingApproval: "等待审批",

@@ -13,6 +13,8 @@ import type {
     AgentSessionEntryPageDto,
     AgentSessionListPageDto,
     AgentSessionListQueryDto,
+    AgentSessionContextUsageResultDto,
+    AgentSessionSnapshotQueryDto,
     AgentSessionRelationsDto,
     AgentSessionSnapshotDto,
     AgentSessionTreeSnapshotDto,
@@ -37,8 +39,14 @@ export function useAgentSessionApi() {
         });
     };
 
-    const getSession = (sessionId: number) => {
-        return $fetch<AgentSessionSnapshotDto>(`/api/agent/sessions/${sessionId}`);
+    const getSession = (sessionId: number, query: AgentSessionSnapshotQueryDto = {}) => {
+        return $fetch<AgentSessionSnapshotDto>(`/api/agent/sessions/${sessionId}`, {
+            query,
+        });
+    };
+
+    const getSessionContextUsage = (sessionId: number) => {
+        return $fetch<AgentSessionContextUsageResultDto>(`/api/agent/sessions/${sessionId}/context-usage`);
     };
 
     const getSessionEntries = (sessionId: number, query: {beforeEntryId?: string | null; limit?: number} = {}) => {
@@ -123,6 +131,7 @@ export function useAgentSessionApi() {
         abortSession,
         createSession,
         getSession,
+        getSessionContextUsage,
         getSessionEntries,
         getSessionRelations,
         getSessionTree,

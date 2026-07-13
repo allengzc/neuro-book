@@ -846,6 +846,7 @@ const loadSession = async (sessionId: number): Promise<void> => {
         const snapshot = await agentApi.getSession(sessionId);
         session.applySnapshot(snapshot);
         syncSessionModelState(snapshot.summary);
+        void refreshSessionContextUsage(sessionId);
         void sessionStream.start(sessionId);
         fileChangedSinceLastSend.value = false;
         await nextTick();
@@ -853,6 +854,21 @@ const loadSession = async (sessionId: number): Promise<void> => {
     } catch (error) {
         console.error(`加载 session ${String(sessionId)} 失败`, error);
         notifyAgentError(error, t("agent.chatSurface.loadSessionFailed"));
+    }
+};
+
+/**
+ * 刷新底部上下文 token 仪表盘。失败不影响聊天主流程。
+ */
+const refreshSessionContextUsage = async (sessionId: number): Promise<void> => {
+    try {
+        const result = await agentApi.getSessionContextUsage(sessionId);
+        if (activeSessionId.value !== sessionId) {
+            return;
+        }
+        session.applyContextUsage(result.sessionId, result.contextUsage);
+    } catch (error) {
+        console.debug("刷新 Agent context usage 失败", error);
     }
 };
 

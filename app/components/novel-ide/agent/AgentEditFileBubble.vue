@@ -16,6 +16,12 @@ interface EditFileArgs {
     edits?: Array<{
         oldText?: string;
         newText?: string;
+        oldTextPreview?: string;
+        newTextPreview?: string;
+        oldTextBytes?: number;
+        newTextBytes?: number;
+        oldTextOmitted?: boolean;
+        newTextOmitted?: boolean;
     }>;
 }
 
@@ -27,8 +33,10 @@ const parsedArgs = computed<EditFileArgs>(() => {
 
 const firstEdit = computed(() => parsedArgs.value.edits?.[0] ?? {});
 const filePathText = computed(() => parsedArgs.value.path ?? extractStreamingStringField(props.toolCall.argsText, "path"));
-const oldStringText = computed(() => firstEdit.value.oldText ?? extractStreamingStringField(props.toolCall.argsText, "oldText"));
-const newStringText = computed(() => firstEdit.value.newText ?? extractStreamingStringField(props.toolCall.argsText, "newText"));
+const oldStringText = computed(() => firstEdit.value.oldText ?? firstEdit.value.oldTextPreview ?? extractStreamingStringField(props.toolCall.argsText, "oldText"));
+const newStringText = computed(() => firstEdit.value.newText ?? firstEdit.value.newTextPreview ?? extractStreamingStringField(props.toolCall.argsText, "newText"));
+const oldBytesText = computed(() => typeof firstEdit.value.oldTextBytes === "number" ? `${firstEdit.value.oldTextBytes} bytes` : "");
+const newBytesText = computed(() => typeof firstEdit.value.newTextBytes === "number" ? `${firstEdit.value.newTextBytes} bytes` : "");
 
 const resultText = computed(() => props.toolCall.result?.trim() ?? "");
 </script>
@@ -48,6 +56,7 @@ const resultText = computed(() => props.toolCall.result?.trim() ?? "");
         <div class="grid grid-cols-2 gap-2 mt-2">
             <div class="rounded border border-[var(--border-color)] bg-[var(--status-danger-bg)]">
                 <div class="border-b border-[var(--border-color)]/50 px-2 py-1 text-[10px] uppercase text-[var(--status-danger)]">Old String</div>
+                <div v-if="firstEdit.oldTextOmitted && oldBytesText" class="border-b border-[var(--border-color)]/40 px-2 py-1 text-[10px] text-[var(--text-muted)]">{{ t("agent.tool.previewTruncated", {bytes: oldBytesText}) }}</div>
                 <div class="max-h-40 overflow-y-auto whitespace-pre-wrap p-2 font-mono text-xs text-[var(--status-danger)] line-through opacity-80">
                     {{ oldStringText || "..." }}
                 </div>
@@ -55,6 +64,7 @@ const resultText = computed(() => props.toolCall.result?.trim() ?? "");
             
             <div class="rounded border border-[var(--border-color)] bg-[var(--status-success-bg)]">
                 <div class="border-b border-[var(--border-color)]/50 px-2 py-1 text-[10px] uppercase text-[var(--status-success)]">New String</div>
+                <div v-if="firstEdit.newTextOmitted && newBytesText" class="border-b border-[var(--border-color)]/40 px-2 py-1 text-[10px] text-[var(--text-muted)]">{{ t("agent.tool.previewTruncated", {bytes: newBytesText}) }}</div>
                 <div class="max-h-40 overflow-y-auto whitespace-pre-wrap p-2 font-mono text-xs text-[var(--status-success)]">
                     {{ newStringText || "..." }}
                 </div>

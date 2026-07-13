@@ -97,6 +97,7 @@ import type {
     AgentLinkedSessionDto,
     AgentPendingApprovalDto,
     AgentRuntimeStreamEventDto,
+    AgentSessionContextUsageResultDto,
     AgentSessionContextUsageDto,
     AgentSessionEntryPageDto,
     AgentSessionEventDto,
@@ -341,6 +342,7 @@ const AGENT_TIMING_KEYS: Array<keyof AgentOperationTiming> = [
 ];
 
 const AGENT_COMMAND_SLOW_MS = 500;
+const AGENT_CONTEXT_USAGE_SLOW_MS = 500;
 const AGENT_RELATIONS_SLOW_MS = 500;
 const AGENT_SNAPSHOT_SLOW_MS = 1000;
 
@@ -496,7 +498,7 @@ export class NeuroAgentHarness {
      * 给 Agent HTTP 热路径收集统一分段耗时，并只在超过阈值时写慢请求日志。
      */
     private async withAgentOperationTiming<T>(
-        event: "agent.command.slow" | "agent.relations.slow" | "agent.snapshot.slow",
+        event: "agent.command.slow" | "agent.contextUsage.slow" | "agent.relations.slow" | "agent.snapshot.slow",
         thresholdMs: number,
         data: Record<string, unknown>,
         task: (timing: AgentOperationTiming) => Promise<T>,
@@ -1666,6 +1668,19 @@ export class NeuroAgentHarness {
     }
 
     /**
+     * 返回当前会话上下文 token 估算。该接口不携带 entries/tree，供前端仪表盘按需刷新。
+     */
+    async getSessionContextUsage(sessionId: number, timingSink?: ServerTimingSink): Promise<AgentSessionContextUsageResultDto> {
+        return this.withAgentOperationTiming("agent.contextUsage.slow", AGENT_CONTEXT_USAGE_SLOW_MS, {sessionId}, async (timing) => {
+            const projection = await this.resolveSessionRuntimeProjection(sessionId, undefined, timing);
+            return {
+                sessionId,
+                contextUsage: await this.safeSessionContextUsage(projection.snapshot, projection.context, projection.profile) ?? null,
+            };
+        }, timingSink);
+    }
+
+    /**
      * 返回 active path entries 的一页。首屏轻快照只带尾部窗口，向上翻历史时走这里。
      */
     async getSessionEntries(sessionId: number, input: {beforeEntryId?: string; limit?: number} = {}): Promise<AgentSessionEntryPageDto> {
@@ -1780,9 +1795,12 @@ export class NeuroAgentHarness {
 
     private snapshotEventCursor(sessionId: number, latestSeq = this.eventHub.lastSeq(sessionId)): AgentSessionSnapshotDto["eventCursor"] {
         const anchor = this.transcriptReplayAnchors.get(sessionId);
+        const after = anchor && this.eventHub.canReplayAfter(sessionId, anchor.after)
+            ? anchor.after
+            : latestSeq;
         return {
             eventEpoch: this.eventHub.eventEpoch,
-            after: anchor?.after ?? latestSeq,
+            after,
         };
     }
 

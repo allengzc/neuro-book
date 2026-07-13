@@ -103,6 +103,15 @@ export async function getAgentSessionSnapshot(sessionId: number, harness = useAg
 }
 
 /**
+ * 返回当前 session 的上下文 token 估算，不携带完整 snapshot entries。
+ */
+export async function getAgentSessionContextUsage(sessionId: number, harness = useAgentHarness(), timingSink?: ServerTimingSink) {
+    return timingSink
+        ? harness.getSessionContextUsage(sessionId, timingSink)
+        : harness.getSessionContextUsage(sessionId);
+}
+
+/**
  * 返回 active path entries 的分页窗口。
  */
 export async function getAgentSessionEntries(sessionId: number, query: AgentSessionEntriesQueryDto, harness = useAgentHarness()) {

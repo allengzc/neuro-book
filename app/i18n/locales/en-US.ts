@@ -1464,6 +1464,7 @@ const enUS = {
             patchApplied: "Patch applied",
             fileWritten: "File written",
             fileEdited: "File edited",
+            previewTruncated: "Preview only, full content {bytes}",
             interrupted: "Tool call was not completed. After a service restart or runtime interruption, this result can no longer be awaited.",
             waitingUserAnswer: "Waiting for user answer",
             waitingApproval: "Waiting for approval",

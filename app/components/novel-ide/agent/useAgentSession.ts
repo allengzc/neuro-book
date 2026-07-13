@@ -1,4 +1,4 @@
-import type {AgentRuntimeStreamEventDto, AgentSessionEventDto, AgentSessionLiveStateDto, AgentSessionRelationsDto, AgentSessionSnapshotDto, AgentPendingApprovalDto, AgentSessionEntryPageDto} from "nbook/shared/dto/agent-session.dto";
+import type {AgentRuntimeStreamEventDto, AgentSessionContextUsageDto, AgentSessionEventDto, AgentSessionLiveStateDto, AgentSessionRelationsDto, AgentSessionSnapshotDto, AgentPendingApprovalDto, AgentSessionEntryPageDto} from "nbook/shared/dto/agent-session.dto";
 import type {SessionEntry} from "nbook/server/agent/session/types";
 import {computed, getCurrentScope, onScopeDispose, ref, shallowRef} from "vue";
 import {
@@ -224,13 +224,24 @@ export function useAgentSession() {
         const cursor = payload.eventCursor ?? {eventEpoch: payload.eventEpoch, after: payload.lastSeq};
         const activePathChanged = snapshotReasons.value.includes("active_path_changed");
         const snapshotMessages = deriveMessagesFromSessionSnapshot(payload);
+        const snapshotMessageIds = new Set(snapshotMessages.map((message) => message.id));
+        // Snapshot 请求可能在 invocation 运行中发起，但返回时 invocation 已经结束。
+        // 只要 active path 没变，就保留本地已收到但尚未进入 snapshot 的 invocation 消息，
+        // 等后续 SSE replay 或下一次 snapshot 与服务端 entries 合并；切换分支时则必须丢弃旧投影。
+        const liveMessages = activePathChanged
+            ? []
+            : messages.value.filter((message) => message.invocationId && !snapshotMessageIds.has(message.id));
         const pendingOptimisticMessages = messages.value.filter((message) => {
             return message.id.startsWith("optimistic-user-")
                 && !snapshotMessages.some((snapshotMessage) => snapshotMessage.type === "user" && snapshotMessage.content === message.content);
         });
-        snapshot.value = payload;
+        snapshot.value = {
+            ...payload,
+            contextUsage: payload.contextUsage ?? snapshot.value?.contextUsage,
+        };
         const nextMessages = [
             ...snapshotMessages,
+            ...liveMessages,
             ...pendingOptimisticMessages,
         ];
         messages.value = activePathChanged ? nextMessages : reconcileMessages(messages.value, nextMessages);
@@ -292,6 +303,19 @@ export function useAgentSession() {
     };
 
     /**
+     * 只更新上下文 token 估算，不重建消息流。
+     */
+    const applyContextUsage = (sessionId: number, contextUsage: AgentSessionContextUsageDto | null): void => {
+        if (!snapshot.value || snapshot.value.summary.sessionId !== sessionId || !contextUsage) {
+            return;
+        }
+        snapshot.value = {
+            ...snapshot.value,
+            contextUsage,
+        };
+    };
+
+    /**
      * 应用轻量 live state。它只更新运行态 shell，不重建历史消息。
      */
     const applyLiveState = (state: AgentSessionLiveStateDto): void => {
@@ -316,7 +340,7 @@ export function useAgentSession() {
             effectiveThinkingLevel: state.effectiveThinkingLevel,
             agentMode: state.agentMode,
             usage: state.usage,
-            contextUsage: state.contextUsage,
+            contextUsage: state.contextUsage ?? currentSnapshot.contextUsage,
         };
         if (state.activeInvocation) {
             liveRunStatus.value = state.activeInvocation.status === "waiting" ? "waiting" : state.activeInvocation.status;
@@ -372,12 +396,12 @@ export function useAgentSession() {
         if (eventEpoch.value === null) {
             eventEpoch.value = payload.eventEpoch;
         }
+        if (payload.seq <= lastSeq.value) {
+            return;
+        }
         if (payload.kind === "session" && payload.event.type === "snapshot_required") {
             flushPendingMessageUpdates();
             requestSnapshot("snapshot_required");
-            return;
-        }
-        if (payload.seq <= lastSeq.value) {
             return;
         }
         if (payload.seq > lastSeq.value + 1 && lastSeq.value > 0) {
@@ -474,6 +498,7 @@ export function useAgentSession() {
     return {
         appendOptimisticUserMessage,
         applyConnectionStatus,
+        applyContextUsage,
         applyEvent,
         applyLiveState,
         applyRelations,

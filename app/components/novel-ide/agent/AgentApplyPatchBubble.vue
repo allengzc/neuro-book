@@ -11,6 +11,10 @@ const {t} = useI18n();
 interface ApplyPatchArgs {
     path?: string;
     patch?: string;
+    patchPreview?: string;
+    patchBytes?: number;
+    patchOmitted?: boolean;
+    touchedFiles?: string[];
 }
 
 /** apply_patch 的 patch 文本通常较长，需要优先展示已解析出的 patch 内容。 */
@@ -19,9 +23,13 @@ const parsedArgs = computed<ApplyPatchArgs>(() => {
     return parsed ?? {};
 });
 
-const patchText = computed(() => parsedArgs.value.patch ?? props.toolCall.argsText ?? "");
+const patchText = computed(() => parsedArgs.value.patch ?? parsedArgs.value.patchPreview ?? props.toolCall.argsText ?? "");
+const patchBytesText = computed(() => typeof parsedArgs.value.patchBytes === "number" ? `${parsedArgs.value.patchBytes} bytes` : "");
 const touchedFiles = computed(() => {
     const files: string[] = [];
+    if (Array.isArray(parsedArgs.value.touchedFiles)) {
+        files.push(...parsedArgs.value.touchedFiles.filter((filePath) => typeof filePath === "string" && filePath.trim()));
+    }
     for (const line of patchText.value.split(/\r?\n/)) {
         if (line.startsWith("*** Add File: ")) {
             files.push(line.slice("*** Add File: ".length).trim());
@@ -36,7 +44,7 @@ const touchedFiles = computed(() => {
     if (files.length === 0 && parsedArgs.value.path) {
         files.push(parsedArgs.value.path);
     }
-    return files;
+    return [...new Set(files)];
 });
 </script>
 
@@ -54,6 +62,7 @@ const touchedFiles = computed(() => {
         <!-- Patch Preview -->
         <div class="rounded border border-[var(--border-color)] bg-[var(--bg-main)]/60">
             <div class="border-b border-[var(--border-color)]/50 px-2 py-1 text-[10px] uppercase tracking-[0.24em] text-[var(--text-muted)]">Patch</div>
+            <div v-if="parsedArgs.patchOmitted && patchBytesText" class="border-b border-[var(--border-color)]/40 px-2 py-1 text-[10px] text-[var(--text-muted)]">{{ t("agent.tool.previewTruncated", {bytes: patchBytesText}) }}</div>
             <pre class="max-h-64 overflow-y-auto whitespace-pre-wrap break-all p-3 font-mono text-xs text-[var(--text-secondary)]">{{ patchText || "..." }}</pre>
         </div>
 

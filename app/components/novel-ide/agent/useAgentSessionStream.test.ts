@@ -173,6 +173,40 @@ describe("useAgentSessionStream", () => {
         expect(session.needsSnapshot.value).toBe(false);
     });
 
+    it("snapshot 已推进 cursor 后忽略队列中后续过期的 snapshot_required", async () => {
+        const session = useAgentSession();
+        const activeSessionId = ref<number | null>(1);
+        session.applySnapshot(baseSnapshot(1));
+        const api = {
+            getSession: vi.fn(async () => baseSnapshot(3)),
+            subscribeSessionEvents: vi.fn(async (_sessionId: number, _cursor: AgentSessionEventsQueryDto, onEvent: (event: AgentSessionEventDto) => Promise<void> | void, _signal?: AbortSignal, options?: {onOpen?: () => void}) => {
+                options?.onOpen?.();
+                await onEvent(sessionEvent({
+                    seq: 2,
+                    sessionId: 1,
+                    kind: "session",
+                    event: {type: "snapshot_required", reason: "buffer expired"},
+                }));
+                await onEvent(sessionEvent({
+                    seq: 3,
+                    sessionId: 1,
+                    kind: "session",
+                    event: {type: "snapshot_required", reason: "stale queued recovery"},
+                }));
+                await new Promise<void>(() => {});
+            }),
+        };
+        const stream = useAgentSessionStream({session, api, activeSessionId});
+
+        await stream.start(1);
+        await vi.waitFor(() => {
+            expect(session.lastSeq.value).toBe(3);
+        });
+
+        expect(api.getSession).toHaveBeenCalledTimes(1);
+        expect(session.needsSnapshot.value).toBe(false);
+    });
+
     it("后端 event epoch 换代后拉 snapshot 并允许 cursor 回退", async () => {
         const session = useAgentSession();
         const activeSessionId = ref<number | null>(1);

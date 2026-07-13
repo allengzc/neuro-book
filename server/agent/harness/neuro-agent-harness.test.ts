@@ -578,6 +578,7 @@ describe("NeuroAgentHarness", () => {
 
         const snapshot = await harness.getSessionSnapshot(created.sessionId);
         const liveState = await harness.getSessionLiveState(created.sessionId);
+        const contextUsageResult = await harness.getSessionContextUsage(created.sessionId);
 
         expect(snapshot.usage).toMatchObject({
             input: 32,
@@ -595,6 +596,10 @@ describe("NeuroAgentHarness", () => {
         expect(typeof snapshot.contextUsage?.usedTokens).toBe("number");
         expect(typeof snapshot.contextUsage?.percent).toBe("number");
         expect(liveState.contextUsage).toEqual(snapshot.contextUsage);
+        expect(contextUsageResult).toEqual({
+            sessionId: created.sessionId,
+            contextUsage: snapshot.contextUsage,
+        });
     });
 
     it("新建 Project session 的 agent cwd 使用 Workspace Root 并保留 projectPath", async () => {

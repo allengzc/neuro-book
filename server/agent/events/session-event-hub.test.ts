@@ -76,8 +76,34 @@ describe("AgentSessionEventHub", () => {
         await subscription.return?.();
     });
 
-    it("replay pin 激活时保留 pin 起点后的事件，解除后恢复 replayLimit 裁剪", async () => {
-        const hub = new AgentSessionEventHub(1);
+    it("准确判断 snapshot cursor 是否仍可 replay", () => {
+        const hub = new AgentSessionEventHub(2);
+        hub.publish({
+            sessionId: 1,
+            kind: "session",
+            event: {type: "invocation_aborted", reason: "first"},
+        });
+        hub.publish({
+            sessionId: 1,
+            kind: "session",
+            event: {type: "invocation_aborted", reason: "second"},
+        });
+
+        expect(hub.canReplayAfter(1, 0)).toBe(true);
+
+        hub.publish({
+            sessionId: 1,
+            kind: "session",
+            event: {type: "invocation_aborted", reason: "third"},
+        });
+
+        expect(hub.canReplayAfter(1, 0)).toBe(false);
+        expect(hub.canReplayAfter(1, 1)).toBe(true);
+        expect(hub.canReplayAfter(1, 4)).toBe(false);
+    });
+
+    it("replay pin 激活时在容量内保留 pin 起点后的事件，解除后恢复 replayLimit 裁剪", async () => {
+        const hub = new AgentSessionEventHub(3);
         const first = hub.publish({
             sessionId: 1,
             kind: "session",
@@ -128,6 +154,139 @@ describe("AgentSessionEventHub", () => {
             }),
         });
         await unpinned.return?.();
+    });
+
+    it("replay pin 不受普通 replayLimit 裁剪，避免运行中 transcript 被 snapshot 恢复吞掉", async () => {
+        const hub = new AgentSessionEventHub(2);
+        const first = hub.publish({
+            sessionId: 1,
+            kind: "session",
+            event: {
+                type: "invocation_aborted",
+                reason: "first",
+            },
+        });
+        hub.pinReplayFrom(1, first.seq);
+        hub.publish({
+            sessionId: 1,
+            kind: "session",
+            event: {
+                type: "invocation_aborted",
+                reason: "second",
+            },
+        });
+        const third = hub.publish({
+            sessionId: 1,
+            kind: "session",
+            event: {
+                type: "invocation_aborted",
+                reason: "third",
+            },
+        });
+
+        const stale = hub.subscribe(1, {eventEpoch: hub.eventEpoch, after: 0})[Symbol.asyncIterator]();
+        const current = hub.subscribe(1, {eventEpoch: hub.eventEpoch, after: third.seq - 1})[Symbol.asyncIterator]();
+
+        await expect(stale.next()).resolves.toEqual({done: false, value: first});
+        await expect(stale.next()).resolves.toEqual({
+            done: false,
+            value: expect.objectContaining({seq: 2}),
+        });
+        await expect(stale.next()).resolves.toEqual({done: false, value: third});
+        await expect(current.next()).resolves.toEqual({
+            done: false,
+            value: third,
+        });
+
+        await stale.return?.();
+        await current.return?.();
+    });
+
+    it("replay pin 仍受 replayByteLimit 保护，超出后裁剪旧事件", async () => {
+        const hub = new AgentSessionEventHub({
+            replayLimit: 100,
+            pinnedReplayByteLimit: 900,
+        });
+        const first = hub.publish({
+            sessionId: 1,
+            kind: "runtime",
+            event: {
+                type: "tool_execution_start",
+                toolCallId: "write-1",
+                toolName: "write",
+                args: {contentPreview: "a".repeat(600)},
+            },
+        });
+        hub.pinReplayFrom(1, first.seq);
+        const second = hub.publish({
+            sessionId: 1,
+            kind: "runtime",
+            event: {
+                type: "tool_execution_start",
+                toolCallId: "write-2",
+                toolName: "write",
+                args: {contentPreview: "b".repeat(600)},
+            },
+        });
+
+        const stale = hub.subscribe(1, {eventEpoch: hub.eventEpoch, after: 0})[Symbol.asyncIterator]();
+        const current = hub.subscribe(1, {eventEpoch: hub.eventEpoch, after: second.seq - 1})[Symbol.asyncIterator]();
+
+        await expect(stale.next()).resolves.toEqual({
+            done: false,
+            value: expect.objectContaining({
+                kind: "session",
+                event: expect.objectContaining({
+                    type: "snapshot_required",
+                    reason: "event replay buffer expired",
+                }),
+            }),
+        });
+        await expect(current.next()).resolves.toEqual({
+            done: false,
+            value: second,
+        });
+
+        await stale.return?.();
+        await current.return?.();
+    });
+
+    it("慢订阅者队列超限时丢弃积压并推送 snapshot_required", async () => {
+        const hub = new AgentSessionEventHub({
+            replayLimit: 100,
+            subscriberQueueLimit: 1,
+        });
+        const subscription = hub.subscribe(1, {eventEpoch: hub.eventEpoch, after: 0})[Symbol.asyncIterator]();
+        hub.publish({
+            sessionId: 1,
+            kind: "session",
+            event: {
+                type: "invocation_aborted",
+                reason: "first",
+            },
+        });
+        const second = hub.publish({
+            sessionId: 1,
+            kind: "session",
+            event: {
+                type: "invocation_aborted",
+                reason: "second",
+            },
+        });
+
+        await expect(subscription.next()).resolves.toEqual({
+            done: false,
+            value: expect.objectContaining({
+                seq: second.seq,
+                kind: "session",
+                event: {
+                    type: "snapshot_required",
+                    reason: "event subscriber queue overflowed",
+                },
+            }),
+        });
+
+        await subscription.return?.();
     });
 
     it("snapshot_required 只发送给落后的订阅者，不广播给正常订阅者", async () => {

@@ -22,6 +22,7 @@
 #### Follow-up: HTTP Light Snapshot / Pagination
 
 - `/api/agent/sessions/:id` 默认改为轻快照：只返回最近 120 条 active entries，不返回 tree、不计算 `systemPrompt` / `contextUsage`。
+- 主 Agent 面板打开当前会话时保持 `/api/agent/sessions/:id` 轻快照，另走 `GET /api/agent/sessions/:id/context-usage` 小接口恢复底部上下文 token 仪表盘；SSE snapshot 恢复继续走默认轻快照，并由前端保留已有 `contextUsage`，避免周期性请求高体积 snapshot。
 - 新增 `GET /api/agent/sessions/:id/entries`，按 `beforeEntryId + limit` 向前分页读取历史 active entries，前端聊天顶部提供“加载更早消息”并保持滚动锚点。
 - 新增 `GET /api/agent/sessions/:id/tree`，会话树 Dialog 打开时按需加载完整 tree；主快照用 `treeComplete` 标记是否已包含完整 tree。
 - `getSessionLiveState()` 的 context usage 改为 best-effort，估算失败只跳过该字段，不阻断 session 写入 / SSE 广播。

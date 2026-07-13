@@ -245,6 +245,12 @@ export type AgentSessionContextUsageDto = {
     estimated: true;
 };
 
+export type AgentSessionContextUsageResultDto = {
+    sessionId: number;
+    /** 为空表示本次估算失败，前端应保留已有值或显示未知。 */
+    contextUsage: AgentSessionContextUsageDto | null;
+};
+
 export type AgentSessionEntryPageDto = {
     sessionId: number;
     entries: SessionEntry[];

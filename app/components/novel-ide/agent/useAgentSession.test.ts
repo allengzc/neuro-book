@@ -214,6 +214,22 @@ describe("useAgentSession", () => {
         expect(session.lastSeq.value).toBe(426);
     });
 
+    it("忽略已经被 snapshot cursor 覆盖的 snapshot_required", () => {
+        const session = useAgentSession();
+        session.applySnapshot(baseSnapshot(10));
+
+        applyEvent(session, {
+            seq: 10,
+            sessionId: 1,
+            kind: "session",
+            event: {type: "snapshot_required", reason: "stale queued recovery"},
+        });
+
+        expect(session.needsSnapshot.value).toBe(false);
+        expect(session.snapshotReasons.value).toEqual([]);
+        expect(session.lastSeq.value).toBe(10);
+    });
+
     it("applyRelations 只更新关联 Agent 数据，不重建消息流", () => {
         const session = useAgentSession();
         session.applySnapshot(baseSnapshot(7));
@@ -270,6 +286,119 @@ describe("useAgentSession", () => {
 
         expect(session.eventEpoch.value).toBe("epoch-1");
         expect(session.lastSeq.value).toBe(3);
+    });
+
+    it("运行中轻量 snapshot 保留未落盘 live 消息和已有 contextUsage", () => {
+        const session = useAgentSession();
+        const activeInvocation = {
+            invocationId: "invocation-1",
+            sessionId: 1,
+            status: "running" as const,
+            mode: "prompt" as const,
+            startedAt: 1,
+        };
+        session.applySnapshot({
+            ...baseSnapshot(0),
+            activeInvocation,
+            contextUsage: {
+                usedTokens: 1200,
+                limitTokens: 8000,
+                percent: 15,
+                estimated: true,
+            },
+        });
+
+        applyEvent(session, {
+            seq: 1,
+            sessionId: 1,
+            invocationId: "invocation-1",
+            kind: "runtime",
+            event: {
+                type: "tool_execution_start",
+                toolCallId: "write-1",
+                toolName: "write",
+                args: {path: "manuscript/01.md", contentPreview: "正文"},
+            },
+        });
+
+        expect(session.messages.value.some((message) => message.id === "tool-execution:write-1")).toBe(true);
+
+        session.applySnapshot({
+            ...baseSnapshot(1),
+            activeInvocation,
+        });
+
+        expect(session.snapshot.value?.contextUsage).toEqual(expect.objectContaining({
+            usedTokens: 1200,
+            limitTokens: 8000,
+        }));
+        expect(session.messages.value.some((message) => message.id === "tool-execution:write-1")).toBe(true);
+    });
+
+    it("snapshot 返回时 invocation 已结束仍保留尚未落盘的最新 live 消息", () => {
+        const session = useAgentSession();
+        session.applySnapshot({
+            ...baseSnapshot(0),
+            activeInvocation: {
+                invocationId: "invocation-1",
+                sessionId: 1,
+                status: "running",
+                mode: "prompt",
+                startedAt: 1,
+            },
+        });
+
+        applyEvent(session, {
+            seq: 1,
+            sessionId: 1,
+            invocationId: "invocation-1",
+            kind: "runtime",
+            event: {
+                type: "message_end",
+                message: assistantMessageWithText("writer 最新回复"),
+            },
+        });
+
+        session.applySnapshot({
+            ...baseSnapshot(1),
+            activeInvocation: null,
+        });
+
+        expect(session.messages.value).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                content: "writer 最新回复",
+                invocationId: "invocation-1",
+            }),
+        ]));
+    });
+
+    it("applyContextUsage 只更新当前 session 的 token 估算，不重建消息流", () => {
+        const session = useAgentSession();
+        session.applySnapshot(baseSnapshot(0));
+        session.appendOptimisticUserMessage("hello");
+        const messagesBefore = session.messages.value;
+
+        session.applyContextUsage(1, {
+            usedTokens: 2400,
+            limitTokens: 8000,
+            percent: 30,
+            estimated: true,
+        });
+
+        expect(session.messages.value).toBe(messagesBefore);
+        expect(session.snapshot.value?.contextUsage).toEqual(expect.objectContaining({
+            usedTokens: 2400,
+            limitTokens: 8000,
+        }));
+
+        session.applyContextUsage(999, {
+            usedTokens: 1,
+            limitTokens: 2,
+            percent: 50,
+            estimated: true,
+        });
+
+        expect(session.snapshot.value?.contextUsage?.usedTokens).toBe(2400);
     });
 
     it("发现 seq gap 后只标记 snapshot 恢复请求", () => {
