@@ -39,7 +39,7 @@
 - `server/utils/model.ts`
 - `app/components/novel-ide/settings/NovelIdeModelSettingsPanel.vue`
 - `config.example.yaml`
-- `scripts/neuro-book-deploy.mjs`
+- 当时的旧部署脚本（已删除）
 - `README.md`
 
 ## Verification

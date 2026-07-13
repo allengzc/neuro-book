@@ -287,7 +287,7 @@ assets/
 - `config.example.yaml`
 - `scripts/migrate-config-system.ts`
 - `scripts/smoke-agent.ts`
-- `scripts/neuro-book-deploy.mjs`
+- 当时的旧部署脚本（已删除）
 - `scripts/check-profile.ts`
 - `scripts/prepare-profile-types.ts`
 - `server/plugins/workspace-root.ts`
@@ -310,7 +310,7 @@ assets/
 - `bun test server/workspace-files`
 - `bun scripts/prepare-profile-types.ts --all`
 - `bunx tsc --noEmit --pretty false`
-- `node --check scripts/neuro-book-deploy.mjs`
+- 旧部署脚本语法检查（历史验证，入口已删除）
 - `node --check scripts/deploy.mjs`
 
 本轮设置页重构追加验证：

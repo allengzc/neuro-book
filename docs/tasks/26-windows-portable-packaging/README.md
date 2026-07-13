@@ -13,7 +13,7 @@
 - 第一阶段先做本地网页体验，后续再考虑桌面窗口。
 - Windows release zip 带启动引导器和内置 Bun，但不携带源码或 `.git`。
 - 首次启动必须联网：引导器统一安装依赖、clone 源码、创建 `.git`，并把目录转换成可跟随 `master` 更新的本机 Git 状态。
-- 这条路径独立于 `neuro-book-deploy` 的部署模式，目标是 Windows 下点击即用。
+- 这条路径独立于当时旧部署CLI的部署模式，目标是Windows下点击即用。
 - zip 自带 Bun；Git、ripgrep 等其他依赖在首次启动时通过 winget 引导安装。
 - Workspace Root 第一版固定使用首次 clone 后的 `app/workspace/`；以后再改成可配置项。
 
@@ -24,11 +24,11 @@
 - Windows zip 自带 Bun，减少 bootstrap 自身依赖；Git、ripgrep 等其他工具由启动引导器统一检查并通过 winget 引导安装。
 - 第一版源码 checkout 固定在 `<Portable Root>/app/`，服务 cwd 也是 `app/`，因此 Workspace Root 固定为 `<Portable Root>/app/workspace/`。
 - 保留本机更新/重建入口，便于用户跟随 `master` 更新后重新生成 `.output`。
-- 不把该能力塞进 `neuro-book-deploy` 的 `local-git` / `ghcr` / `source` 部署模式。
+- 不把该能力塞进旧部署CLI的`local-git` / `ghcr` / `source`部署模式。
 
 ## Current State
 
-- 当前默认部署入口是 `local-git`：`neuro-book-deploy` 负责 clone/pull、依赖探测、`bun install`、Nuxt build、SQLite migration，并生成 `.deploy/start-local-git.*`；Windows release zip 不应只是该模式的另一个参数。
+- 当时默认部署入口是`local-git`：旧部署CLI负责clone/pull、依赖探测、`bun install`、Nuxt build、SQLite migration，并生成`.deploy/start-local-git.*`；Windows release zip不应只是该模式的另一个参数。
 - 部署已经硬切 SQLite-only：App SQLite 默认位于 `workspace/.nbook/neuro-book.sqlite`，Project SQLite 位于各 Project Workspace 的 `.nbook/project.sqlite`。
 - Nuxt build 后的 `.output` 体积较小，但运行时仍依赖项目根下的系统 assets、Prisma 产物、SQLite migrations、workspace 模板和部分管理脚本。
 - 当前项目不是天然桌面客户端；更贴合现状的第一阶段是启动本地服务并打开浏览器。
@@ -176,7 +176,7 @@
 
 - 只考虑 Windows 平台。
 - 第一阶段做本地网页 portable，不做桌面壳。
-- 该能力是独立 Windows release zip，不作为 `neuro-book-deploy` 的新部署模式。
+- 该能力是独立Windows release zip，不作为旧部署CLI的新部署模式。
 - 对外口径使用“解压后点击启动；首次启动会联网安装依赖并拉取源码”，不称为离线包。
 - zip 不携带源码或 `.git`；首次启动必须 clone 源码并创建 `.git`，后续转换成可跟随 `master` 的 Git local 状态。
 - Windows zip 自带 Bun。
@@ -384,11 +384,11 @@
 
 - 已执行：
     - Bun import/smoke 覆盖 `scripts/deploy/publish-ghcr-image.mjs`
-    - Bun import/smoke 覆盖 `scripts/deploy/neuro-book-deploy.mjs`
+    - Bun import/smoke覆盖当时的旧部署脚本（现已删除）
     - `bun scripts/cli/create-admin.ts admin password123` 返回预期错误，确认禁止位置参数密码的提示不再写死 `bun run auth:create-admin`。
     - `bash -n scripts/deploy/docker-product-entrypoint.sh`
     - `bun scripts/deploy/publish-ghcr-image.mjs --dry-run`
-    - `bun scripts/deploy/neuro-book-deploy.mjs --yes --deploy-mode ghcr --dry-run --dir .agent/workspace/deploy-ghcr-dry-run`
+    - 旧部署CLI的GHCR dry-run通过（入口现已删除）
     - Bun import/smoke 覆盖 `scripts/deploy/windows-portable.mjs`
     - Bun import/smoke 覆盖 `scripts/deploy/windows-portable/launcher/launcher.mjs`
     - Bun import/smoke 覆盖 `scripts/deploy/product-runtime.mjs`
@@ -414,7 +414,7 @@
     - 解压新 zip 到 `%TEMP%`，确认根目录无 `.git`、无根 `node_modules`；PATH 只保留 zip 内 `runtime/bun` 和 Windows 系统目录后，执行 `app\assets\workspace\.nbook\agent\bin\workspace.cmd project create/validate`、`profile.cmd --help`、`variable.cmd --help`，确认 zip 内 wrapper 可用。
     - 使用本地 `HttpListener` fake GitHub releases 列表，运行隔离 zip 内 `runtime\bun\bun.exe launcher\launcher.mjs update`；确认 launcher 可列出/自动选择带 Windows 包的版本，下载 `neuro-book-windows-x64.zip` / `SHA256SUMS`、完成 SHA256 校验、备份旧 `app/` / `launcher/` / root scripts、切换新 payload，`data/.deploy/windows-launcher.json` 写入 `stage: "updated"`。
     - `bun scripts/deploy/publish-ghcr-image.mjs --dry-run`
-    - `bun scripts/deploy/neuro-book-deploy.mjs --yes --deploy-mode ghcr --dry-run --dir .agent/workspace/deploy-ghcr-dry-run`
+    - 旧部署CLI的GHCR dry-run通过（入口现已删除）
     - `bash -n scripts/deploy/docker-product-entrypoint.sh`
     - `bun scripts/cli/create-admin.ts admin password123` 返回预期错误，确认禁止位置参数密码。
     - `bun run nuxt:build`
@@ -616,7 +616,7 @@
 
 ### User Request
 
-- 用户通过 `bunx --bun --package github:notnotype/neuro-book neuro-book-deploy` 使用 ghcr 安装后，创建管理员时报：
+- 用户通过当时的旧GitHub包部署入口使用ghcr安装后，创建管理员时报：
   - `Cannot find module 'nbook/server/generated/prisma/client'`
   - `script "auth:create-admin" exited with code 1`
 
@@ -632,7 +632,7 @@
 
 - local-git / source 源码运行时缺 App Prisma Client 时自动执行现有 `scripts/db/prisma-generate.mjs`；Product / GHCR 运行时只校验打包后的 `.output/server/node_modules/nbook/server/generated/prisma/client.ts`，缺失就报清晰错误。
 - `has-users.ts` 和 `create-admin.ts` 共用脚本级 Prisma runtime preflight，并在 preflight 后动态导入 `nbook/server/utils/prisma`。
-- `neuro-book-deploy --deploy-mode ghcr` 在交互模式列出 GitHub Releases 中的 stable / canary / alpha / beta / rc；非交互默认使用当前安装器 package version 对应的 `v...` 镜像 tag。
+- 旧部署CLI的ghcr模式在交互模式列出GitHub Releases中的stable / canary / alpha / beta / rc；非交互默认使用当时安装器package version对应的`v...`镜像tag。
 - `--release <tag>` 用于选择默认 GHCR app 镜像的版本；`--image <image>` 仍作为完整镜像覆盖，两者互斥。
 - ghcr 启动前先 `docker compose pull app`，再 `up -d`，减少本地旧镜像缓存导致的版本错位。
 - 本地 `publish-ghcr-image.mjs` 默认 tag 与 release workflow 对齐：stable 推 `vX.Y.Z` 和 `latest`，prerelease/canary 只推 `vX.Y.Z-...`。
@@ -644,8 +644,8 @@
 - `bunx vitest run server/deploy/ghcr-releases.test.ts server/deploy/prisma-runtime-preflight.test.ts`：2 files / 9 tests passed。
 - `node --check scripts/deploy/prompts.mjs && node --check scripts/deploy/shared.mjs && node --check scripts/deploy/ghcr-releases.mjs && node --check scripts/deploy/publish-ghcr-image.mjs && node --check scripts/build/patch-nitro-runtime-deps.mjs && node --check scripts/deploy/product-runtime.mjs`：通过。
 - `bun -e "import {resolveGhcrImageOption} from './scripts/deploy/shared.mjs'; ..."`：`--release v0.5.3-canary.20260701.030929Z.69581b3e` 生成 `ghcr.io/notnotype/neuro-book:v0.5.3-canary.20260701.030929Z.69581b3e`，保留 tag 大小写。
-- `bun scripts/deploy/neuro-book-deploy.mjs --yes --deploy-mode ghcr --dry-run --release v0.5.3-canary.20260701.030929Z.69581b3e --dir .agent/workspace/deploy-ghcr-case-dry-run --port 3997`：通过，输出先 `docker compose ... pull app` 再 `up -d`。
-- `bun scripts/deploy/neuro-book-deploy.mjs --yes --deploy-mode ghcr --dry-run --dir .agent/workspace/deploy-ghcr-version-dry-run --port 3998`：通过，输出先 `docker compose ... pull app` 再 `up -d`。
+- 旧部署CLI指定`v0.5.3-canary.20260701.030929Z.69581b3e`的GHCR dry-run通过，输出先`docker compose ... pull app`再`up -d`。
+- 旧部署CLI使用默认版本的GHCR dry-run通过，输出先`docker compose ... pull app`再`up -d`。
 - `bun scripts/deploy/publish-ghcr-image.mjs --dry-run`：通过；当前 canary package 只生成 `v0.5.3-canary...` tag，不生成 `latest`。
 - `bun pm pack --dry-run`：通过；安装器包包含 `scripts/deploy/ghcr-releases.mjs`、`prompts.mjs`、`shared.mjs` 等部署入口依赖。
 - `bun run nuxt:build`：通过；Nitro 后处理复制 Product runtime scripts、`nbook` runtime package，并通过打包 Prisma Client 门禁。

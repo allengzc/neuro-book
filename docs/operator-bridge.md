@@ -1,6 +1,6 @@
 # NeuroBook 交付与运维桥梁
 
-本文件面向协助部署或排障的 Agent。当前部署真相源是独立 `@notnotype/neuro-book-manager`，不要再调用已删除的 `neuro-book-deploy`、`local-git` 模式、`Dockerfile.source-runtime` 或旧 Windows Launcher。
+本文件面向协助部署或排障的 Agent。当前部署真相源是独立 `@notnotype/neuro-book-manager`，不要再调用已删除的旧部署入口、`local-git` 模式、`Dockerfile.source-runtime` 或旧 Windows Launcher。
 
 ## 先收集的信息
 

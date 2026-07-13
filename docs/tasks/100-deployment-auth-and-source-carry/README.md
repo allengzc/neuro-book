@@ -3,7 +3,7 @@
 ## 用户需求
 
 1. Windows Product Portable 默认关闭密码保护，引导用户主动创建密码。
-2. `bunx --bun --package github:notnotype/neuro-book neuro-book-deploy` 部署时引导用户选择是否开启鉴权。
+2. 当时的旧GitHub包部署入口引导用户选择是否开启鉴权；该入口现已由Manager取代。
 3. 在 ssh arch 上验证 Docker 部署方式的可行性（已有部署：`/home/notnotype/composes/neuro-book`）。
 4. 所有部署方式携带完整源码（不 install）；后续小问题可以让 Agent 在部署机上安装依赖并重新构建。
 
@@ -18,9 +18,9 @@
   - `readAuthEnabled()` / `writeAuthEnabled()` 严格解析 Boot Config；损坏 YAML 或非法字段直接报错，不再伪装成默认开启继续执行。
 - 已有 portable 安装（config 里 `enabled: true`）行为不变。
 
-### 2. neuro-book-deploy 鉴权引导
+### 2. 旧部署CLI鉴权引导
 
-- `scripts/deploy/neuro-book-deploy.mjs`：新增 `--auth <enabled|disabled>`（env `NEURO_BOOK_AUTH`）；部署完成后按选择输出"创建管理员命令"或"如何再开启"提示。
+- 当时的旧部署脚本：新增 `--auth <enabled|disabled>`（env `NEURO_BOOK_AUTH`）；部署完成后按选择输出"创建管理员命令"或"如何再开启"提示。该脚本现已删除。
 - `scripts/deploy/shared.mjs`：
   - `readConfig()` 交互询问「密码保护（全站登录）」，initialValue 读取部署目录已有 Boot Config；非交互默认开启。
   - `config.authExplicit`（交互确认或 `--auth` 传参）为真时，redeploy 会更新已有 `config.yaml` 的 `auth.enabled`，其余字段不动；非显式选择保持原值。
@@ -30,7 +30,7 @@
 ### 3. arch Docker 部署验证
 
 - 现有 source 模式部署：容器 `neuro-book-app-1` 运行 10 天，HTTP 302 正常，版本 v0.4.2-canary（落后本地 v0.5.7 约 20 个 canary）。
-- 全新 ghcr 部署端到端验证通过：arch 上 `bunx neuro-book-deploy --deploy-mode ghcr --release v0.5.7-canary... --port 3002`，clone → 写部署文件 → pull 镜像 → 容器启动 → migration/profiles 正常。验证后已清理（compose down + 删目录 + 删镜像）。
+- 全新ghcr部署端到端验证通过：arch上使用当时的旧部署CLI选择`v0.5.7-canary...`和端口3002，clone → 写部署文件 → pull镜像 → 容器启动 → migration/profiles正常。验证后已清理（compose down + 删目录 + 删镜像）。
 - **发现并修复 bug**：`docker-compose.yml` 端口映射 `${NUXT_PORT:-3000}:3000`，但容器内按 Boot Config 监听 `NUXT_PORT`；非 3000 端口部署宿主机完全不通。修复为 `${NUXT_PORT:-3000}:${NUXT_PORT:-3000}`，已在 arch 测试部署上实测生效。
 - 阻塞项：现有部署的 `.output` 为 root 属主，`scripts/deploy/deploy.mjs` 同步更新需要 sudo；`arch_pass` 环境变量在本地与远端均未找到，本次未更新旧部署。
 
@@ -49,7 +49,7 @@
 
 ## 验证结果
 
-- `neuro-book-deploy --dry-run --yes`：默认开启鉴权 + 管理员提示；`--auth disabled` 输出关闭提示；`--auth bogus` 报错。
+- 旧部署CLI dry-run：默认开启鉴权 + 管理员提示；`--auth disabled`输出关闭提示；`--auth bogus`报错。该入口现已删除。
 - `bun run product:stage` 全流程通过（含 tsx/sqlite-vec vendor 断言）。
 - `bun run package:windows-portable --skip-git-check` 打包通过，zip 内含 `app/source/`（含 `package.json`、`app/` 前端源码）。
 - arch ghcr 全新部署 + 端口修复实测通过。

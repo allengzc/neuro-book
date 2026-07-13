@@ -103,7 +103,7 @@
     - `docker-compose.yml` 默认只启动 app，并挂载 `workspace/`。
     - 新增或调整 Postgres override，例如 `docker-compose.postgres.yml`。
     - `scripts/docker-entrypoint.sh` 按 database kind 执行对应 migrate deploy。
-    - `scripts/neuro-book-deploy.mjs` 的数据库选择改成：SQLite 文件库、内置 Postgres、外部 Postgres；默认 SQLite。
+    - 当时的旧部署 CLI 数据库选择改成：SQLite 文件库、内置 Postgres、外部 Postgres；默认 SQLite。
     - 部署 CLI 写 `.env` 作为实际运行配置，同时写 `config.yaml` 使用 `${DATABASE_KIND}` / `${DATABASE_URL}` 引用，避免两份文件出现独立真值。
     - `.env.docker.example` / `.env.example` / `config.example.yaml` 同步改成 SQLite-first。
 
@@ -136,7 +136,7 @@
     - Postgres 下 `execute_sql` 使用 Postgres adapter，description 保留现有 Postgres camelCase 双引号提示。
     - Postgres 下 SQL schema summary 和 `execute_sql` 现有安全边界继续通过。
 - Deployment scripts：
-    - `node --check scripts/neuro-book-deploy.mjs`
+    - 旧部署脚本语法检查（历史验证，入口已删除）
     - `node --check scripts/deploy.mjs`
     - SQLite 默认部署生成的 `.env` 不包含 Postgres 密码。
     - SQLite 默认部署生成的 `config.yaml` 通过 `${DATABASE_KIND}` / `${DATABASE_URL}` 引用 `.env`，不写第二份独立值。
@@ -173,7 +173,7 @@
 - 已确认：本地开发无 `.env` 时默认 SQLite。
 - 已确认：数据库 kind / URL 不匹配等配置错误 hard stop。
 - 已验证：`bun test server/database/config.test.ts server/database/locks.test.ts server/utils/agent-sql-pool.test.ts server/agent/tools/sql-tool.test.ts server/plot/services/plot.service.test.ts server/utils/auth.test.ts` 通过，覆盖 Boot Config 自定义 SQLite URL、env 覆盖、SQLite/Postgres lock、SQL pool 和相关 Plot/auth 行为。
-- 已验证：`node --check scripts/prisma-env.mjs`、`node --check prisma.config.ts`、`node --check scripts/prisma-generate.mjs`、`node --check scripts/prisma-migrate.mjs`、`node --check scripts/sqlite-migrate.mjs`、`node --check scripts/neuro-book-deploy.mjs`、`node --check scripts/deploy.mjs` 通过。
+- 已验证：`node --check scripts/prisma-env.mjs`、`node --check prisma.config.ts`、`node --check scripts/prisma-generate.mjs`、`node --check scripts/prisma-migrate.mjs`、`node --check scripts/sqlite-migrate.mjs`、旧部署脚本和`node --check scripts/deploy.mjs`通过；旧部署入口现已删除。
 - 已验证：临时 SQLite URL `file:./.agent/sqlite-review-fix/neuro-book.sqlite` 下 `bun run generate` 与 `bun run migrate:deploy` 通过，并应用 `20260524120000_init`、`20260524121000_add_database_locks`。
 - 已验证：默认 `bun run generate` 会读取本地 `.env` 并继续使用当前 dev Postgres schema，未把现有 dev 配置切到 SQLite。
 - 当前 `bunx tsc --noEmit --pretty false` 仍被无关 agent/profile 类型错误阻塞；本轮数据库相关文件未出现新的 typecheck 错误。

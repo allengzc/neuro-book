@@ -1,6 +1,6 @@
 # 部署方式
 
-NeuroBook 的所有安装形式由独立包 `@notnotype/neuro-book-manager` 管理，公开命令为 `neuro-book`。旧 `neuro-book-deploy`、`local-git` 和宿主 build + runtime container 的混合模式已删除。
+NeuroBook 的所有安装形式由独立包 `@notnotype/neuro-book-manager` 管理，公开命令为 `neuro-book`。旧部署入口、`local-git` 和宿主 build + runtime container 的混合模式已删除。
 
 ## 推荐顺序
 

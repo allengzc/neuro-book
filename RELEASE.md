@@ -1,42 +1,75 @@
 # Release Notes
 
-## Unreleased：Pi 运行时升级与统一安装管理
+## 0.7.9-canary - 2026-07-13
 
-- Pi Models / Agent Runtime 升级到 `0.80.6`，模型解析改为显式 `Models` runtime；内置 Provider、本地多连接和自定义 OpenAI-compatible Provider 不再依赖全局注册表，冻结的 session、sidecar 与 compaction 会复用同一运行时连接，避免配置串线或执行途中漂移。
-- 模型能力补齐 `max` thinking、分层价格 `cost.tiers` 与可生效的 request options。设置界面支持逐层价格编辑、重复阈值校验和完整覆盖；长上下文费用计算、Catalog、Config、Session、Profile 与中英文界面共用同一合同。
-- Provider 错误新增统一清洗边界，覆盖 trace、健康检查、Harness、session、compaction 和最终 Assistant 消息；敏感文本会脱敏并限制长度，同时保留必要的 usage、reasoning 与 cache 统计。
+本版本是 Windows Portable 0.7.8 的紧急修复版，解决启动窗口直接关闭和服务启动后首页白屏的两个独立问题。
 
-- 新增独立轻量包 `@notnotype/neuro-book-manager` 和统一 `neuro-book` 命令，覆盖安装、更新、启动、状态、诊断、Bun Runtime、rg/PortableGit/bash 工具与管理员创建。npm 包只包含 Manager bundle，不携带 Nuxt、Vue、Prisma 等应用依赖。
-- Git 仓库根成为统一 Installation Root；Source、`.output`、`.runtime` 和 `.deploy` 按组件分层。Windows Portable 不再使用 `app/` Product Root 或 junction，完整源码与 `.output` 位于根目录，用户状态稳定保存在 `data/`。
-- 新增 `NEURO_BOOK_STATE_ROOT`，统一 Workspace Root、Boot Config、Product `.env`、SQLite 相对路径和日志目录。普通安装默认使用根状态，Windows Portable 使用 `data/`。
-- Installation Manifest 硬切 v3，按资产语义分别记录 archive、bundle 与 executable checksum，并分开记录 Manager Host Runtime 与 Application Runtime。Fresh Install、Runtime、Tool、应用更新和崩溃恢复共用持久化 Operation Journal；稳定 wrapper 只在组件校验完成后切换，失败会恢复旧 wrapper 与 manifest。
-- Product build 支持 `NEURO_BOOK_OUTPUT_DIR` staging，源码更新与 Product 切换解耦；Product system profiles 会在 Nitro vendor 完成后以 Product 模式重新编译，确保无根 `node_modules` 时仍能加载。
-- Source Docker 改为 Dockerfile 多阶段容器内安装与构建；GHCR 安装不再 clone 宿主源码，而是使用 Release Manifest 固定镜像 digest。
-- Release 新增 Source、Windows/Linux Product、Windows Portable、统一 `release-manifest.json` 和 `SHA256SUMS`；Manager 使用独立 `manager-v*` tag 与 npm stable/canary 发布流程。
-- 首次应用 canary 发布后修复了三项真实部署问题：应用直接使用的 `h3` 现在显式声明；Product vendor 不再保留指向构建机的 Bun package symlink；Prisma CLI 会把相对 SQLite URL 基于 State Root 转为绝对路径。Windows/Linux Product CI 与 Docker/Manager Source Product 统一使用 hoisted linker合同。
-- 紧急发布补丁进一步修复 Product 更新失败时重复回滚可能删除已恢复 `.output` 的问题；回滚所有权现在只属于 Operation Journal。Source Dev 启动使用 Manifest 中的 Application Runtime，更新完成后执行 frozen依赖安装，失败时保留可恢复journal。
-- Release资产先作为候选Actions artifact完成Linux/Windows验证，只有验证全绿后才把正式 `release-manifest.json` 和校验文件上传到GitHub Release，避免失败Release被Manager识别为可安装版本。Stage 0每次复用缓存Bun都会校验固定官方checksum和版本，损坏缓存会重新下载。
-- Manager正确入口是 `bunx --bun @notnotype/neuro-book-manager@canary <command>`；`bunx run @notnotype/neuro-book-manager` 会被Bun按本地脚本或路径解析，不能启动Manager。
-- Manager无参数启动现在进入完整Clack安装向导，并在安装成功后把实例注册到`~/.neuro-book-manager/config.json`。新增`neuro-book manage` blessed多实例TUI、`instances`索引命令，以及跨目录操作的`--root`/`--instance`选择；用户级配置只保存偏好和目录索引，不复制实例部署状态。
-- Manager npm发布改用GitHub Actions Trusted Publisher：workflow申请`id-token: write`并执行带provenance的无token发布，不再读取`NPM_TOKEN`。npm dist-tag修正不混入OIDC publish job，避免包已发布后因额外registry写操作让workflow误报失败。
-- Trusted Publisher前两次实测把问题收敛到包身份元数据：Manager workspace package缺少`repository.url`，npm无法把GitHub OIDC身份绑定到目标包。现补齐精确仓库URL和workspace directory，并按npm官方示例使用checkout/setup-node v6、registry-url和最新npm CLI。
-- npm配置截图确认Trusted Publisher绑定了GitHub Environment `npm`；此前workflow job未声明该Environment，OIDC subject因此无法匹配并返回隐藏授权失败的404。Manager publish job现显式使用`environment: npm`，repository URL也改为npm规范化的`git+https`形式。
-- Manager `0.1.0-canary.9`已通过GitHub Trusted Publisher无token发布，workflow全绿并生成npm provenance；公开npm `canary`已指向该版本，真实`bunx --bun ...@canary --version`与用户配置命令通过。历史`latest → 0.1.0-canary.4`仍需独立dist-tag管理，不影响OIDC发布链结论。
-- Windows Release zip writer改为yazl惰性打开文件并通过Node pipeline处理backpressure与错误；本机已用43,777文件、约367MB的真实Windows Product完成压缩，修复此前Actions长期卡死且Release零资产的问题。Portable清单使用Source/Product归档的真实SHA256，不再用目录hash冒充发布资产checksum。
-- Manager无参数入口现在先识别当前上下文：受管实例进入管理菜单，未接管NeuroBook Git checkout进入接管菜单，其他目录进入部署菜单。新增只读inspect、有限discover、搜索根管理和显式adopt；历史无metadata的`.output`不会伪装成可信Product，Product接管必须事务重建。
-- 实例管理链路进一步拆为Candidate Discovery、Offline Inspection、Instance Import和Source Adoption四个独立Module。其他Git仓库不再误报；损坏Manifest有独立路由；import验证组件checksum和wrapper但不要求服务运行。POSIX Source接管使用短路径detached worktree，Windows使用固定revision tracked snapshot，避免Bun linked-worktree误判与复制完整Git对象库；完整回滚的接管记录可安全重试，未知Manager文件仍严格阻断。
-- Manager源码依赖安装保持frozen、no-save和hoisted合同。`bun.lock`现已从当前workspace manifests完整重建；同步补齐`vue-tsc`直接依赖并将Prisma adapter/client/CLI对齐到7.8.0。新依赖图通过应用typecheck和完整Nuxt/Product vendor build。
-- Windows Bun 1.3.14由Bun进程直接spawn另一个`bun install`时会误报frozen lock变化；Manager现经PowerShell宿主启动Windows Bun子进程，并通过JSON环境变量传递参数，避免路径转义。Windows Source Dev真实接管已验证staged和主checkout安装、HEAD不变、Manifest提交及doctor healthy。
-- Windows Source Product真实接管已通过staged build、SQLite migration、HTTP版本健康检查和doctor。Product portability后处理不再只匹配当前cwd：Windows 8.3短路径、Windows长路径和POSIX绝对node_modules file URL都会统一改写到`.output/server/node_modules`，并由跨平台回归约束；无根`node_modules`Product启动通过。
-- Release assemble改为按名称分别下载Source、Linux Product和Windows Product/Portable artifacts，避免把Buildx自动生成的`.dockerbuild`记录混入发布目录。此前失败run的各平台构建本身均成功，但未形成公开完整Release。
-- Windows、Linux Stage 0现作为`install.ps1`、`install.cmd`和`install.sh`独立进入完整Release与`SHA256SUMS`；主README按Windows Portable/Manager和Linux统一Manager重新分流，并明确六种Profile与Portable准确资产名。
-- Windows Portable六个Launcher收敛到Manager唯一模板Module，只负责显式传递`--root`并调用`start`、`update`或`admin create`，CMD与PowerShell均透传退出码。Portable打包器不再维护第二套Launcher文本。
-- Release run `29229409817`的Windows verify失败不是Portable损坏，而是CI从外部工作目录调用Manager wrapper却没有指定Installation Root，Clack错误ANSI随后被误当JSON解析。verify现显式传`--root`、先检查退出码再解析`doctor --json`，并检查Stage 0语法与六个Launcher委托合同。
-- Manager `0.1.0-canary.12`已通过Trusted Publisher公开，npm `canary`和真实bunx均返回该版本。应用`v0.7.7-canary.20260713.084528Z.d7818432`已创建并触发修复后的Release workflow；最终公开资产仍以后台verify/publish结果为准。
-- `v0.7.7` Release候选的Source、Windows/Linux Product、Portable、GHCR与assemble均成功，但Windows verify发现解压后的Portable缺少空目录`data/logs/`。统一ZIP writer现以严格file/directory条目保留必需空目录，Portable解压后四个托管程序与`doctor.healthy=true`均已本机验证；CI在doctor失败时也会输出具体check和修复建议。
-- 修复已随`v0.7.8-canary.20260713.100743Z.f36a8440`创建新的GitHub prerelease；Release Actions按`--no-watch`在后台装配，不提前把候选视为公开完整资产。
-- Docker实机验证发现服务器默认鉴权会让Manager版本健康检查收到401；`/api/app/version`现作为只读公共部署探针，不开放日志、配置或业务数据接口，Source Docker与GHCR可在启用鉴权时完成安装和更新健康检查。
-- 本轮已通过完整应用与Manager typecheck、23项Manager测试、npm tarball空目录审计、Windows Portable组装，以及Release/Portable脚本和workflow YAML校验。SSH Arch进一步通过Stage 0 managed Bun 1.3.14的Source Dev安装/启动、Linux Product无根依赖运行、Source Docker容器内install/build/start和既有公开GHCR digest smoke。应用`0.7.4`因鉴权健康探针401在正式资产发布前主动取消且保持零资产；修复后的`0.7.5` Source、Linux Product和GHCR镜像CI已通过，Windows Product、assemble、verify和最终publish仍以Actions结果为准，不能提前视为完整Release。
+### 更新说明
+
+- 修复生产构建中富文本与工作台 Vendor Chunk 相互引用的问题。新 Product 由 Vite/Rollup 按真实依赖图分包，首页不再因 `Cannot access ... before initialization` 而白屏。
+- 修复 Windows `Start Neuro Book.cmd`、`Update Neuro Book.cmd`和`Create Admin.cmd`的Root参数。脚本会去掉目录末尾反斜杠，命令失败时保留窗口并显示退出码。
+- 显式`NEURO_BOOK_STATE_ROOT`现在始终高于cwd和目录名推断。即使Portable解压在名为`workspace`的上级目录中，Project Workspace也会正确使用`data/workspace`。
+- Release候选现在会在Windows Portable和Linux Product Bun中启动真实Product，使用Chromium验证Vue首页挂载、静态资源、浏览器异常和应用版本，不再只依赖HTTP版本接口判断发布健康。
+
+### 迁移指南
+
+#### Windows Portable
+
+0.7.8 Portable不应继续使用。请下载0.7.9的`neuro-book-windows-x64.zip`并解压到新目录：
+
+1. 完全退出旧NeuroBook，并备份旧目录中的`data/`。
+2. 将完整`data/`复制到新Portable根目录，覆盖新包中的空状态目录。
+3. 不要复制旧`.output`、`.runtime`、`.deploy`、`app/`或`app/workspace` junction。
+4. 在新目录运行`Start Neuro Book.cmd`；需要检查时运行：
+   ```powershell
+   .\.runtime\bin\neuro-book.cmd --root . doctor
+   ```
+
+Workspace、配置、SQLite和日志会继续从`data/`读取。创建管理员后，Portable会把`data/config.yaml`中的鉴权开关设为启用，重启后生效。
+
+#### 已有NeuroBook Git checkout
+
+先确保Git工作区干净，并确认`origin`指向受支持的NeuroBook仓库。Manager不会自动stash、restore或reset用户改动。
+
+```bash
+cd <neuro-book-root>
+bunx --bun @notnotype/neuro-book-manager@canary adopt . --profile source-dev
+```
+
+将`source-dev`替换为`source-product`或`source-docker`即可选择对应部署方式。历史无metadata的`.output`不会被信任：Source Dev会保留但不纳入Manifest，Source Product会在事务中重新构建并仅在健康检查通过后切换。
+
+如果目录已经包含有效的Manifest v3，只需导入用户级实例索引：
+
+```bash
+bunx --bun @notnotype/neuro-book-manager@canary instances import <installation-root>
+```
+
+Manifest v1/v2不提供兼容迁移，必须重新安装或对Git checkout执行`adopt`。
+
+#### Product Bun、GHCR与旧Docker部署
+
+不要手工混合不同版本的Source和`.output`，也不要把旧Compose状态直接写入新Manifest。推荐使用Manager在新Installation Root重新安装对应Profile，然后迁移State Root中的用户状态：
+
+```bash
+bunx --bun @notnotype/neuro-book-manager@canary
+```
+
+- Product Bun选择`product-bun`，Manager会下载同一Release Manifest中的Source和平台Product。
+- 预构建容器选择`ghcr`，宿主机不需要源码checkout。
+- 需要从源码在容器内构建时选择`source-docker`。
+
+迁移前备份`workspace/`、`config.yaml`和`.env`。Windows Portable迁移完整`data/`；其他Profile迁移对应State Root。不要复制旧`.runtime`、`.deploy`或来源不明的`.output`。
+
+#### 更新后检查
+
+在Installation Root执行：
+
+```bash
+bunx --bun @notnotype/neuro-book-manager@canary update
+bunx --bun @notnotype/neuro-book-manager@canary doctor
+```
+
+如果Manager提示版本过低，按提示重新运行最新`@canary`命令。`doctor`通过后再启动实例；原生Product更新前必须先停止正在运行的服务。
 
 ## 0.7.2-canary - 2026-07-11
 
@@ -158,7 +191,7 @@ Markdown Studio、Agent 气泡、Profile Template Editor、设置页、低代码
 这次修复 GHCR 部署和管理员创建链路，重点是让安装器、镜像版本和 Product Runtime 合同重新对齐。
 
 1. GHCR 部署可以选择 release 版本
-`neuro-book-deploy --deploy-mode ghcr` 会在交互模式列出 stable / canary / alpha / beta / rc 版本，并保留 release tag 原始大小写。非交互模式默认使用当前安装器版本对应的镜像 tag，不再让 canary 安装器默认拉旧的 `latest`。`latest` 只代表最新 stable。
+当时的旧 GHCR 部署入口会在交互模式列出 stable / canary / alpha / beta / rc 版本，并保留 release tag 原始大小写。非交互模式默认使用当前安装器版本对应的镜像 tag，不再让 canary 安装器默认拉旧的 `latest`。`latest` 只代表最新 stable。
 
 2. 管理员脚本不再误走宿主机源码
 文档和部署 README 会按 local-git、ghcr、source Docker 分别给出管理员创建命令。ghcr 使用容器内 `.output/server/scripts/cli/create-admin.ts`，依赖镜像内 Nitro vendor 和打包好的 `nbook` runtime package。

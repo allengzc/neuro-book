@@ -18,7 +18,7 @@
 
 ## User Request / Topic
 
-- 将现有 `neuro-book-deploy` 从一次性部署脚本升级为统一安装、更新、运行时和工具链管理器。
+- 将当时的一次性部署脚本升级为统一安装、更新、运行时和工具链管理器。
 - 使用方案 A：发布独立轻量 npm 包。
 - npm 包暂定 `@notnotype/neuro-book-manager`，用户命令使用 `neuro-book`。
 - Git 仓库根是所有安装形式的目录底座；Product、Runtime、工具链和部署状态作为可组合组件叠加到仓库根，不再以额外 `source/` 目录包裹源码。
@@ -46,7 +46,7 @@
 
 ### 现有部署模式
 
-- `neuro-book-deploy` 是仓库根 `package.json` 的 bin，默认选择 `local-git`。
+- 旧部署 CLI 曾是仓库根 `package.json` 的 bin，默认选择 `local-git`。
 - `local-git` 会 clone/pull、`bun install --frozen-lockfile`、Nuxt prepare/generate/build 和 SQLite migration，再生成本机启动脚本。
 - `source` 是“宿主机 Bun 安装和构建 + Docker runtime 容器运行”的混合模式，不是完全容器内源码构建。
 - `ghcr` 使用预构建 Product 镜像，运行机不执行 `bun install` 或 Nuxt build，但现有安装器仍会 clone 完整仓库。
@@ -56,7 +56,7 @@
 ### 现有包与发布边界
 
 - 根 `package.json` 同时承担完整应用依赖和部署 CLI bin。
-- `bunx --bun --package github:notnotype/neuro-book neuro-book-deploy` 通常不会安装目标包的普通 `devDependencies`，但会解析根包声明的全部 `dependencies`；当前依赖包含 Nuxt、Vue、Prisma、编辑器等完整应用依赖树，远超部署 CLI 所需。
+- 旧 GitHub 包部署入口通常不会安装目标包的普通 `devDependencies`，但会解析根包声明的全部 `dependencies`；当时根依赖包含 Nuxt、Vue、Prisma、编辑器等完整应用依赖树，远超部署 CLI 所需。
 - 根 `files` 能约束 pack 产物，但不能作为 GitHub Git dependency 一定只获取这些文件的长期合同。
 - 当前 Release workflow 发布 Windows portable zip 和 GHCR 镜像，没有独立 Manager npm 包和通用 Product Bun artifact。
 
@@ -112,7 +112,7 @@ Product 可以携带完整源码，但必须通过隔离测试证明服务和产
 - executable：`neuro-book`。
 - 标准入口：`bunx --bun @notnotype/neuro-book-manager <command>`。
 - 安装后由 `.runtime/bin/neuro-book(.cmd)` 提供稳定入口。
-- 不保留 `neuro-book-deploy` 作为长期兼容层；实施时直接同步 README、部署文档、operator bridge、release 文档和脚本入口。
+- 不保留旧部署 CLI 作为长期兼容层；实施时直接同步 README、部署文档、operator bridge、release 文档和脚本入口。
 - Manager package 必须独立声明最小依赖，不能依赖 NeuroBook 应用根包。
 
 ### D4：Manager 版本与应用版本解耦
@@ -276,7 +276,7 @@ uninstall
 
 ### 审查结论
 
-方向成立，而且比继续扩展 `neuro-book-deploy` 的 mode 分支更系统。仓库当前 `.gitignore`、Bun-only 产品运行方向和 Product-first 构建已经提供了大部分基础，但不能直接重命名现有 CLI 后继续堆功能；必须先建立组件所有权、Release manifest、版本兼容和事务更新协议。
+方向成立，而且比继续扩展旧部署 CLI 的 mode 分支更系统。仓库当前 `.gitignore`、Bun-only 产品运行方向和 Product-first 构建已经提供了大部分基础，但不能直接重命名现有 CLI 后继续堆功能；必须先建立组件所有权、Release manifest、版本兼容和事务更新协议。
 
 ### 主要风险
 
@@ -352,7 +352,7 @@ uninstall
 - Nuxt build 支持 `NEURO_BOOK_OUTPUT_DIR` staging；`product:stage` 不再生成 `product/source`。
 - Source Docker 改为完整 Dockerfile 容器内 install/build；GHCR Compose 使用 digest 固定镜像且不要求宿主 Source checkout。
 - 新增 Windows/POSIX Stage 0、Manager 独立 release helper/workflow、Source/Product/Portable/manifest 资产脚本和统一应用 Release assemble workflow。
-- 删除旧 `neuro-book-deploy` bin、旧 mode 模块、Source runtime Dockerfile、旧 Windows Launcher 更新实现和旧 Product source snapshot。
+- 删除旧部署 bin、旧 mode 模块、Source runtime Dockerfile、旧 Windows Launcher 更新实现和旧 Product source snapshot。
 
 ### 2026-07-12：Portable、事务边界与文档收口
 
@@ -494,6 +494,33 @@ uninstall
 
 - 没有把Stage 0脚本加入Release Manifest。它们是用户引导资产，不是Manager需要解析或更新的应用组件；只进入GitHub Release与`SHA256SUMS`可以保持协议边界清晰。
 - 没有修改Manager的当前目录发现规则来迎合CI。跨目录调用本来就应使用公开`--root`接口，修复验证命令比让wrapper隐式改变cwd更符合多实例合同。
+
+### 2026-07-13：旧部署入口彻底清理
+
+- 根应用包和运行脚本此前已经删除旧bin；本轮继续清理历史Task、部署契约、Release说明和官网静态包中的旧命令与脚本名，避免用户或Agent从搜索结果复制已失效入口。
+- 官网服务器部署卡片改为当前`bunx --bun @notnotype/neuro-book-manager@canary`入口。历史Task继续保留当时的设计与验证结论，但统一以“旧部署CLI（已删除）”表述，不再保留可执行命令。
+- 新增Git受管文本回归门禁，扫描文档、脚本、配置和官网静态JavaScript；旧命令名、旧GitHub包地址或同名文件重新进入仓库时测试会失败。
+
+### 2026-07-13：0.7.8 Windows Portable CMD闪退修复
+
+- 公开`0.7.8` Portable的checksum、Manifest v3、Manager、Bun、rg、Git、Bash和doctor均正常；真实双击等价复现确认CMD入口只打印Manager顶层帮助并以0退出，尚未进入migration或Product。
+- 根因是`%~dp0`自带尾反斜杠，旧模板把它直接作为带引号的`--root`值传给Bun原生进程，Windows argv解析把后续`start`吞入同一参数。去掉尾分隔符后Manager识别正常；绕过Launcher后migration、Product启动和`/api/app/version`均通过。
+- CMD模板现先通过`%~dp0.`解析无尾分隔符的绝对Installation Root，再调用Manager。非零退出时保存原退出码、打印错误并等待用户确认，避免真正的启动错误再次闪退。
+- 新增真实`cmd.exe`回归：Start、Update和Create Admin必须分别传递完整子命令，Root不得携带尾分隔符；Manager返回23时Launcher必须显示错误、等待输入并继续返回23。Windows Release verify也会用stub wrapper实际执行三个CMD入口，不再只检查脚本文本。
+- 实际结果与原计划一致：没有改变Manager参数协议或把业务逻辑放回Launcher；修复仅收口Windows参数边界和错误可见性。当前按用户要求暂不提交，也未发布新patch。
+
+### 2026-07-13：0.7.8生产白屏与浏览器发布门禁
+
+- 公开Portable的migration、Product进程和`/api/app/version`均正常，但真实Chromium稳定复现空DOM与`ReferenceError: Cannot access 'Jt' before initialization`。交叉检查两个生产Chunk确认它们相互import，根因是`nuxt.config.ts`按包路径强制分组Tiptap/ProseMirror与Studio widgets，破坏了Rollup真实依赖顺序。
+- 生产构建已删除全部自定义`manualChunks`，不使用更复杂的包名列表补洞。全新Product构建后，Chromium已看到`.novel-ide-page`，无page error或console error，版本接口与包版本一致。
+- 诊断Portable时另发现，安装路径位于名为`workspace`的祖先目录中会让Workspace Root猜测覆盖Manager传入的State Root。现固定“测试Context → 显式运行时Root → 无运行时合同时才推断cwd”的优先级，Project Path仍为`workspace/<project>`，物理目录正确落在`data/workspace`。
+- 新增项目自有的`playwright-core`生产Smoke，通过Node+tsx运行（Playwright Node API不交给Bun宿主）。它验证IDE根容器、HTML/JS/CSS资源、page error、应用console error和版本契约；业务API的独立状态码仍由各专项测试负责。
+- Windows verify对真实Portable运行migration、Product和Chrome/Edge Smoke；Linux verify用Source archive + Product overlay组装Product Bun并运行同一Smoke。失败时上传服务日志与截图，两个平台通过前不再公开Release资产。
+
+### 白屏阶段的实际结果与计划差异
+
+- 最初计划让Smoke对所有HTTP 4xx/5xx失败。本地真实首启发现Project Session打开期间可出现由业务界面自行恢复的409，它不阻止Vue挂载。最终门禁严格阻断HTML/JS/CSS、page error、应用console error和版本失配，不把生产挂载Smoke扩张成全量业务E2E。
+- Playwright Node API在Bun 1.3.14宿主下会稳定挂起，同一脚本由Node 24 + tsx运行正常。因此CI明确使用Node执行，Product应用运行时仍然是Bun，没有改变部署合同。
 
 ## TODO / Follow-ups
 

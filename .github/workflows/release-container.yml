@@ -199,6 +199,61 @@ jobs:
         run: |
           docker pull "${IMAGE}"
           test "$(docker image inspect "${IMAGE}" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')" = "${{ github.sha }}"
+      - name: Verify Linux Product in a real browser
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf product-browser-smoke
+          mkdir -p product-browser-smoke
+          unzip -q candidate-assets/neuro-book-source.zip -d product-browser-smoke
+          tar -xzf candidate-assets/neuro-book-product-linux-x64-glibc.tar.gz -C product-browser-smoke
+          cat > product-browser-smoke/config.yaml <<'EOF'
+          server:
+            host: 0.0.0.0
+            port: 39124
+          database:
+            kind: sqlite
+            url: file:workspace/.nbook/neuro-book.sqlite
+          auth:
+            enabled: false
+          EOF
+          mkdir -p product-browser-smoke/workspace product-browser-smoke/logs
+          version="${{ github.event.release.tag_name }}"
+          version="${version#v}"
+          port=39124
+          export NODE_ENV=production
+          export NUXT_PORT="${port}"
+          export PORT="${port}"
+          export NEURO_BOOK_APPLICATION_ROOT="$PWD/product-browser-smoke"
+          export NEURO_BOOK_STATE_ROOT="$PWD/product-browser-smoke"
+          bun product-browser-smoke/.output/server/scripts/db/prisma-migrate.mjs --deploy
+          setsid bun product-browser-smoke/.output/server/scripts/deploy/product-start.mjs >product-browser-smoke.log 2>&1 &
+          product_pid=$!
+          cleanup() {
+            kill -- "-${product_pid}" 2>/dev/null || true
+            wait "${product_pid}" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          for attempt in $(seq 1 120); do
+            if curl --fail --silent "http://127.0.0.1:${port}/api/app/version" >/dev/null; then break; fi
+            if ! kill -0 "${product_pid}" 2>/dev/null; then
+              cat product-browser-smoke.log
+              exit 1
+            fi
+            sleep 0.5
+          done
+          if ! curl --fail --silent "http://127.0.0.1:${port}/api/app/version" >/dev/null; then
+            cat product-browser-smoke.log
+            exit 1
+          fi
+          if ! node --import tsx scripts/deploy/product-browser-smoke.ts \
+            --url "http://127.0.0.1:${port}" \
+            --expected-version "${version}" \
+            --browser-executable /usr/bin/google-chrome \
+            --screenshot "$PWD/product-browser-smoke-failure.png"; then
+            cat product-browser-smoke.log
+            exit 1
+          fi
       - name: Public Manager CLI smoke
         shell: bash
         run: |
@@ -207,6 +262,15 @@ jobs:
           if [[ "${version}" == *-* ]]; then manager_tag=canary; channel=canary; else manager_tag=latest; channel=stable; fi
           bunx --bun "@notnotype/neuro-book-manager@${manager_tag}" --version
           bunx --bun "@notnotype/neuro-book-manager@${manager_tag}" status --help
+      - name: Upload Linux browser smoke diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-product-browser-smoke-diagnostics
+          if-no-files-found: ignore
+          path: |
+            product-browser-smoke.log
+            product-browser-smoke-failure.png
 
   verify-windows:
     needs: [assemble]
@@ -214,6 +278,9 @@ jobs:
     permissions:
       contents: read
     steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile --linker hoisted
       - uses: actions/download-artifact@v4
         with:
           name: release-candidate
@@ -259,6 +326,89 @@ jobs:
               }
             throw "Portable doctor 未通过"
           }
+          $managerBackup = "$manager.release-verify-backup"
+          Copy-Item -LiteralPath $manager -Destination $managerBackup
+          try {
+            Set-Content -LiteralPath $manager -Encoding ascii -Value @'
+          @echo off
+          > "%NEURO_BOOK_LAUNCHER_CAPTURE%" echo %~1
+          >> "%NEURO_BOOK_LAUNCHER_CAPTURE%" echo %~2
+          >> "%NEURO_BOOK_LAUNCHER_CAPTURE%" echo %~3
+          if not "%~4"=="" >> "%NEURO_BOOK_LAUNCHER_CAPTURE%" echo %~4
+          exit /b 0
+          '@
+            $cmdCases = @(
+              @{ Name = "Start Neuro Book.cmd"; Expected = @("--root", $portableRoot, "start") },
+              @{ Name = "Update Neuro Book.cmd"; Expected = @("--root", $portableRoot, "update") },
+              @{ Name = "Create Admin.cmd"; Expected = @("--root", $portableRoot, "admin", "create") }
+            )
+            foreach ($case in $cmdCases) {
+              $capture = Join-Path $portableRoot ".deploy/launcher-args.txt"
+              Remove-Item -LiteralPath $capture -Force -ErrorAction SilentlyContinue
+              $env:NEURO_BOOK_LAUNCHER_CAPTURE = $capture
+              & (Join-Path $portableRoot $case.Name)
+              if ($LASTEXITCODE -ne 0) { throw "Portable CMD Launcher执行失败：$($case.Name)" }
+              $actual = @(Get-Content -LiteralPath $capture)
+              if (Compare-Object -ReferenceObject $case.Expected -DifferenceObject $actual) {
+                throw "Portable CMD Launcher参数错误：$($case.Name)，实际参数：$($actual -join ' | ')"
+              }
+            }
+          } finally {
+            Remove-Item Env:NEURO_BOOK_LAUNCHER_CAPTURE -ErrorAction SilentlyContinue
+            Move-Item -LiteralPath $managerBackup -Destination $manager -Force
+          }
+      - name: Verify Windows Portable in a real browser
+        shell: pwsh
+        run: |
+          $portableRoot = (Resolve-Path portable).Path
+          $manifest = Get-Content -Raw (Join-Path $portableRoot ".deploy/installation.json") | ConvertFrom-Json
+          $bun = Join-Path $portableRoot $manifest.components.applicationRuntime.path
+          $migration = Join-Path $portableRoot ".output/server/scripts/db/prisma-migrate.mjs"
+          $productStart = Join-Path $portableRoot ".output/server/scripts/deploy/product-start.mjs"
+          $port = 39123
+          $env:NODE_ENV = "production"
+          $env:NUXT_PORT = "$port"
+          $env:PORT = "$port"
+          $env:NEURO_BOOK_APPLICATION_ROOT = $portableRoot
+          $env:NEURO_BOOK_STATE_ROOT = Join-Path $portableRoot "data"
+          & $bun $migration --deploy
+          if ($LASTEXITCODE -ne 0) { throw "Portable migration failed: $LASTEXITCODE" }
+          $stdout = Join-Path $portableRoot "data/logs/release-browser-smoke.stdout.log"
+          $stderr = Join-Path $portableRoot "data/logs/release-browser-smoke.stderr.log"
+          $product = Start-Process -FilePath $bun -ArgumentList @($productStart) -WorkingDirectory $portableRoot -RedirectStandardOutput $stdout -RedirectStandardError $stderr -WindowStyle Hidden -PassThru
+          try {
+            $ready = $false
+            for ($attempt = 0; $attempt -lt 120; $attempt++) {
+              if ($product.HasExited) { break }
+              try {
+                $response = Invoke-WebRequest -Uri "http://127.0.0.1:$port/api/app/version" -TimeoutSec 1
+                if ($response.StatusCode -eq 200) { $ready = $true; break }
+              } catch {}
+              Start-Sleep -Milliseconds 500
+            }
+            if (-not $ready) {
+              Get-Content -Raw $stdout -ErrorAction SilentlyContinue | Write-Host
+              Get-Content -Raw $stderr -ErrorAction SilentlyContinue | Write-Host
+              throw "Portable Product did not become ready"
+            }
+            $chrome = Join-Path $env:ProgramFiles "Google/Chrome/Application/chrome.exe"
+            if (-not (Test-Path -LiteralPath $chrome)) {
+              $chrome = Join-Path ${env:ProgramFiles(x86)} "Microsoft/Edge/Application/msedge.exe"
+            }
+            & node --import tsx scripts/deploy/product-browser-smoke.ts `
+              --url "http://127.0.0.1:$port" `
+              --expected-version $manifest.appVersion `
+              --browser-executable $chrome `
+              --screenshot (Join-Path $portableRoot "data/logs/release-browser-smoke-failure.png")
+            if ($LASTEXITCODE -ne 0) {
+              Get-Content -Raw $stdout -ErrorAction SilentlyContinue | Write-Host
+              Get-Content -Raw $stderr -ErrorAction SilentlyContinue | Write-Host
+              throw "Portable browser smoke failed: $LASTEXITCODE"
+            }
+          } finally {
+            if (-not $product.HasExited) { taskkill /PID $product.Id /T /F | Out-Null }
+            Remove-Item Env:NEURO_BOOK_APPLICATION_ROOT, Env:NEURO_BOOK_STATE_ROOT, Env:NUXT_PORT, Env:PORT -ErrorAction SilentlyContinue
+          }
       - name: Verify Windows Stage 0 syntax
         shell: pwsh
         run: |
@@ -272,6 +422,13 @@ jobs:
           if ($errors.Count -gt 0) { throw ($errors | Out-String) }
           $cmd = Get-Content -Raw candidate-assets/install.cmd
           if ($cmd -notmatch "install\.ps1") { throw "install.cmd未委托install.ps1" }
+      - name: Upload Windows browser smoke diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-portable-browser-smoke-diagnostics
+          if-no-files-found: ignore
+          path: portable/data/logs/release-browser-smoke*
 
   verify:
     needs: [verify-linux, verify-windows]

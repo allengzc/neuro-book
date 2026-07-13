@@ -93,6 +93,11 @@ export function resolveWorkspaceContainerRoot(startPath = process.cwd()): string
     if (workspaceAssetRootContext?.workspaceContainerRoot) {
         return workspaceAssetRootContext.workspaceContainerRoot;
     }
+    // Manager/Product 已经给出运行时根时，它就是用户状态的真相源。
+    // 不能再因为安装路径的某个祖先目录恰好名为 workspace 而改写它。
+    if (process.env.NEURO_BOOK_STATE_ROOT?.trim() || process.env.NEURO_BOOK_APPLICATION_ROOT?.trim()) {
+        return resolveStateWorkspaceRoot();
+    }
     const cwd = path.resolve(startPath);
     let currentPath = cwd;
     while (true) {

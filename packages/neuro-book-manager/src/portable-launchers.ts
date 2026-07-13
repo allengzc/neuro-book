@@ -18,7 +18,18 @@ export function portableLaunchers(): PortableLauncher[] {
     return actions.flatMap(({name, command}) => [
         {
             name: `${name}.cmd`,
-            content: `@echo off\r\ncall "%~dp0.runtime\\bin\\neuro-book.cmd" --root "%~dp0" ${command}\r\nexit /b %ERRORLEVEL%\r\n`,
+            content: [
+                "@echo off",
+                "for %%I in (\"%~dp0.\") do set \"NEURO_BOOK_ROOT=%%~fI\"",
+                `call "%~dp0.runtime\\bin\\neuro-book.cmd" --root "%NEURO_BOOK_ROOT%" ${command}`,
+                "set \"NEURO_BOOK_EXIT_CODE=%ERRORLEVEL%\"",
+                "if \"%NEURO_BOOK_EXIT_CODE%\"==\"0\" exit /b 0",
+                "echo.",
+                "echo NeuroBook command failed with exit code %NEURO_BOOK_EXIT_CODE%.",
+                "pause",
+                "exit /b %NEURO_BOOK_EXIT_CODE%",
+                "",
+            ].join("\r\n"),
         },
         {
             name: `${name}.ps1`,

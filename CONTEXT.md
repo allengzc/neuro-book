@@ -22,7 +22,7 @@ _Avoid_: deploy mode, source bootstrap zip, app sub-root
 
 **NeuroBook Manager**:
 独立 npm 包 `@notnotype/neuro-book-manager` 提供的安装、更新、启动、诊断、Runtime 和 Tool 管理器，公开命令为 `neuro-book`。
-_Avoid_: neuro-book-deploy, application dependency installer
+_Avoid_: application dependency installer
 
 **Workspace Root `.nbook`**:
 Workspace Root 的全局控制区，保存 Global Config、用户 assets、Agent 资源覆盖层和全局运行状态。
