@@ -13,10 +13,10 @@ const STAGE0_SOURCE_URL = "NEURO_BOOK_STAGE0_BUN_SOURCE_URL";
 const STAGE0_SHA256 = "NEURO_BOOK_STAGE0_BUN_SHA256";
 
 /** 解析 Manager Host Runtime；Stage 0 优先复制为 managed，否则使用当前 Bun。 */
-export async function resolveManagerRuntime(root: string, forceManaged = false): Promise<ManagerRuntimeComponent> {
+export async function resolveManagerRuntime(root: string, forceManaged = false, createdPaths: string[] = []): Promise<ManagerRuntimeComponent> {
     const stage0 = stage0Runtime();
-    if (stage0) return installStage0Bun(root, stage0);
-    if (forceManaged) return installManagedBun(root);
+    if (stage0) return installStage0Bun(root, stage0, createdPaths);
+    if (forceManaged) return installManagedBun(root, undefined, createdPaths);
     return {
         provider: "system",
         version: process.versions.bun ?? "unknown",
@@ -25,7 +25,7 @@ export async function resolveManagerRuntime(root: string, forceManaged = false):
 }
 
 /** 安装托管 Bun Runtime，使用 staging 后原子提交不可变版本目录。 */
-export async function installManagedBun(root: string, requestedVersion?: string): Promise<ManagedRuntimeComponent> {
+export async function installManagedBun(root: string, requestedVersion?: string, createdPaths: string[] = []): Promise<ManagedRuntimeComponent> {
     assertManagerPlatform();
     const tag = requestedVersion
         ? requestedVersion.startsWith("bun-v") ? requestedVersion : `bun-v${requestedVersion.replace(/^v/u, "")}`
@@ -48,13 +48,14 @@ export async function installManagedBun(root: string, requestedVersion?: string)
         await rename(extractedRoot, runtimeRoot);
         await removePath(stageRoot);
         executable = join(runtimeRoot, relative(extractedRoot, executable));
+        createdPaths.push(relative(root, runtimeRoot).replaceAll("\\", "/"));
     }
-    await writeRuntimeWrapper(root, executable);
     return {
         provider: "managed",
         version,
         path: relative(root, executable).replaceAll("\\", "/"),
-        checksum: release.asset.sha256,
+        archiveSha256: release.asset.sha256,
+        executableSha256: await sha256File(executable),
         sourceUrl: release.asset.url,
         license: "MIT",
         redistribution: "按 Bun 官方 Release 原样再分发，并保留上游许可证与版本信息。",
@@ -62,16 +63,17 @@ export async function installManagedBun(root: string, requestedVersion?: string)
 }
 
 /** 把当前 Manager bundle安装到版本目录，并返回严格组件状态。 */
-export async function installManagerExecutable(root: string, version: string, source: string): Promise<ManagerComponent> {
+export async function installManagerExecutable(root: string, version: string, source: string, createdPaths: string[] = []): Promise<ManagerComponent> {
     const managerRoot = join(root, ".runtime", "manager", version);
     await ensureDirectory(managerRoot);
     const target = join(managerRoot, "neuro-book.mjs");
+    if (!await pathExists(target)) createdPaths.push(relative(root, managerRoot).replaceAll("\\", "/"));
     if (resolve(source) !== resolve(target)) await copyFile(source, target);
     return {
         provider: "managed",
         version,
         path: relative(root, target).replaceAll("\\", "/"),
-        checksum: await sha256File(target),
+        bundleSha256: await sha256File(target),
     };
 }
 
@@ -111,28 +113,33 @@ export function prependExecutablePath(executable: string): void {
     if (!current.split(separator).includes(directory)) process.env.PATH = `${directory}${separator}${current}`;
 }
 
-async function installStage0Bun(root: string, stage0: Stage0Runtime): Promise<ManagedRuntimeComponent> {
+async function installStage0Bun(root: string, stage0: Stage0Runtime, createdPaths: string[] = []): Promise<ManagedRuntimeComponent> {
     const actualChecksum = await sha256File(stage0.path);
-    if (actualChecksum.toLowerCase() !== stage0.sha256.toLowerCase()) {
+    if (actualChecksum.toLowerCase() !== stage0.executableSha256.toLowerCase()) {
         throw new Error(`Stage 0 Bun checksum 不匹配：${stage0.path}`);
     }
     const targetRoot = join(root, ".runtime", "bun", stage0.version);
     const target = join(targetRoot, basename(stage0.path));
     await ensureDirectory(targetRoot);
-    if (!await pathExists(target)) await copyFile(stage0.path, target);
-    await writeRuntimeWrapper(root, target);
+    if (!await pathExists(target)) {
+        createdPaths.push(relative(root, targetRoot).replaceAll("\\", "/"));
+        await copyFile(stage0.path, target);
+    }
     return {
         provider: "managed",
         version: stage0.version,
         path: relative(root, target).replaceAll("\\", "/"),
-        checksum: stage0.sha256,
+        archiveSha256: stage0.archiveSha256,
+        executableSha256: stage0.executableSha256,
         sourceUrl: stage0.sourceUrl,
         license: "MIT",
         redistribution: "由 NeuroBook Stage 0 校验 Bun 官方 Release 后复制到 Installation Root。",
     };
 }
 
-async function writeRuntimeWrapper(root: string, executable: string): Promise<void> {
+/** 为已验证的 managed Bun 写入稳定 wrapper。 */
+export async function writeRuntimeWrapper(root: string, runtime: ManagedRuntimeComponent): Promise<void> {
+    const executable = resolve(root, runtime.path);
     const binRoot = join(root, ".runtime", "bin");
     await ensureDirectory(binRoot);
     const executableRelative = relative(root, executable);
@@ -160,19 +167,27 @@ export async function findNamedFile(root: string, filename: string): Promise<str
     throw new Error(`解压目录缺少 ${filename}：${root}`);
 }
 
-type Stage0Runtime = {path: string; version: string; sourceUrl: string; sha256: string};
+type Stage0Runtime = {
+    path: string;
+    version: string;
+    sourceUrl: string;
+    archiveSha256: string;
+    executableSha256: string;
+};
 
 function stage0Runtime(): Stage0Runtime | null {
     const path = process.env[STAGE0_PATH]?.trim();
     const version = process.env[STAGE0_VERSION]?.trim();
     const sourceUrl = process.env[STAGE0_SOURCE_URL]?.trim();
-    const sha256 = process.env[STAGE0_SHA256]?.trim();
-    if (!path && !version && !sourceUrl && !sha256) return null;
-    if (!path || !version || !sourceUrl || !sha256 || !/^[a-fA-F0-9]{64}$/u.test(sha256)) {
+    const archiveSha256 = process.env.NEURO_BOOK_STAGE0_BUN_ARCHIVE_SHA256?.trim();
+    const executableSha256 = process.env[STAGE0_SHA256]?.trim();
+    if (!path && !version && !sourceUrl && !archiveSha256 && !executableSha256) return null;
+    if (!path || !version || !sourceUrl || !archiveSha256 || !executableSha256
+        || !/^[a-fA-F0-9]{64}$/u.test(archiveSha256) || !/^[a-fA-F0-9]{64}$/u.test(executableSha256)) {
         throw new Error("Stage 0 Bun metadata 不完整，拒绝安装未验证 Runtime。" );
     }
     if (!pathExistsSync(path)) throw new Error(`Stage 0 Bun 不存在：${path}`);
-    return {path: resolve(path), version, sourceUrl, sha256};
+    return {path: resolve(path), version, sourceUrl, archiveSha256, executableSha256};
 }
 
 function pathExistsSync(path: string): boolean {

@@ -64,7 +64,7 @@ function manifest(): InstallationManifest {
     const revision = "b".repeat(40);
     const now = new Date().toISOString();
     return {
-        schemaVersion: 2,
+        schemaVersion: 3,
         profile: "product-bun",
         managerVersion: "0.1.0",
         appVersion: "0.8.0",
@@ -78,7 +78,7 @@ function manifest(): InstallationManifest {
                 revision,
                 path: ".",
                 files: ["package.json"],
-                checksum,
+                archiveSha256: checksum,
                 sourceUrl: "https://example.com/source.zip",
                 license: "AGPL-3.0-only",
                 redistribution: "test",
@@ -89,12 +89,12 @@ function manifest(): InstallationManifest {
                 revision,
                 path: ".output",
                 platform: process.platform === "win32" ? "windows-x64" : "linux-x64-glibc",
-                checksum,
+                archiveSha256: checksum,
                 sourceUrl: "https://example.com/product.zip",
                 license: "AGPL-3.0-only",
                 redistribution: "test",
             },
-            manager: {provider: "managed", version: "0.1.0", path: ".runtime/manager/0.1.0/neuro-book.mjs", checksum},
+            manager: {provider: "managed", version: "0.1.0", path: ".runtime/manager/0.1.0/neuro-book.mjs", bundleSha256: checksum},
             managerRuntime: {provider: "system", version: "1.3.0", executable: "bun"},
             applicationRuntime: {provider: "system", version: "1.3.0", executable: "bun"},
             tools: {},

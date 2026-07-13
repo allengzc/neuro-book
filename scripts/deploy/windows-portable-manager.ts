@@ -4,27 +4,30 @@ import {createReadStream} from "node:fs";
 import {cp, mkdir, readdir, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {basename, dirname, join, relative, resolve} from "node:path";
 import {Command} from "commander";
-import yazl from "yazl";
 
 import {ensureStateFiles} from "nbook/packages/neuro-book-manager/src/config";
 import {writeInstallationManifest} from "nbook/packages/neuro-book-manager/src/manifest-store";
-import {installManagedBun, installManagerExecutable, writeManagerWrapper} from "nbook/packages/neuro-book-manager/src/runtime";
-import {installManagedTool} from "nbook/packages/neuro-book-manager/src/tools";
+import {installManagedBun, installManagerExecutable, writeManagerWrapper, writeRuntimeWrapper} from "nbook/packages/neuro-book-manager/src/runtime";
+import {installManagedTool, writeManagedToolWrappers} from "nbook/packages/neuro-book-manager/src/tools";
 import type {InstallationManifest} from "nbook/packages/neuro-book-manager/src/types";
 import {MANAGER_VERSION} from "nbook/packages/neuro-book-manager/src/version-info";
 import {run, runCapture} from "nbook/scripts/utils/process.mjs";
+import {writeZipArchive} from "nbook/scripts/utils/zip";
 
 const ROOT = resolve(import.meta.dir, "..", "..");
 
 const program = new Command()
     .name("package-windows-portable")
+    .requiredOption("--source-archive <path>", "同版本 Source archive。")
+    .requiredOption("--product-archive <path>", "同版本 Windows Product archive。")
     .option("--output <path>", "输出 zip。", "dist/neuro-book-windows-x64.zip");
 program.parse();
 
-await packagePortable(resolve(ROOT, program.opts<{output: string}>().output));
+const options = program.opts<{output: string; sourceArchive: string; productArchive: string}>();
+await packagePortable(resolve(ROOT, options.output), resolve(ROOT, options.sourceArchive), resolve(ROOT, options.productArchive));
 
 /** 组装以仓库根为底座的 Windows Portable。 */
-async function packagePortable(output: string): Promise<void> {
+async function packagePortable(output: string, sourceArchive: string, productArchive: string): Promise<void> {
     if (process.platform !== "win32" || process.arch !== "x64") {
         throw new Error("Windows Portable 必须在 Windows x64 runner 构建。");
     }
@@ -52,6 +55,8 @@ async function packagePortable(output: string): Promise<void> {
     const git = await installManagedTool(stage, "git");
     const managerExecutable = resolve(ROOT, "packages", "neuro-book-manager", "dist", "neuro-book.mjs");
     const manager = await installManagerExecutable(stage, MANAGER_VERSION, managerExecutable);
+    await writeRuntimeWrapper(stage, runtime);
+    await writeManagedToolWrappers(stage, {rg, git});
     await writeManagerWrapper(stage, manager, runtime);
     await ensureStateFiles(resolve(stage, "data"), 3000, false);
     await writeFile(resolve(stage, "data", "README.txt"), "NeuroBook user state. Keep this directory when updating.\r\n", "utf8");
@@ -59,7 +64,7 @@ async function packagePortable(output: string): Promise<void> {
     await verifyPortableExecutables(stage, runtime.path, rg.path, git.path, git.bashPath);
     const now = new Date().toISOString();
     const manifest: InstallationManifest = {
-        schemaVersion: 2,
+        schemaVersion: 3,
         profile: "windows-portable",
         managerVersion: MANAGER_VERSION,
         appVersion: version,
@@ -73,7 +78,7 @@ async function packagePortable(output: string): Promise<void> {
                 revision: sourceRevision,
                 path: ".",
                 files: sourceFiles,
-                checksum: await sha256Files(stage, sourceFiles),
+                archiveSha256: await sha256(sourceArchive),
                 sourceUrl: `${releaseRoot}/neuro-book-source.zip`,
                 license: "AGPL-3.0-only",
                 redistribution: "Windows Portable 内置同 revision NeuroBook Source snapshot。",
@@ -84,7 +89,7 @@ async function packagePortable(output: string): Promise<void> {
                 revision: sourceRevision,
                 path: ".output",
                 platform: "windows-x64",
-                checksum: await sha256Directory(resolve(stage, ".output")),
+                archiveSha256: await sha256(productArchive),
                 sourceUrl: `${releaseRoot}/neuro-book-product-windows-x64.zip`,
                 license: "AGPL-3.0-only",
                 redistribution: "Windows Portable 内置 Windows x64 Product overlay。",
@@ -154,21 +159,8 @@ async function revision(): Promise<string> {
 }
 
 async function zipDirectory(root: string, output: string): Promise<void> {
-    await mkdir(dirname(output), {recursive: true});
-    const zip = new yazl.ZipFile();
-    for (const file of await directoryFiles(root)) {
-        zip.addFile(resolve(root, file), file.replaceAll("\\", "/"));
-    }
-    zip.end();
-    const writer = Bun.file(output).writer();
-    await new Promise<void>((resolvePromise, rejectPromise) => {
-        zip.outputStream.on("data", (chunk) => writer.write(chunk));
-        zip.outputStream.on("error", rejectPromise);
-        zip.outputStream.on("end", async () => {
-            await writer.end();
-            resolvePromise();
-        });
-    });
+    const files = await directoryFiles(root);
+    await writeZipArchive(output, files.map((file) => ({source: resolve(root, file), archivePath: file})));
 }
 
 async function directoryFiles(root: string): Promise<string[]> {

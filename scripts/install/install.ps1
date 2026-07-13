@@ -48,6 +48,7 @@ if (-not $cachedValid) {
 $env:NEURO_BOOK_STAGE0_BUN_PATH = $bunExe
 $env:NEURO_BOOK_STAGE0_BUN_VERSION = $bunVersion
 $env:NEURO_BOOK_STAGE0_BUN_SOURCE_URL = $assetUrl
+$env:NEURO_BOOK_STAGE0_BUN_ARCHIVE_SHA256 = $archiveSha256
 $env:NEURO_BOOK_STAGE0_BUN_SHA256 = $bunSha256
 & $bunExe x --bun "@notnotype/neuro-book-manager@$ManagerTag" install @ManagerArgs
 exit $LASTEXITCODE

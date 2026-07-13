@@ -1,4 +1,4 @@
-import {copyFile, readdir, rm} from "node:fs/promises";
+import {copyFile, cp, readdir, rm} from "node:fs/promises";
 import {join, resolve} from "node:path";
 
 import {rollbackProduct, rollbackReleaseSource} from "#manager/component";
@@ -6,8 +6,9 @@ import {ensureDirectory, pathExists, readJson, removePath, safeTarget, writeJson
 import {writeInstallationManifest} from "#manager/manifest-store";
 import {installationPaths} from "#manager/paths";
 import {installSourceDependencies} from "#manager/product";
-import {runtimeExecutable, writeManagerWrapper} from "#manager/runtime";
+import {runtimeExecutable, writeManagerWrapper, writeRuntimeWrapper} from "#manager/runtime";
 import {parseOperationJournal} from "#manager/schema";
+import {writeManagedToolWrappers} from "#manager/tools";
 import type {InstallationManifest, OperationJournal, OperationPhase} from "#manager/types";
 
 /** 创建持久化 operation journal。 */
@@ -49,6 +50,10 @@ export async function recoverInterruptedOperations(root: string): Promise<void> 
                 await installSourceDependencies(root, runtimeExecutable(root, runtime));
                 await updateOperation(journal, journal.phase, {sourceDependenciesInstalled: true});
             }
+            if (journal.nextManifest.components.managerRuntime.provider === "managed") {
+                await writeRuntimeWrapper(root, journal.nextManifest.components.managerRuntime);
+            }
+            await writeManagedToolWrappers(root, journal.nextManifest.components.tools);
             await writeManagerWrapper(root, journal.nextManifest.components.manager, journal.nextManifest.components.managerRuntime);
             await writeInstallationManifest(paths.manifest, journal.nextManifest);
             await commitOperation(journal);
@@ -85,9 +90,28 @@ export async function rollbackOperation(journal: OperationJournal): Promise<void
     if (journal.previousCompose && await pathExists(journal.previousCompose)) {
         await copyFile(journal.previousCompose, join(root, ".deploy", "docker-compose.generated.yml"));
     }
+    if (journal.wrappersChanged) {
+        const runtimeBin = join(root, ".runtime", "bin");
+        await removePath(runtimeBin);
+        if (journal.wrapperBackup && await pathExists(journal.wrapperBackup)) {
+            await ensureDirectory(resolve(runtimeBin, ".."));
+            await cp(journal.wrapperBackup, runtimeBin, {recursive: true});
+        }
+    }
     for (const path of [...journal.createdPaths].reverse()) await removePath(safeTarget(root, path));
     if (journal.previousManifest) await writeInstallationManifest(join(root, ".deploy", "installation.json"), journal.previousManifest);
     await updateOperation(journal, "committed", {outcome: "rolled-back"});
+}
+
+/** 在切换稳定 wrapper 前备份现有 `.runtime/bin`。 */
+export async function backupRuntimeWrappers(root: string, backupRoot: string): Promise<string | undefined> {
+    const runtimeBin = join(root, ".runtime", "bin");
+    if (!await pathExists(runtimeBin)) return undefined;
+    const backup = join(backupRoot, "runtime-bin");
+    await removePath(backup);
+    await ensureDirectory(resolve(backup, ".."));
+    await cp(runtimeBin, backup, {recursive: true});
+    return backup;
 }
 
 async function writeOperation(journal: OperationJournal): Promise<void> {

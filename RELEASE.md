@@ -9,7 +9,7 @@
 - 新增独立轻量包 `@notnotype/neuro-book-manager` 和统一 `neuro-book` 命令，覆盖安装、更新、启动、状态、诊断、Bun Runtime、rg/PortableGit/bash 工具与管理员创建。npm 包只包含 Manager bundle，不携带 Nuxt、Vue、Prisma 等应用依赖。
 - Git 仓库根成为统一 Installation Root；Source、`.output`、`.runtime` 和 `.deploy` 按组件分层。Windows Portable 不再使用 `app/` Product Root 或 junction，完整源码与 `.output` 位于根目录，用户状态稳定保存在 `data/`。
 - 新增 `NEURO_BOOK_STATE_ROOT`，统一 Workspace Root、Boot Config、Product `.env`、SQLite 相对路径和日志目录。普通安装默认使用根状态，Windows Portable 使用 `data/`。
-- Installation Manifest 硬切 v2，分开记录 Manager Host Runtime 与 Application Runtime。安装、更新和崩溃恢复共用持久化 Operation Journal；Release Source/Product/Compose 先 staging/validate 再切换，Source Product 在 detached worktree 构建，原生更新会备份 SQLite 并执行 HTTP 版本健康检查。
+- Installation Manifest 硬切 v3，按资产语义分别记录 archive、bundle 与 executable checksum，并分开记录 Manager Host Runtime 与 Application Runtime。Fresh Install、Runtime、Tool、应用更新和崩溃恢复共用持久化 Operation Journal；稳定 wrapper 只在组件校验完成后切换，失败会恢复旧 wrapper 与 manifest。
 - Product build 支持 `NEURO_BOOK_OUTPUT_DIR` staging，源码更新与 Product 切换解耦；Product system profiles 会在 Nitro vendor 完成后以 Product 模式重新编译，确保无根 `node_modules` 时仍能加载。
 - Source Docker 改为 Dockerfile 多阶段容器内安装与构建；GHCR 安装不再 clone 宿主源码，而是使用 Release Manifest 固定镜像 digest。
 - Release 新增 Source、Windows/Linux Product、Windows Portable、统一 `release-manifest.json` 和 `SHA256SUMS`；Manager 使用独立 `manager-v*` tag 与 npm stable/canary 发布流程。
@@ -22,6 +22,7 @@
 - Trusted Publisher前两次实测把问题收敛到包身份元数据：Manager workspace package缺少`repository.url`，npm无法把GitHub OIDC身份绑定到目标包。现补齐精确仓库URL和workspace directory，并按npm官方示例使用checkout/setup-node v6、registry-url和最新npm CLI。
 - npm配置截图确认Trusted Publisher绑定了GitHub Environment `npm`；此前workflow job未声明该Environment，OIDC subject因此无法匹配并返回隐藏授权失败的404。Manager publish job现显式使用`environment: npm`，repository URL也改为npm规范化的`git+https`形式。
 - Manager `0.1.0-canary.9`已通过GitHub Trusted Publisher无token发布，workflow全绿并生成npm provenance；公开npm `canary`已指向该版本，真实`bunx --bun ...@canary --version`与用户配置命令通过。历史`latest → 0.1.0-canary.4`仍需独立dist-tag管理，不影响OIDC发布链结论。
+- Windows Release zip writer改为yazl惰性打开文件并通过Node pipeline处理backpressure与错误；本机已用43,777文件、约367MB的真实Windows Product完成压缩，修复此前Actions长期卡死且Release零资产的问题。Portable清单使用Source/Product归档的真实SHA256，不再用目录hash冒充发布资产checksum。
 - Docker实机验证发现服务器默认鉴权会让Manager版本健康检查收到401；`/api/app/version`现作为只读公共部署探针，不开放日志、配置或业务数据接口，Source Docker与GHCR可在启用鉴权时完成安装和更新健康检查。
 - 本轮已通过完整应用与Manager typecheck、23项Manager测试、npm tarball空目录审计、Windows Portable组装，以及Release/Portable脚本和workflow YAML校验。SSH Arch进一步通过Stage 0 managed Bun 1.3.14的Source Dev安装/启动、Linux Product无根依赖运行、Source Docker容器内install/build/start和既有公开GHCR digest smoke。应用`0.7.4`因鉴权健康探针401在正式资产发布前主动取消且保持零资产；修复后的`0.7.5` Source、Linux Product和GHCR镜像CI已通过，Windows Product、assemble、verify和最终publish仍以Actions结果为准，不能提前视为完整Release。
 

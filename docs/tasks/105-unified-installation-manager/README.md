@@ -419,6 +419,20 @@ uninstall
 - `0.1.0-canary.9`Trusted Publisher实测成功：[workflow 29197120842](https://github.com/notnotype/neuro-book/actions/runs/29197120842)全绿，无`NPM_TOKEN`完成publish并由npm自动生成provenance。registry侧`canary`已指向`0.1.0-canary.9`，package repository/gitHead/integrity与发布提交一致；公开npm真实执行`--version`和`instances config`通过。
 - 实际结论：Trusted Publisher配置必须同时匹配`notnotype / neuro-book / release-manager.yml / environment npm / allow npm publish`，Manager package还必须声明精确repository URL。历史错误`latest → 0.1.0-canary.4`不属于OIDC publish能力，仍按独立dist-tag操作处理。
 
+### 2026-07-13：Installation Manifest v3与Windows发布压缩收口
+
+- Installation Manifest硬切schema v3：Release Source/Product记录`archiveSha256`，Manager记录`bundleSha256`，managed Bun/rg同时记录archive与executable SHA256，PortableGit分别记录archive、Git和Bash SHA256。v2实例明确拒绝，Windows Portable只允许完整复用`data/`后重新安装。
+- Fresh Install、应用update、Runtime和Tool维护统一进入Operation Journal。managed组件先在不可变版本目录完成下载、解压、版本与checksum校验，再备份并切换`.runtime/bin`；失败按磁盘journal恢复旧wrapper、manifest并清理本次新建目录。容器Profile会在下载前拒绝宿主管理应用工具。
+- `doctor --json`改为稳定的`healthy/checks/paths/service/components/operations`结构，check带category、pass/warn/fail与remediation；Manager、Runtime、Tool使用真实文件checksum验证，Source/Product revision和未完成operation会参与最终healthy。TUI消费结构化结果并显示用户可读列表，不再倾倒整块JSON。
+- Windows zip统一使用yazl`addFile`惰性打开文件与Node`pipeline`写入，处理backpressure、close和error，并输出文件计数进度。3500文件回归与真实43,777文件、约367MB Windows Product压缩均正常结束；此前`0.7.5`零资产workflow已取消。
+- Windows Portable装配改为显式消费Actions中的Source/Product archive，并把两个公开归档的真实SHA256写入v3 manifest。Windows Product job依赖Source artifact并设置45分钟超时。
+- 当前验证：Manager typecheck、9个测试文件/25项测试、npm tarball空目录安装审计通过；真实Source archive（2586文件）与Windows Product archive压缩通过。尚未完成公开Manager canary、应用canary A/B、Arch六Profile和Windows Portable A→B终验，因此Task 105继续保持实现中。
+
+### 实际结果与计划差异
+
+- 本轮没有为尚未正式发布的v2增加迁移层，按计划硬切；Release Manifest仍保持schema v2，因为它与Installation Manifest是不同协议，没有为了版本号表面对齐而制造无意义变更。
+- doctor已先收口最关键的本地checksum、revision、wrapper路径和operation健康语义；Docker实际digest/HTTP、Git remote/branch/dirty的完整check仍需在公开A/B资产实机链路中继续补齐和验证，不能提前标记完成。
+
 ## TODO / Follow-ups
 
 - [x] Windows Portable 使用 `data/` State Root，不使用 junction。

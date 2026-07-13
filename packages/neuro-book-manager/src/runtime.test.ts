@@ -28,7 +28,8 @@ describe("portable manager wrapper", () => {
             provider: "managed",
             version: "1.0.0",
             path: bun.slice(root.length + 1).replaceAll("\\", "/"),
-            checksum: "a".repeat(64),
+            archiveSha256: "a".repeat(64),
+            executableSha256: "b".repeat(64),
             sourceUrl: "https://example.com/bun.zip",
             license: "MIT",
             redistribution: "test",
@@ -49,6 +50,7 @@ describe("portable manager wrapper", () => {
         process.env.NEURO_BOOK_STAGE0_BUN_PATH = source;
         process.env.NEURO_BOOK_STAGE0_BUN_VERSION = "1.3.14";
         process.env.NEURO_BOOK_STAGE0_BUN_SOURCE_URL = "https://example.com/bun.zip";
+        process.env.NEURO_BOOK_STAGE0_BUN_ARCHIVE_SHA256 = "a".repeat(64);
         process.env.NEURO_BOOK_STAGE0_BUN_SHA256 = createHash("sha256").update(bytes).digest("hex");
         try {
             const runtime = await resolveManagerRuntime(root);

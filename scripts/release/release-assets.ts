@@ -1,13 +1,13 @@
 #!/usr/bin/env bun
-import {createReadStream, existsSync} from "node:fs";
+import {existsSync} from "node:fs";
 import {mkdir, readFile, readdir, stat, writeFile} from "node:fs/promises";
 import {basename, dirname, relative, resolve} from "node:path";
 import {Command} from "commander";
 import {unzipSync} from "fflate";
-import yazl from "yazl";
 
 import {parseReleaseManifest} from "nbook/packages/neuro-book-manager/src/schema";
 import {run, runCapture} from "nbook/scripts/utils/process.mjs";
+import {writeZipArchive} from "nbook/scripts/utils/zip";
 
 const ROOT = resolve(import.meta.dir, "..", "..");
 
@@ -59,7 +59,7 @@ type ManifestOptions = {
 /** 把 Git tracked 源码打成平台无关 zip。 */
 async function buildSourceArchive(output: string): Promise<void> {
     const files = await trackedFiles();
-    await writeZip(output, files.map((path) => ({source: resolve(ROOT, path), archivePath: path})));
+    await writeZipArchive(output, files.map((path) => ({source: resolve(ROOT, path), archivePath: path})));
     console.log(`Source archive: ${relative(ROOT, output)} (${files.length} files)`);
 }
 
@@ -71,7 +71,7 @@ async function buildProductArchive(platform: string, output: string): Promise<vo
     await mkdir(dirname(output), {recursive: true});
     if (platform === "windows-x64") {
         const files = await directoryFiles(resolve(ROOT, ".output"));
-        await writeZip(output, files.map((path) => ({
+        await writeZipArchive(output, files.map((path) => ({
             source: resolve(ROOT, ".output", path),
             archivePath: `.output/${path}`,
         })));
@@ -209,22 +209,4 @@ async function directoryFiles(root: string): Promise<string[]> {
     };
     await visit(root);
     return result.sort();
-}
-
-async function writeZip(output: string, files: Array<{source: string; archivePath: string}>): Promise<void> {
-    await mkdir(dirname(output), {recursive: true});
-    const zip = new yazl.ZipFile();
-    for (const file of files) {
-        zip.addReadStream(createReadStream(file.source), file.archivePath.replaceAll("\\", "/"));
-    }
-    zip.end();
-    await new Promise<void>((resolvePromise, rejectPromise) => {
-        const target = Bun.file(output).writer();
-        zip.outputStream.on("data", (chunk) => target.write(chunk));
-        zip.outputStream.on("error", rejectPromise);
-        zip.outputStream.on("end", async () => {
-            await target.end();
-            resolvePromise();
-        });
-    });
 }

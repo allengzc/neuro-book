@@ -164,14 +164,14 @@ export async function runManagerTui(managerExecutable: string): Promise<void> {
         const target = selected();
         detail.setContent("正在读取实例状态……");
         screen.render();
-        detail.setContent(formatObject(await installationStatus(target.instance.root, target.manifest)));
+        detail.setContent(formatStatus(await installationStatus(target.instance.root, target.manifest)));
         screen.render();
     }));
     screen.key("d", () => void runAction(async () => {
         const target = selected();
         detail.setContent("正在执行诊断……");
         screen.render();
-        detail.setContent(formatObject(await doctor(target.instance.root, target.manifest)));
+        detail.setContent(formatDoctor(await doctor(target.instance.root, target.manifest)));
         screen.render();
     }));
     screen.key("s", () => void runAction(async () => {
@@ -260,7 +260,29 @@ function formatInstance(view: InstanceView, defaultInstanceId: string | null): s
     ].join("\n");
 }
 
-/** 以稳定缩进输出 status/doctor 结构。 */
-function formatObject(value: object): string {
-    return JSON.stringify(value, null, 4);
+/** 将结构化 status 转成用户可读摘要。 */
+function formatStatus(value: object): string {
+    const status = value as {profile: string; appVersion: string; managerVersion: string; port: number; productReady: boolean; unfinishedOperations: string[]; nextActions: string[]};
+    return [
+        "{bold}实例状态{/bold}", "",
+        `Profile：${status.profile}`,
+        `应用：${status.appVersion}`,
+        `Manager：${status.managerVersion}`,
+        `端口：${status.port}`,
+        `Product：${status.productReady ? "{green-fg}就绪{/green-fg}" : "{red-fg}缺失{/red-fg}"}`,
+        `待恢复操作：${status.unfinishedOperations.length}`,
+        "", "下一步：", ...status.nextActions.map((action) => `- ${action}`),
+    ].join("\n");
+}
+
+/** 将结构化 doctor checks 转成用户可读列表。 */
+function formatDoctor(value: object): string {
+    const result = value as {healthy: boolean; checks: Array<{status: "pass" | "warn" | "fail"; message: string; remediation?: string}>};
+    const lines = [`{bold}诊断结果：${result.healthy ? "{green-fg}健康{/green-fg}" : "{red-fg}需要处理{/red-fg}"}{/bold}`, ""];
+    for (const check of result.checks) {
+        const marker = check.status === "pass" ? "{green-fg}✓{/green-fg}" : check.status === "warn" ? "{yellow-fg}!{/yellow-fg}" : "{red-fg}✗{/red-fg}";
+        lines.push(`${marker} ${check.message}`);
+        if (check.remediation) lines.push(`  建议：${check.remediation}`);
+    }
+    return lines.join("\n");
 }

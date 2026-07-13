@@ -37,7 +37,7 @@
     "sync:nb-history": "bun scripts/cli/sync-nb-history.ts",
     "config:migrate": "bun scripts/db/migrate-config-system.ts",
     "docker:publish": "bun scripts/deploy/publish-ghcr-image.mjs",
-    "package:windows-portable": "bun scripts/deploy/windows-portable-manager.ts",
+    "package:windows-portable": "bun scripts/deploy/windows-portable-manager.ts --source-archive dist/neuro-book-source.zip --product-archive dist/neuro-book-product-windows-x64.zip",
     "release:source": "bun scripts/release/release-assets.ts source --output dist/neuro-book-source.zip",
     "release:product:windows": "bun scripts/release/release-assets.ts product --platform windows-x64 --output dist/neuro-book-product-windows-x64.zip",
     "release:product:linux": "bun scripts/release/release-assets.ts product --platform linux-x64-glibc --output dist/neuro-book-product-linux-x64-glibc.tar.gz",

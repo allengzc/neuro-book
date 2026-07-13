@@ -23,12 +23,12 @@ import {
 } from "#manager/git";
 import {withInstallLock} from "#manager/lock";
 import {resolveReleaseManifest, writeInstallationManifest} from "#manager/manifest-store";
-import {commitOperation, createOperation, recoverInterruptedOperations, rollbackOperation, updateOperation} from "#manager/operation";
+import {backupRuntimeWrappers, commitOperation, createOperation, recoverInterruptedOperations, rollbackOperation, updateOperation} from "#manager/operation";
 import {currentProductPlatform} from "#manager/platform";
 import {installationPaths} from "#manager/paths";
 import {buildSourceProduct, installSourceDependencies} from "#manager/product";
-import {installManagerExecutable, installManagedBun, runtimeExecutable, writeManagerWrapper} from "#manager/runtime";
-import {installManagedTool} from "#manager/tools";
+import {installManagerExecutable, installManagedBun, runtimeExecutable, writeManagerWrapper, writeRuntimeWrapper} from "#manager/runtime";
+import {installManagedTool, writeManagedToolWrappers} from "#manager/tools";
 import type {
     ComponentId,
     InstallationManifest,
@@ -72,6 +72,7 @@ export async function updateInstallation(options: UpdateOptions): Promise<Instal
         let stagedWorktree: string | null = null;
         let gitTarget: GitUpdateTarget | null = null;
         let composeApplied = false;
+        const createdComponents: string[] = [];
         try {
             const nativeProduct = isNativeProduct(options.manifest.profile) && selected.has("product");
             if (nativeProduct) {
@@ -85,7 +86,7 @@ export async function updateInstallation(options: UpdateOptions): Promise<Instal
                     });
                 }
             }
-            const result = await prepareUpdate(options, selected, staging, backup);
+            const result = await prepareUpdate(options, selected, staging, backup, createdComponents);
             stagedWorktree = result.stagedWorktree;
             gitTarget = result.gitTarget;
             journal = await updateOperation(journal, "validated", {
@@ -154,6 +155,12 @@ export async function updateInstallation(options: UpdateOptions): Promise<Instal
                     }
                 }
             }
+            const wrapperBackup = await backupRuntimeWrappers(paths.root, backup);
+            journal = await updateOperation(journal, "healthy", {createdPaths: createdComponents, wrapperBackup, wrappersChanged: true});
+            if (result.manifest.components.managerRuntime.provider === "managed") {
+                await writeRuntimeWrapper(paths.root, result.manifest.components.managerRuntime);
+            }
+            await writeManagedToolWrappers(paths.root, result.manifest.components.tools);
             await writeManagerWrapper(paths.root, result.manifest.components.manager, result.manifest.components.managerRuntime);
             await writeInstallationManifest(paths.manifest, result.manifest);
             await commitOperation(journal);
@@ -161,6 +168,7 @@ export async function updateInstallation(options: UpdateOptions): Promise<Instal
             await removePath(staging);
             return result.manifest;
         } catch (error) {
+            journal = await updateOperation(journal, journal.phase, {createdPaths: createdComponents}).catch(() => journal);
             if (stagedWorktree) await removeStagedWorktree(paths.root, stagedWorktree).catch(() => undefined);
             if (!journal.git?.committed) await rollbackOperation(journal).catch(() => undefined);
             if (composeApplied && (options.manifest.profile === "ghcr" || options.manifest.profile === "source-docker")) {
@@ -181,6 +189,7 @@ async function prepareUpdate(
     selected: Set<ComponentId>,
     staging: string,
     backup: string,
+    createdComponents: string[],
 ): Promise<{
     manifest: InstallationManifest;
     stagedWorktree: string | null;
@@ -284,15 +293,15 @@ async function prepareUpdate(
     let managerRuntime = options.manifest.components.managerRuntime;
     let applicationRuntime = options.manifest.components.applicationRuntime;
     if (selected.has("runtime") && managerRuntime.provider === "managed") {
-        managerRuntime = await installManagedBun(paths.root);
+        managerRuntime = await installManagedBun(paths.root, undefined, createdComponents);
         if (applicationRuntime.provider !== "container") applicationRuntime = managerRuntime;
     }
     let tools: ToolComponents = options.manifest.components.tools;
     if (selected.has("tools")) {
-        if (tools.rg?.provider === "managed") tools = {...tools, rg: await installManagedTool(paths.root, "rg")};
-        if (tools.git?.provider === "managed") tools = {...tools, git: await installManagedTool(paths.root, "git")};
+        if (tools.rg?.provider === "managed") tools = {...tools, rg: await installManagedTool(paths.root, "rg", createdComponents)};
+        if (tools.git?.provider === "managed") tools = {...tools, git: await installManagedTool(paths.root, "git", createdComponents)};
     }
-    const manager = await installManagerExecutable(paths.root, MANAGER_VERSION, options.managerExecutable);
+    const manager = await installManagerExecutable(paths.root, MANAGER_VERSION, options.managerExecutable, createdComponents);
     const next: InstallationManifest = {
         ...options.manifest,
         managerVersion: MANAGER_VERSION,

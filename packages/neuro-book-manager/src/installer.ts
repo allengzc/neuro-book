@@ -18,14 +18,14 @@ import {materializeRepository, repositoryRevision} from "#manager/git";
 import {assertNativeProductStopped, statePort, verifyNativeProduct} from "#manager/health";
 import {withInstallLock} from "#manager/lock";
 import {readInstallationManifest, resolveReleaseManifest, writeInstallationManifest} from "#manager/manifest-store";
-import {commitOperation, createOperation, recoverInterruptedOperations, rollbackOperation, updateOperation} from "#manager/operation";
+import {backupRuntimeWrappers, commitOperation, createOperation, recoverInterruptedOperations, updateOperation} from "#manager/operation";
 import {assertManagerPlatform, currentProductPlatform} from "#manager/platform";
 import {installationPaths} from "#manager/paths";
 import {buildSourceProduct, installSourceDependencies} from "#manager/product";
 import {profileDefinition} from "#manager/profiles";
 import {commandAvailable, runCapture} from "#manager/process";
-import {installManagerExecutable, resolveManagerRuntime, runtimeExecutable, writeManagerWrapper} from "#manager/runtime";
-import {activateManagedTools, installManagedTool} from "#manager/tools";
+import {installManagerExecutable, resolveManagerRuntime, runtimeExecutable, writeManagerWrapper, writeRuntimeWrapper} from "#manager/runtime";
+import {activateManagedTools, installManagedTool, writeManagedToolWrappers} from "#manager/tools";
 import type {
     ApplicationRuntimeComponent,
     InstallProfile,
@@ -96,16 +96,23 @@ export async function install(options: InstallOptions): Promise<InstallationMani
             previousManifest: null,
             nextManifest: null,
         });
+        const createdComponents: string[] = [];
         try {
-            const result = await prepareInstallation(options, journal, staging, backup);
+            const result = await prepareInstallation(options, journal, staging, backup, createdComponents);
             journal = result.journal;
+            const wrapperBackup = await backupRuntimeWrappers(paths.root, backup);
+            journal = await updateOperation(journal, journal.phase, {wrapperBackup, wrappersChanged: true});
+            if (result.manifest.components.managerRuntime.provider === "managed") {
+                await writeRuntimeWrapper(paths.root, result.manifest.components.managerRuntime);
+            }
+            await writeManagedToolWrappers(paths.root, result.manifest.components.tools);
             await writeManagerWrapper(paths.root, result.manifest.components.manager, result.manifest.components.managerRuntime);
             await writeInstallationManifest(paths.manifest, result.manifest);
             await commitOperation(journal);
             await removePath(staging);
             return result.manifest;
         } catch (error) {
-            await rollbackOperation(journal).catch(() => undefined);
+            await recoverInterruptedOperations(paths.root).catch(() => undefined);
             throw error;
         }
     });
@@ -116,13 +123,19 @@ async function prepareInstallation(
     initialJournal: OperationJournal,
     staging: string,
     backup: string,
+    createdComponents: string[],
 ): Promise<{manifest: InstallationManifest; journal: OperationJournal}> {
     const portable = options.profile === "windows-portable";
     const paths = installationPaths(options.root, portable);
     const definition = profileDefinition(options.profile);
-    const managerRuntime = await resolveManagerRuntime(paths.root, portable);
-    const manager = await installManagerExecutable(paths.root, MANAGER_VERSION, options.managerExecutable);
-    const tools = await prepareTools(paths.root, options.profile);
+    const managerRuntime = await resolveManagerRuntime(paths.root, portable, createdComponents);
+    const manager = await installManagerExecutable(paths.root, MANAGER_VERSION, options.managerExecutable, createdComponents);
+    let journal = await updateOperation(initialJournal, "planned", {
+        createdPaths: [...new Set([...initialJournal.createdPaths, ...createdComponents])],
+    });
+    const preparedTools = await prepareTools(paths.root, options.profile, createdComponents, journal);
+    const tools = preparedTools.tools;
+    journal = preparedTools.journal;
     activateManagedTools(paths.root, tools);
     let appVersion = options.version?.replace(/^v/u, "") ?? "0.0.0";
     let sourceRevision = "";
@@ -206,11 +219,13 @@ async function prepareInstallation(
             digest: release.ghcr.digest,
         };
     }
-    let journal = await updateOperation(initialJournal, "staged");
+    journal = await updateOperation(journal, "staged", {
+        createdPaths: [...new Set([...journal.createdPaths, ...createdComponents])],
+    });
     const components: InstallationComponents = {source, product, manager, managerRuntime, applicationRuntime, tools};
     const now = new Date().toISOString();
     const manifest: InstallationManifest = {
-        schemaVersion: 2,
+        schemaVersion: 3,
         profile: options.profile,
         managerVersion: MANAGER_VERSION,
         appVersion,
@@ -270,24 +285,43 @@ async function preflightInstallRoot(root: string, profile: InstallProfile): Prom
     if (unknown.length > 0) throw new Error(`Installation Root 包含未知文件：${unknown.join(", ")}`);
 }
 
-async function prepareTools(root: string, profile: InstallProfile): Promise<ToolComponents> {
+async function prepareTools(
+    root: string,
+    profile: InstallProfile,
+    createdPaths: string[],
+    initialJournal: OperationJournal,
+): Promise<{tools: ToolComponents; journal: OperationJournal}> {
+    let journal = initialJournal;
+    const record = async (): Promise<void> => {
+        journal = await updateOperation(journal, journal.phase, {
+            createdPaths: [...new Set([...journal.createdPaths, ...createdPaths])],
+        });
+    };
     if (profile === "ghcr" || profile === "source-docker") {
         const version = profile;
-        return {
+        return {tools: {
             rg: {provider: "container", version},
             git: {provider: "container", version},
             python: {provider: "container", version},
-        };
+        }, journal};
     }
     if (profile === "windows-portable") {
-        return {rg: await installManagedTool(root, "rg"), git: await installManagedTool(root, "git")};
+        const rg = await installManagedTool(root, "rg", createdPaths);
+        await record();
+        const git = await installManagedTool(root, "git", createdPaths);
+        await record();
+        return {tools: {rg, git}, journal};
     }
     if (profile === "source-dev" || profile === "source-product") {
-        if (await commandAvailable("git")) return {git: await systemTool("git")};
-        if (process.platform === "win32") return {git: await installManagedTool(root, "git")};
+        if (await commandAvailable("git")) return {tools: {git: await systemTool("git")}, journal};
+        if (process.platform === "win32") {
+            const git = await installManagedTool(root, "git", createdPaths);
+            await record();
+            return {tools: {git}, journal};
+        }
         throw new Error("缺少 Git。Linux 请先通过系统包管理器安装 Git。" );
     }
-    return {};
+    return {tools: {}, journal};
 }
 
 async function systemTool(command: string): Promise<SystemToolComponent> {

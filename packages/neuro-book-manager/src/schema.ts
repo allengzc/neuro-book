@@ -38,7 +38,7 @@ const ReleaseSourceSchema = Type.Object({
     revision: RevisionSchema,
     path: Type.Literal("."),
     files: Type.Array(RelativePathSchema),
-    checksum: ChecksumSchema,
+    archiveSha256: ChecksumSchema,
     sourceUrl: Type.String({minLength: 1}),
     license: Type.String({minLength: 1}),
     redistribution: Type.String({minLength: 1}),
@@ -64,7 +64,7 @@ const ReleaseProductSchema = Type.Object({
     revision: RevisionSchema,
     path: Type.Literal(".output"),
     platform: ProductPlatformSchema,
-    checksum: ChecksumSchema,
+    archiveSha256: ChecksumSchema,
     sourceUrl: Type.String({minLength: 1}),
     license: Type.String({minLength: 1}),
     redistribution: Type.String({minLength: 1}),
@@ -82,7 +82,7 @@ const ManagerSchema = Type.Object({
     provider: Type.Literal("managed"),
     version: Type.String({minLength: 1}),
     path: RelativePathSchema,
-    checksum: ChecksumSchema,
+    bundleSha256: ChecksumSchema,
 }, {additionalProperties: false});
 const SystemRuntimeSchema = Type.Object({
     provider: Type.Literal("system"),
@@ -93,7 +93,8 @@ const ManagedRuntimeSchema = Type.Object({
     provider: Type.Literal("managed"),
     version: Type.String({minLength: 1}),
     path: RelativePathSchema,
-    checksum: ChecksumSchema,
+    archiveSha256: ChecksumSchema,
+    executableSha256: ChecksumSchema,
     sourceUrl: Type.String({minLength: 1}),
     license: Type.String({minLength: 1}),
     redistribution: Type.String({minLength: 1}),
@@ -113,7 +114,9 @@ const ManagedGitToolSchema = Type.Object({
     path: RelativePathSchema,
     bashPath: RelativePathSchema,
     distribution: Type.Literal("PortableGit"),
-    checksum: ChecksumSchema,
+    archiveSha256: ChecksumSchema,
+    gitSha256: ChecksumSchema,
+    bashSha256: ChecksumSchema,
     sourceUrl: Type.String({minLength: 1}),
     license: Type.String({minLength: 1}),
     redistribution: Type.String({minLength: 1}),
@@ -126,7 +129,7 @@ const ToolComponentsSchema = Type.Object({
 }, {additionalProperties: false});
 
 export const InstallationManifestSchema = Type.Object({
-    schemaVersion: Type.Literal(2),
+    schemaVersion: Type.Literal(3),
     profile: InstallProfileSchema,
     managerVersion: Type.String({minLength: 1}),
     appVersion: Type.String({minLength: 1}),
@@ -174,6 +177,8 @@ export const OperationJournalSchema = Type.Object({
     databaseBackup: Type.Optional(Type.String({minLength: 1})),
     databasePath: Type.Optional(Type.String({minLength: 1})),
     previousCompose: Type.Optional(Type.String({minLength: 1})),
+    wrapperBackup: Type.Optional(Type.String({minLength: 1})),
+    wrappersChanged: Type.Optional(Type.Boolean()),
     outcome: Type.Optional(Type.Union([Type.Literal("success"), Type.Literal("rolled-back")])),
     createdAt: Type.String({pattern: ISO_DATE_PATTERN}),
     updatedAt: Type.String({pattern: ISO_DATE_PATTERN}),
@@ -215,7 +220,11 @@ export type ReleaseManifestValue = Static<typeof ReleaseManifestSchema>;
 
 /** 严格解析并执行 Profile/组件语义校验。 */
 export function parseInstallationManifest(value: unknown): InstallationManifest {
-    assertSchema(InstallationManifestSchema, value, "installation.json 不符合 NeuroBook Manager schema v2；schema v1 安装必须重新安装。");
+    assertSchema(
+        InstallationManifestSchema,
+        value,
+        "installation.json 不符合 NeuroBook Manager schema v3；旧版安装必须重新安装，Windows Portable 只复用完整 data/。",
+    );
     const manifest = value as InstallationManifest;
     assertSemVer(manifest.managerVersion, "managerVersion");
     assertSemVer(manifest.appVersion, "appVersion");

@@ -44,7 +44,7 @@ export type StateRootPath = "." | "data";
 
 /** 托管下载资产必须保存的审计信息。 */
 export type ManagedAssetMetadata = {
-    checksum: string;
+    archiveSha256: string;
     sourceUrl: string;
     license: string;
     redistribution: string;
@@ -101,7 +101,7 @@ export type ManagerComponent = {
     provider: "managed";
     version: string;
     path: string;
-    checksum: string;
+    bundleSha256: string;
 };
 
 export type SystemRuntimeComponent = {
@@ -114,6 +114,7 @@ export type ManagedRuntimeComponent = {
     provider: "managed";
     version: string;
     path: string;
+    executableSha256: string;
 } & ManagedAssetMetadata;
 
 export type ManagerRuntimeComponent = SystemRuntimeComponent | ManagedRuntimeComponent;
@@ -133,11 +134,14 @@ export type ManagedToolComponent = {
     provider: "managed";
     version: string;
     path: string;
+    executableSha256: string;
 } & ManagedAssetMetadata;
 
-export type ManagedGitToolComponent = ManagedToolComponent & {
+export type ManagedGitToolComponent = Omit<ManagedToolComponent, "executableSha256"> & {
     distribution: "PortableGit";
     bashPath: string;
+    gitSha256: string;
+    bashSha256: string;
 };
 
 export type ContainerToolComponent = {
@@ -162,7 +166,7 @@ export type InstallationComponents = {
 
 /** 本机安装状态真相源。 */
 export type InstallationManifest = {
-    schemaVersion: 2;
+    schemaVersion: 3;
     profile: InstallProfile;
     managerVersion: string;
     appVersion: string;
@@ -247,6 +251,8 @@ export type OperationJournal = {
     databaseBackup?: string;
     databasePath?: string;
     previousCompose?: string;
+    wrapperBackup?: string;
+    wrappersChanged?: boolean;
     outcome?: "success" | "rolled-back";
     createdAt: string;
     updatedAt: string;

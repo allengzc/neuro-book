@@ -33,7 +33,7 @@ describe("Release Source component", () => {
                 revision: "a".repeat(40),
                 path: ".",
                 files: ["old.txt"],
-                checksum: "a".repeat(64),
+                archiveSha256: "a".repeat(64),
                 sourceUrl: "https://example.com/old.zip",
                 license: "AGPL-3.0-only",
                 redistribution: "test",
