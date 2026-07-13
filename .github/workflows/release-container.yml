@@ -250,7 +250,15 @@ jobs:
             throw "Portable doctor执行失败，退出码$doctorExitCode"
           }
           $doctor = ($doctorOutput -join "`n") | ConvertFrom-Json
-          if (-not $doctor.healthy) { throw "Portable doctor 未通过" }
+          if (-not $doctor.healthy) {
+            $doctor.checks |
+              Where-Object { $_.status -eq "fail" } |
+              ForEach-Object {
+                Write-Host ("[FAIL] {0}: {1}" -f $_.id, $_.message)
+                if ($_.remediation) { Write-Host ("       修复建议：{0}" -f $_.remediation) }
+              }
+            throw "Portable doctor 未通过"
+          }
       - name: Verify Windows Stage 0 syntax
         shell: pwsh
         run: |

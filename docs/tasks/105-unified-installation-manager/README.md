@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中。Manager `0.1.0-canary.12`已通过Trusted Publisher公开；应用`v0.7.7-canary.20260713.084528Z.d7818432`正在通过[Release workflow 29236572553](https://github.com/notnotype/neuro-book/actions/runs/29236572553)装配包含Stage 0脚本的新资产。最终publish、公开Portable/Product Bun与GHCR A→B终验尚未完成，因此Task 105不归档。
+> 当前状态：实现中。Manager `0.1.0-canary.12`已通过Trusted Publisher公开；应用`v0.7.7-canary.20260713.084528Z.d7818432`的[Release workflow 29236572553](https://github.com/notnotype/neuro-book/actions/runs/29236572553)因Portable空`data/logs/`目录未进入ZIP而停止在Windows verify，保持零公开资产。目录归档合同与本地解压doctor已修复，等待下一patch canary重新验证完整publish、公开Portable/Product Bun与GHCR A→B终验，因此Task 105不归档。
 
 ## Relative documents refs
 
@@ -478,7 +478,19 @@ uninstall
 - 首次尝试发布Manager `.12`时，Windows高负载让包含两个真实Git fixture的Discovery集成测试偶发超过Vitest默认5秒，超时中断又导致临时仓库清理EBUSY。隔离复跑2.46秒通过，确认不是Discovery回归；该复杂I/O用例现与其他集成测试一样声明20秒门限，发布脚本未留下commit或tag后再安全重试。
 - Manager `0.1.0-canary.12`重试后workflow全绿，npm `canary`已更新且真实`bunx --bun ...@canary --version`返回`.12`。随后创建应用`0.7.7` patch canary并按发布规则使用`--no-watch`返回；新Release workflow在后台运行，不提前把候选资产视为公开完成。
 
-### 实际结果与计划差异
+### 2026-07-13：Portable空目录归档与Windows verify修复
+
+- Release run `29236572553`除Windows verify外的Source、Windows/Linux Product、Portable、GHCR和assemble均成功。Windows四个托管程序与Manager命令退出码正常，唯一失败check是`state.logs`：构建stage中的`data/logs/`为空，原ZIP writer只登记普通文件，解压后该目录消失。
+- 统一ZIP接口改为严格file/directory联合类型，文件使用`addFile`，目录使用`addEmptyDirectory`；Portable显式归档`data/logs/`，没有用`.gitkeep`污染用户状态，也没有放宽doctor或让只读诊断隐式修复目录。
+- Windows verify在`doctor.healthy=false`时会输出全部fail check的id、message和remediation，避免以后只得到笼统的“Portable doctor未通过”。根Vitest配置同时纳入既有Release测试，防止发布门禁测试长期不执行。
+- 本机使用现有Source/Product资产重新组装57,738条目的Portable并完整解压。从实例目录外运行wrapper后，Bun 1.3.14、rg 15.1.0、Git 2.55.0、Bash 5.3.15均可执行，`data/logs/`存在，Manager `0.1.0-canary.12`报告`doctor.healthy=true`且0个fail check。
+
+### Portable空目录阶段的实际结果与计划差异
+
+- 原计划只要求新增ZIP空目录回归；实施时发现既有`scripts/release/release-checksums.test.ts`不在根Vitest include内，常规测试不会执行。现只补入既有Release测试目录，没有扩大到新的发布协议或doctor长期能力。
+- Manager bundle、Manifest schema和npm接口均未变化，因此不发布新Manager canary；下一应用patch继续复用公开的`.12`。
+
+### 部署入口阶段的实际结果与计划差异
 
 - 没有把Stage 0脚本加入Release Manifest。它们是用户引导资产，不是Manager需要解析或更新的应用组件；只进入GitHub Release与`SHA256SUMS`可以保持协议边界清晰。
 - 没有修改Manager的当前目录发现规则来迎合CI。跨目录调用本来就应使用公开`--root`接口，修复验证命令比让wrapper隐式改变cwd更符合多实例合同。

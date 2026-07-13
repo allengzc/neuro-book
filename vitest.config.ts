@@ -28,6 +28,7 @@ export default defineConfig({
             "app/stores/**/*.test.ts",
             "app/utils/**/*.test.ts",
             "scripts/build/**/*.test.ts",
+            "scripts/release/**/*.test.ts",
             "server/**/*.test.ts",
             "shared/**/*.test.ts",
         ],

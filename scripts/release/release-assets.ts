@@ -66,7 +66,7 @@ type ManifestOptions = {
 /** 把 Git tracked 源码打成平台无关 zip。 */
 async function buildSourceArchive(output: string): Promise<void> {
     const files = await trackedFiles();
-    await writeZipArchive(output, files.map((path) => ({source: resolve(ROOT, path), archivePath: path})));
+    await writeZipArchive(output, files.map((path) => ({kind: "file", source: resolve(ROOT, path), archivePath: path})));
     console.log(`Source archive: ${relative(ROOT, output)} (${files.length} files)`);
 }
 
@@ -79,6 +79,7 @@ async function buildProductArchive(platform: string, output: string): Promise<vo
     if (platform === "windows-x64") {
         const files = await directoryFiles(resolve(ROOT, ".output"));
         await writeZipArchive(output, files.map((path) => ({
+            kind: "file",
             source: resolve(ROOT, ".output", path),
             archivePath: `.output/${path}`,
         })));
@@ -184,6 +185,7 @@ async function verifyReleaseAssets(directory: string, tagInput: string, revision
         ".deploy/installation.json",
         ".runtime/bin/neuro-book.cmd",
         "data/config.yaml",
+        "data/logs/",
         "Start Neuro Book.cmd",
         "Create Admin.cmd",
     ], "Windows Portable");

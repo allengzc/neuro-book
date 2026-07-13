@@ -147,7 +147,10 @@ async function revision(): Promise<string> {
 
 async function zipDirectory(root: string, output: string): Promise<void> {
     const files = await directoryFiles(root);
-    await writeZipArchive(output, files.map((file) => ({source: resolve(root, file), archivePath: file})));
+    await writeZipArchive(output, [
+        ...files.map((file) => ({kind: "file" as const, source: resolve(root, file), archivePath: file})),
+        {kind: "directory", archivePath: "data/logs/"},
+    ]);
 }
 
 async function directoryFiles(root: string): Promise<string[]> {
